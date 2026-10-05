@@ -10,8 +10,7 @@
 
 namespace SplitScreen8 {
 
-// 0 while a race uses the game's own screen count, else 6 or 8.
-static u8 raceScreenCount;
+u8 raceScreenCount;
 // Player id per hud slot kGameLocal..kMaxLocal-1; lower slots stay in RacedataSettings::hudPlayerIds.
 static s8 hudPlayerIdsExt[kMaxLocal];
 
