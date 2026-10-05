@@ -868,6 +868,7 @@ __vt__5Timer = 0x808b2d44
 ##RACEDATA
 #Racedata
 InitRace__8RacedataFv = 0x805302c4
+ResetScenarios__8RacedataFv = 0x8052e454
 GetHudSlotId__8RacedataCFUc = 0x80531f18
 GetPlayerIdOfLocalPlayer__8RacedataFUc = 0x80531f70
 SetGhost__8RacedataFRC3RKG = 0x80531f2c

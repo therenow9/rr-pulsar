@@ -6,6 +6,7 @@
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/System/NdevArgsExtractor.hpp>
 #include <Settings/Settings.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 static u16 controllerOnStrap = 0x0;
@@ -55,6 +56,9 @@ SectionId BootIntoSection(const NdevArgsExtractor &extractor) {
     snprintf(bootParams, 17, "-s132 -l%d -p%d", license, controllerOnStrap);
     SystemManager::sInstance->ndevArg = bootParams;
     extractor.ExtractAllArgs();
+#ifdef SS8_DEBUG_BOOT
+    section = SplitScreen8::DebugBootPrepare(section);
+#endif
     return section;
 }
 kmCall(0x80634f20, BootIntoSection);

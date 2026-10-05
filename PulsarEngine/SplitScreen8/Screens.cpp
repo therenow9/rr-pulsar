@@ -14,14 +14,21 @@ static u8 raceScreenCount;
 // Player id per hud slot kGameLocal..kMaxLocal-1; lower slots stay in RacedataSettings::hudPlayerIds.
 static s8 hudPlayerIdsExt[kMaxLocal];
 
-// Only the debug build widens: InitScreens' local-player branch still overflows past 4 locals.
+// Only the debug build widens: InitScreens' local-player branch still overflows past 4 locals. The
+// debug boot races 1 local player, so it widens from 1; menu-driven debug builds keep 1P vanilla.
+#ifdef SS8_DEBUG_BOOT
+#define SS8_DEBUG_MIN_LOCALS 1
+#else
+#define SS8_DEBUG_MIN_LOCALS 2
+#endif
+
 static u32 WideScreenCount(const RacedataScenario &scenario) {
 #ifdef SS8_DEBUG_SCREENS
     if (scenario.settings.gamemode != MODE_VS_RACE) return 0;
     u32 locals = 0;
     for (int i = 0; i < 12; ++i)
         if (scenario.players[i].playerType == PLAYER_REAL_LOCAL) ++locals;
-    return locals >= 2 ? SS8_DEBUG_SCREENS : 0;
+    return locals >= SS8_DEBUG_MIN_LOCALS ? SS8_DEBUG_SCREENS : 0;
 #else
     return 0;
 #endif
@@ -34,7 +41,7 @@ static u32 WideScreenCount(const RacedataScenario &scenario) {
 asmFunc DebugWideScreenCount() {
     ASM(
         nofralloc;
-        cmplwi r10, 2;
+        cmplwi r10, SS8_DEBUG_MIN_LOCALS;
         blt end;
         lwz r0, 0xb50(r3);
         cmpwi r0, 1;
