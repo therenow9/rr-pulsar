@@ -1,18 +1,9 @@
 #include <kamek.hpp>
+#include <runtimeWrite.hpp>
 
-// SplitScreen8 M1: let local multiplayer players pick the same driver.
-//
-// Vanilla loads every non-Mii driver button as "player exclusive", so once one
-// player hovers a driver the others can't reach it. Mii buttons are the exception:
-// they use the CharacterSelect%d_%d_Mii controls (common_w117_mii_suit layout),
-// which carry one OK marker per player (ok_null_1p..4p). We load every multiplayer
-// button through that same path, pointed at CharacterSelect%d_%d_Multi controls
-// (generated from the vanilla ones by tools/assets/gen_charselect_multi.py), and
-// clear the exclusive flag. Port of mkw-sp PR #452, PAL addresses.
-//
-// Preview models are handled separately: Retro Rewind's MiiOutfitC already
-// rewrites the CharacterModelManager slot layout, so mkw-sp's model patch can't be
-// applied on top of it (see docs/m1-same-character.md).
+// Same-character select for 2+ local players: every multiplayer driver button loads like a Mii
+// button (per-player OK markers, not player-exclusive) from the generated _Multi controls.
+// Port of mkw-sp PR #452; docs/m1-same-character.md has the design and the preview-model problem.
 
 namespace SplitScreen8 {
 
@@ -35,8 +26,19 @@ asmFunc LoadMultiButtonCtrName() {
 }
 kmCall(0x807e29c0, LoadMultiButtonCtrName);
 
-// LoadButton+0xD4: r8 is PushButton::Load's "player exclusive" argument.
-kmWrite32(0x807e29fc, 0x39000000);  // li r8, 0
+// LoadButton+0xD4 replaces "srwi r8, r0, 5": r8 is PushButton::Load's "player exclusive"
+// argument (r0 = cntlzw isMii). This is past the 1P/MP join, so 1P (r29 == 1) keeps it.
+asmFunc ClearExclusiveIfMulti() {
+    ASM(
+        nofralloc;
+        srwi r8, r0, 5;
+        cmpwi r29, 1;
+        beqlr;
+        li r8, 0;
+        blr;
+    )
+}
+kmCall(0x807e29fc, ClearExclusiveIfMulti);
 
 // LoadButton+0x110: the byte at button+0x254 normally means "this is the Mii
 // button". The rest of the control code uses it to pick the per-player OK panes,
@@ -70,15 +72,16 @@ asmFunc SkipOkMessageOnMultiButton() {
 }
 kmCall(0x807e36a4, SkipOkMessageOnMultiButton);
 
-// AwardsMgr::LoadPlayers+0x258: the awards scene attaches a Mii head pointer to
-// every player slot. With duplicate drivers that pointer leaks onto normal
-// characters, so only attach it for Mii character ids (0x18..0x2C).
+// AwardsMgr::LoadPlayers+0x258 replaces "addi r7, r10, 0x1c" (the Mii head pointer),
+// which leaks onto normal characters with duplicate drivers; keep it for Mii ids
+// 0x18..0x2C only. r0 holds the slot-search count (mtctr r0 at 0x80789584): leave it.
 asmFunc AwardsMiiHeadOnlyForMiis() {
     ASM(
         nofralloc;
-        subi r0, r15, 0x18;
         li r7, 0;
-        cmplwi r0, 0x14;
+        cmplwi r15, 0x18;
+        bltlr;
+        cmplwi r15, 0x2c;
         bgtlr;
         addi r7, r10, 0x1c;
         blr;
