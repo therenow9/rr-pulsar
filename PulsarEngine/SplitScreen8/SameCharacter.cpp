@@ -1,5 +1,4 @@
 #include <kamek.hpp>
-#include <runtimeWrite.hpp>
 
 // Same-character select for 2+ local players: every multiplayer driver button loads like a Mii
 // button (per-player OK markers, not player-exclusive) from the generated _Multi controls.
@@ -21,8 +20,7 @@ asmFunc LoadMultiButtonCtrName() {
         nofralloc;
         lis r5, multiButtonCtrName @ha;
         addi r5, r5, multiButtonCtrName @l;
-        blr;
-    )
+        blr;)
 }
 kmCall(0x807e29c0, LoadMultiButtonCtrName);
 
@@ -35,8 +33,7 @@ asmFunc ClearExclusiveIfMulti() {
         cmpwi r29, 1;
         beqlr;
         li r8, 0;
-        blr;
-    )
+        blr;)
 }
 kmCall(0x807e29fc, ClearExclusiveIfMulti);
 
@@ -50,27 +47,9 @@ asmFunc StoreIsMultiButton() {
         subic r0, r5, 1;
         subfe r0, r0, r5;
         stb r0, 0x254(r4);
-        blr;
-    )
+        blr;)
 }
 kmCall(0x807e2a38, StoreIsMultiButton);
-
-// CtrlMenuCharacterSelect::OnButtonClick+0xA8 writes the single-player "OK" text
-// into the button. Multi buttons keep their per-player OK text, so skip it there.
-kmRuntimeUse(0x8063ddb4);  // LayoutUIControl::SetMessage
-asmFunc SkipOkMessageOnMultiButton() {
-    ASM(
-        nofralloc;
-        lbz r0, 0x254(r3);
-        cmpwi r0, 0;
-        bnelr;
-        lis r12, __kAutoMap_0x8063ddb4 @h;
-        ori r12, r12, __kAutoMap_0x8063ddb4 @l;
-        mtctr r12;
-        bctr;
-    )
-}
-kmCall(0x807e36a4, SkipOkMessageOnMultiButton);
 
 // AwardsMgr::LoadPlayers+0x258 replaces "addi r7, r10, 0x1c" (the Mii head pointer),
 // which leaks onto normal characters with duplicate drivers; keep it for Mii ids
@@ -84,8 +63,7 @@ asmFunc AwardsMiiHeadOnlyForMiis() {
         cmplwi r15, 0x2c;
         bgtlr;
         addi r7, r10, 0x1c;
-        blr;
-    )
+        blr;)
 }
 kmCall(0x80789598, AwardsMiiHeadOnlyForMiis);
 
