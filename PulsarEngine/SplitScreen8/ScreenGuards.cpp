@@ -44,4 +44,34 @@ asmFunc ClipByteForGameScreens() {
 }
 kmCall(0x8055d5a8, ClipByteForGameScreens);
 
+// Effects::Mgr keeps one Sub9d8 (per-player culling for a screen) per racesScenario.screenCount,
+// which stays 4, next to inline per-screen blocks that end where the Sub9d8 pointers begin, so the
+// count cannot widen. Screens 4+ read this stand-in: every player near (0) and on screen (1).
+struct Sub9d8Visible {
+    const u8 *distance;  // 0x0
+    void *unknown_0x4;
+    void *unknown_0x8;
+    const s32 *onScreen;  // 0xC
+};
+static const u8 visibleDistance[12] = {};
+static const s32 visibleOnScreen[12] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+static const Sub9d8Visible sub9d8Visible = {visibleDistance, nullptr, nullptr, visibleOnScreen};
+
+// Effects::Mgr::Draw+0x6B8 replaces "lwzx r5, r18, r3" (r3 = the Sub9d8 array, r18 = screen * 4),
+// the per-player loop's only read of it. r3 is rewritten next; the prologue saved LR. 16 is
+// kGameLocal * 4.
+asmFunc Sub9d8ForGameScreens() {
+    ASM(
+        nofralloc;
+        cmplwi r18, 16;
+        bge wide;
+        lwzx r5, r18, r3;
+        blr;
+        wide :;
+        lis r5, sub9d8Visible @ha;
+        addi r5, r5, sub9d8Visible @l;
+        blr;)
+}
+kmCall(0x8067d62c, Sub9d8ForGameScreens);
+
 }  // namespace SplitScreen8

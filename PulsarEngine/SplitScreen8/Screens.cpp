@@ -1,4 +1,5 @@
 #include <kamek.hpp>
+#include <core/rvl/OS/OS.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/3D/Scn/GameScreen.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -14,8 +15,9 @@ static u8 raceScreenCount;
 // Player id per hud slot kGameLocal..kMaxLocal-1; lower slots stay in RacedataSettings::hudPlayerIds.
 static s8 hudPlayerIdsExt[kMaxLocal];
 
-// Only the debug build widens: InitScreens' local-player branch still overflows past 4 locals. The
-// debug boot races 1 local player, so it widens from 1; menu-driven debug builds keep 1P vanilla.
+// Only the debug build widens: InitScreens' local-player branch still overflows past 4 locals. A
+// debug boot can race 1 local player (--boot-locals 1), so it widens from 1; menu-driven debug
+// builds keep 1P vanilla.
 #ifdef SS8_DEBUG_BOOT
 #define SS8_DEBUG_MIN_LOCALS 1
 #else
@@ -56,10 +58,12 @@ kmPatchExitPoint(DebugWideScreenCount, 0x8052f8a4);
 #endif
 
 // RacedataScenario::Init+0x274 calls InitScreens, its only caller; Init runs on the menu scenario
-// that InitRace then copies to the race scenario. Spare hud slots past the game's 4 are filled in
+// that InitRace then copies to the race scenario. screenCount is the final one, after Init's own
+// overrides (a CPU-only demo race is 1), and the game's per-screen storage is sized by it, so only
+// a race that keeps the game's full 4 widens. Spare hud slots past the game's 4 are filled in
 // player order, as InitScreens' own spare-screen loop would, into the side table.
 static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
-    const u32 wide = WideScreenCount(scenario);
+    const u32 wide = screenCount == kGameLocal ? WideScreenCount(scenario) : 0;
     raceScreenCount = wide;
     for (int i = 0; i < kMaxLocal; ++i) hudPlayerIdsExt[i] = -1;
     scenario.InitScreens(screenCount);
@@ -74,13 +78,93 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
 }
 kmCall(0x8052fe04, InitScreensWide);
 
+// Kart::BRRESHandle::__ct+0xDC replaces "cmpwi r30, 0" (r30 = vanilla 3P), reached for a hud slot
+// >= 0; its bne skips "stb 0x12". +0x12 asks for the second kart archive, which RaceScene::OnEnter
+// loads only for local players, and the 3P path sets nothing at all for a hud slot other than 3, so
+// a CPU on a spare tile takes vanilla 3P's spare-tile flag +0x11 and the bne. +0x14 is the ctor's
+// "is local" byte. r5 is dead here; the epilogue restores LR.
+asmFunc SpareTileKartModel() {
+    ASM(
+        nofralloc;
+        lis r5, raceScreenCount @ha;
+        lbz r5, raceScreenCount @l(r5);
+        cmpwi r5, 0;
+        beq game;
+        lbz r5, 0x14(r31);
+        cmpwi r5, 0;
+        bne game;
+        li r5, 1;
+        stb r5, 0x11(r31);
+        cmpwi r5, 0;
+        blr;
+        game :;
+        cmpwi r30, 0;
+        blr;)
+}
+kmCall(0x80576c18, SpareTileKartModel);
+
+// DriverMgr::IsPlayerComputer+0x100 replaces "extsb. r0, r3" (r3 = hud slot), reached for CPU, online
+// and empty player types (the 0x19 mask at +0xEC); the bge after it answers 1 ("watched": the driver's model/model_lod pair) for a hud
+// slot >= 0. The 4-screen kart archives a CPU loads hold model_cpu instead, and vanilla 3P answers 0
+// for its spare-tile CPU, so a widened race reads the slot as -1. r4 is dead; the epilogue restores LR.
+asmFunc SpareTileDriverModel() {
+    ASM(
+        nofralloc;
+        lis r4, raceScreenCount @ha;
+        lbz r4, raceScreenCount @l(r4);
+        cmpwi r4, 0;
+        beq game;
+        li r0, -1;
+        cmpwi r0, 0;
+        blr;
+        game :;
+        extsb.r0, r3;
+        blr;)
+}
+kmCall(0x807bd6bc, SpareTileDriverModel);
+
 // RaceScene::GetScreenCount, reached only through the RaceScene vtable (0x808b426c); its result
 // becomes the static screen count ScnMgr::InitScn stores at 0x808b4bf0.
 static u32 GetRaceScreenCount() {
+#ifdef SS8_DEBUG_SCREENS
+    const RacedataScenario &race = Racedata::sInstance->racesScenario;
+    OS::Report("ss8 screens: wide %u, race players %u screens %u locals %u mode %u\n", raceScreenCount, race.playerCount,
+               race.screenCount, race.localPlayerCount, race.settings.gamemode);
+#endif
     if (raceScreenCount != 0) return raceScreenCount;
     return Racedata::sInstance->racesScenario.screenCount;
 }
 kmBranch(0x80554f68, GetRaceScreenCount);
+
+// RouteHolder::Init copies each camera route once per screen of racesScenario.screenCount (+0x25)
+// and sizes its table by that count, while AutoCameraMoverRace looks a copy up by the camera's
+// screen: a widened race takes its own count at both reads (+0xC0 sets the table size, +0x14/+0xE;
+// +0xDC the copies per screen, +0x17). r12 is reloaded before every call in Init; the prologue saved LR.
+asmFunc RouteCopiesForSize() {
+    ASM(
+        nofralloc;
+        lbz r3, 0x25(r3);
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beqlr;
+        mr r3, r12;
+        blr;)
+}
+kmCall(0x806f0b98, RouteCopiesForSize);
+
+asmFunc RouteCopiesPerScreen() {
+    ASM(
+        nofralloc;
+        lbz r0, 0x25(r3);
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beqlr;
+        mr r0, r12;
+        blr;)
+}
+kmCall(0x806f0bb4, RouteCopiesPerScreen);
 
 // Racedata::GetPlayerIdOfLocalPlayer. Retro Rewind's KO spectating fix owns the function's blr
 // (KOMisc.cpp, 0x80531f7c), so leave through it with the id in r3.
