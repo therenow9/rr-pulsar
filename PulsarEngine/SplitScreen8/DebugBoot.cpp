@@ -12,10 +12,31 @@
 #include <SplitScreen8/SplitScreen8.hpp>
 
 // Debug build only: boots past the menus into a VS race with SS8_BOOT_LOCALS local players on GC
-// ports 1..N and CPUs after them, so load crashes and render checks need no input.
-// docs/plans/m2-automation.md has the design.
+// ports 1..4, then Wii Remote channels 1..4 (D24), and CPUs after them, so load crashes and render
+// checks need no input. docs/plans/m2-automation.md has the design.
 
 namespace SplitScreen8 {
+
+const int kBootGCLocals = SS8_BOOT_LOCALS < kGameLocal ? SS8_BOOT_LOCALS : kGameLocal;
+
+#if SS8_BOOT_LOCALS > 4
+// Players 5..N hold Wii channels 0..N-5, bound as TrySetController binds a pad (0x80523FCC):
+// current and previous controller, the +0xC copy InitControllers restores each race, and params.
+typedef void (*FillParamsFn)(Input::ControllerParams *, const Input::Controller *);
+static const FillParamsFn fillParams = reinterpret_cast<FillParamsFn>(0x80522364);
+
+static void BindBootWiiHolders() {
+    Input::Manager *input = Input::Manager::sInstance;
+    if (input == nullptr) return;
+    for (u32 id = kGameLocal; id < SS8_BOOT_LOCALS; ++id) {
+        Input::RealControllerHolder &holder = Holder(*input, id);
+        Input::Controller *controller = &input->wiiControllers[id - kGameLocal];
+        if (holder.curController != controller) holder.SetController(controller, nullptr);
+        holder.controller3 = holder.curController;
+        fillParams(&holder.params, holder.curController);
+    }
+}
+#endif
 
 // Runs inside SectionMgr::Init, after Racedata, RKSYS, CupsConfig and SectionParams exist. The menu
 // scenario is filled as Title::PrepareDemo fills its no-menu race; InitRace copies it into the race.
@@ -48,9 +69,12 @@ SectionId DebugBootPrepare(SectionId section) {
         player.characterId = character;
         player.kartId = static_cast<KartId>(GetCharacterWeightClass(character));
     }
-    // Player 0 keeps the pad RR's BootIntoSection registered; the others take GC ports 2..N, as
-    // GCN controller IDs (port + 1) << 8 | 0x24.
-    for (int i = 1; i < SS8_BOOT_LOCALS; ++i) sectionMgr->pad.padInfos[i].controllerID = (i + 1) << 8 | 0x24;
+    // Player 0 keeps the pad RR's BootIntoSection registered; players 1-3 take GC ports 2..4, as
+    // GCN controller IDs (port + 1) << 8 | 0x24. SectionPad has no pad for players 5-8 (M4).
+    for (int i = 1; i < kBootGCLocals; ++i) sectionMgr->pad.padInfos[i].controllerID = (i + 1) << 8 | 0x24;
+#if SS8_BOOT_LOCALS > 4
+    BindBootWiiHolders();
+#endif
 
     // The track goes through CupsConfig: RR's FormatTrackPath loads GetWinning(), not courseId.
     cups->SetWinning(track, 0);
@@ -69,7 +93,8 @@ SectionId DebugBootPrepare(SectionId section) {
     // skins a multi-local race would. RAM only; RR saves settings from its settings page.
     if (Pulsar::Settings::Mgr::IsCreated())
         Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_DISPLAYCUSTOMSKINS, Pulsar::DISPLAYCUSTOMSKINS_DISABLED);
-    return static_cast<SectionId>(SECTION_P1VS + SS8_BOOT_LOCALS - 1);
+    // 5-8 locals race in the 4P section: its HUD serves players 1-4 (M3).
+    return static_cast<SectionId>(SECTION_P1VS + kBootGCLocals - 1);
 }
 
 // The title's "press A" binds pad 0 to a holder and the menus bind the others; the boot skips
@@ -104,7 +129,10 @@ static u32 raceFrames;
 
 static void BindBootPads() {
     SectionPad &pad = SectionMgr::sInstance->pad;
-    for (int i = 0; i < SS8_BOOT_LOCALS; ++i) BindBootPad(pad, i);
+    for (int i = 0; i < kBootGCLocals; ++i) BindBootPad(pad, i);
+#if SS8_BOOT_LOCALS > 4
+    BindBootWiiHolders();
+#endif
     ++bootRaces;
     raceFrames = 0;
 }
@@ -146,6 +174,35 @@ static u32 CopyPADStatusScripted(Input::Manager *input, u32 channel, PAD::Status
     return result;
 }
 kmCall(0x80520220, CopyPADStatusScripted);
+
+#if SS8_BOOT_LOCALS > 4
+// Players 5 and 7 (Wii channels 0 and 2) hold accelerate and players 6 and 8 sit idle, so a frame
+// shows which holders reach their karts. Added after the controller's own read, so the channel's
+// KPAD path still runs.
+static void ScriptedWiiButtons(const u8 *controller, Input::State *state) {
+    const u32 channel = *reinterpret_cast<const u32 *>(controller + 0x8d4);
+    if (channel < SS8_BOOT_LOCALS - kGameLocal && channel % 2 == 0) state->buttonActions |= 1;
+}
+
+// WiiController::UpdateImpl+0x31C replaces "addi r11, r1, 0x70" before _rest_gpr_24, where every path
+// ends (r26 = the controller, +0x8D4 its channel; r27 = the State it fills); the prologue saved LR.
+asmFunc ScriptedWiiButtonsStub() {
+    ASM(
+        nofralloc;
+        stwu r1, -0x10(r1);
+        mflr r0;
+        stw r0, 0x14(r1);
+        mr r3, r26;
+        mr r4, r27;
+        bl ScriptedWiiButtons;
+        lwz r0, 0x14(r1);
+        mtlr r0;
+        addi r1, r1, 0x10;
+        addi r11, r1, 0x70;
+        blr;)
+}
+kmCall(0x8051ffa0, ScriptedWiiButtonsStub);
+#endif
 
 }  // namespace SplitScreen8
 #endif
