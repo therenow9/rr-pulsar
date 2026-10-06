@@ -34,7 +34,7 @@ SectionId DebugBootPrepare(SectionId section) {
     settings.gametype = GAMETYPE_DEFAULT;
     settings.engineClass = CC_150;
     settings.cpuMode = CPU_NORMAL;
-    settings.itemMode = ITEMS_NONE;
+    settings.itemMode = SS8_BOOT_ITEMS ? ITEMS_BALANCED : ITEMS_NONE;
     settings.lapCount = 3;
     settings.raceNumber = 0;
     settings.modeFlags &= ~3;  // mirror, teams
