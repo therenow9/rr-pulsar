@@ -23,5 +23,17 @@ static void RegisterKartWithAI(u8 *ai, void *kartAI) {
 }
 kmCall(0x807392bc, RegisterKartWithAI);  // AI::Manager::AddKartAIController+0x90
 
+// A results row plays animation <hud> of group 4: 0-3 are P1-4's colours, 4 the non-player look
+// (0x807F63F4), 5-6 the team colours, and nothing indexes past 6. Locals at hud 4+ take the
+// non-player look until M3 gives P5-8 colours. RR's 0x807F63A4 wraps the PlayAnimationAtFrame after it.
+typedef u8 (*GetHudSlotIdFn)(const void *racedata, u8 playerId);
+static const GetHudSlotIdFn getHudSlotId = reinterpret_cast<GetHudSlotIdFn>(0x80531f18);
+
+static u8 ResultRowHud(const void *racedata, u8 playerId) {
+    const u8 hud = getHudSlotId(racedata, playerId);
+    return raceLocalCount > kGameLocal && hud >= kGameLocal && hud != 0xff ? kGameLocal : hud;
+}
+kmCall(0x807f6388, ResultRowHud);  // CtrlRaceResult::Fill+0x39C, a local's row
+
 }  // namespace SplitScreen8
 #endif

@@ -4,7 +4,9 @@
 #include <core/rvl/OS/OS.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
+#include <MarioKartWii/Kart/KartManager.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
+#include <MarioKartWii/Race/RaceInfo/RaceInfo.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/UI/Section/SectionParams.hpp>
 #include <Settings/Settings.hpp>
@@ -127,6 +129,29 @@ static void BindBootPad(SectionPad &pad, u32 slot) {
 static u32 bootRaces;
 static u32 raceFrames;
 
+#if SS8_BOOT_AUTODRIVE
+// Every local is driven as a finished player is: its kart reads its AI holder (RaceinfoPlayer::EndRace,
+// 0x80534904), is flagged CPU-controlled, and its AI switches to post-race driving (0x8058F0E8 and
+// 0x8058F1D0, from EndRace). All of them finish, and the results and next-race paths run with no one at
+// the pads. Run a second into the race: AI::Player::Init clears the AI's flag at the race's start.
+typedef void (*StartPostRaceAIFn)(void *kartAIController);
+static const StartPostRaceAIFn startPostRaceAI = reinterpret_cast<StartPostRaceAIFn>(0x807263a8);
+
+static void AutodriveLocals() {
+    Input::Manager *input = Input::Manager::sInstance;
+    Raceinfo *raceinfo = Raceinfo::sInstance;
+    Kart::Manager *karts = Kart::Manager::sInstance;
+    if (input == nullptr || raceinfo == nullptr || raceinfo->players == nullptr || karts == nullptr) return;
+    for (int id = 0; id < SS8_BOOT_LOCALS; ++id) {
+        Kart::Player *kart = karts->GetKartPlayer(id);
+        raceinfo->players[id]->realControllerHolder =
+            reinterpret_cast<Input::RealControllerHolder *>(&input->virtualControllerHolders[id]);
+        kart->pointers.kartStatus->bitfield4 |= 1;
+        startPostRaceAI(*reinterpret_cast<void **>(reinterpret_cast<u8 *>(kart->kartSub) + 0x20));
+    }
+}
+#endif
+
 static void BindBootPads() {
     SectionPad &pad = SectionMgr::sInstance->pad;
     for (int i = 0; i < kBootGCLocals; ++i) BindBootPad(pad, i);
@@ -138,6 +163,8 @@ static void BindBootPads() {
 }
 static RaceLoadHook bindBootPads(BindBootPads);
 
+// A --boot-manual build, for a playtest with real pads, leaves out both scripts below.
+#if !SS8_BOOT_MANUAL
 // GC port 1 drives the pause menu about 25 s into each race: races 1 and 2 restart (START, Down to
 // "Restart", A, Up to "Yes", A) and race 3 quits (START, Down, Down to "Quit", A, Up, A). A press
 // once a second then walks the menus into the next race, so the restart and menu-to-race paths run
@@ -156,6 +183,8 @@ static u16 ScriptedButtons(u32 frame) {
     const bool quitting = bootRaces % 3 == 0;
     const u16 *steps = quitting ? quit : restart;
     const u32 count = (quitting ? sizeof(quit) : sizeof(restart)) / sizeof(u16);
+    // An autodrive boot only presses A once a second: through the results into the next race.
+    if (SS8_BOOT_AUTODRIVE) return frame % 60 < 5 ? PAD::PAD_BUTTON_A : 0;
     if (frame < 1500) return 0;
     const u32 step = (frame - 1500) / 60;
     if (step < count) return (frame - 1500) % 60 < 6 ? steps[step] : 0;
@@ -169,6 +198,9 @@ static u32 CopyPADStatusScripted(Input::Manager *input, u32 channel, PAD::Status
         if (buttons != 0 && ScriptedButtons(raceFrames - 1) != buttons)
             OS::Report("ss8 boot: race %u press %04x at %u\n", bootRaces, buttons, raceFrames);
         status->buttons |= buttons;
+#if SS8_BOOT_AUTODRIVE
+        if (raceFrames == 60 && bootRaces != 0) AutodriveLocals();
+#endif
         ++raceFrames;
     }
     return result;
@@ -202,6 +234,7 @@ asmFunc ScriptedWiiButtonsStub() {
         blr;)
 }
 kmCall(0x8051ffa0, ScriptedWiiButtonsStub);
+#endif
 #endif
 
 }  // namespace SplitScreen8
