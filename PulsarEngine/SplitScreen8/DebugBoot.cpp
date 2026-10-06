@@ -163,6 +163,13 @@ static void BindBootPads() {
 }
 static RaceLoadHook bindBootPads(BindBootPads);
 
+// "Controller interrupted" never opens in a debug boot, Dolphin and --boot-manual included, so a boot
+// with no live pad (WiiCompiled reports an empty GC port as unplugged) reaches the race; a real pad
+// dropping out no longer pauses either. RecognizePad::CheckForConditions, reached only from the
+// RecognizePad pages' vtables, returns 0 (li r3, 0; blr over its stwu/mflr prologue).
+kmWrite32(0x8061C40C, 0x38600000);
+kmWrite32(0x8061C410, 0x4E800020);
+
 // A --boot-manual build, for a playtest with real pads, leaves out both scripts below.
 #if !SS8_BOOT_MANUAL
 // GC port 1 drives the pause menu about 25 s into each race: races 1 and 2 restart (START, Down to
