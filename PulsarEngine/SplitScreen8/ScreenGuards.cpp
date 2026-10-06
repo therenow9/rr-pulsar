@@ -164,4 +164,27 @@ static ItemWarning *GetItemWarning(u8 *mgr, u32 hud) {
 }
 kmBranch(0x806f8210, GetItemWarning);
 
+#ifdef SS8_DEBUG_SCREENS
+// Audio::KartActor::Link+0x6C replaces "stb r3, 0xb3(r31)", the hud slot its readers use to index
+// 4-wide per-hud audio (SoundTriggerMgr::curVariant, the echo and ambience volumes). In a widened
+// race hud 4+ is stored as -1, the vanilla CPU path at all 7 readers. CR0 and r12 are set again
+// before they are read; the prologue saved LR.
+asmFunc KartSoundHud() {
+    ASM(
+        nofralloc;
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beq store;
+        extsb r12, r3;
+        cmpwi r12, 4;
+        blt store;
+        li r3, -1;
+        store :;
+        stb r3, 0xb3(r31);
+        blr;)
+}
+kmCall(0x807075a0, KartSoundHud);
+#endif
+
 }  // namespace SplitScreen8
