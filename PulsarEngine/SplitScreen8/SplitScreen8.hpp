@@ -18,7 +18,8 @@ const int kGameLocal = 4;
 extern u8 raceScreenCount;
 
 #ifdef SS8_DEBUG_SCREENS
-// Local players of a widened race, 0 otherwise; the scenario's own count stops at 4 (D25, Screens.cpp).
+// Local players of a widened race or of any race with more than 4, 0 otherwise; the scenario's own
+// count stops at 4 (D25, Screens.cpp).
 extern u8 raceLocalCount;
 // Real controller holder of controller id 0..kMaxLocal-1, ids 4+ past the manager (D26, Input.cpp).
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id);

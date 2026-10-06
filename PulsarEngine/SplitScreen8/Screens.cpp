@@ -100,7 +100,8 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     raceScreenCount = wide;
     for (int i = 0; i < kMaxLocal; ++i) hudPlayerIdsExt[i] = -1;
 #ifdef SS8_DEBUG_SCREENS
-    raceLocalCount = wide != 0 ? LocalPlayerCount(scenario) : 0;
+    const u32 localCount = LocalPlayerCount(scenario);
+    raceLocalCount = localCount <= kMaxLocal && (wide != 0 || localCount > kGameLocal) ? localCount : 0;
     s8 extLocals[kMaxLocal - kGameLocal];
     u32 extCount = 0;
     for (int i = 0, locals = 0; i < 12 && raceLocalCount > kGameLocal; ++i) {
@@ -113,14 +114,22 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     scenario.InitScreens(screenCount);
     u32 hud = kGameLocal;
 #ifdef SS8_DEBUG_SCREENS
-    for (u32 k = 0; k < extCount; ++k, ++hud) {
+    for (u32 k = 0; k < extCount; ++k) {
         RacedataPlayer &player = scenario.players[extLocals[k]];
-        const Input::Controller *controller = Holder(*Input::Manager::sInstance, hud).curController;
         player.playerType = PLAYER_REAL_LOCAL;
+        // A scene that does not widen: "Next Race" (0x8085AEA4) loads a one-screen gametype 5 scene
+        // the AI drives. Its locals 5-8 keep no slot, controller or holder.
+        if (wide == 0) {
+            player.hudSlotId = -1;
+            player.realControllerChannel = -1;
+            player.controllerType = static_cast<ControllerType>(-1);
+            continue;
+        }
+        const Input::Controller *controller = Holder(*Input::Manager::sInstance, hud).curController;
         player.hudSlotId = hud;
         player.realControllerChannel = hud;
         player.controllerType = controller != nullptr ? controller->GetType() : static_cast<ControllerType>(-1);
-        hudPlayerIdsExt[hud] = extLocals[k];
+        hudPlayerIdsExt[hud++] = extLocals[k];
     }
 #endif
     for (int i = 0; i < 12 && hud < wide; ++i) {
