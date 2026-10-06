@@ -189,22 +189,20 @@ kmBranch(0x80531f70, HudPlayerIdWrapper);
 kmPatchExitPoint(HudPlayerIdWrapper, 0x80531f7c);
 
 // isLiveView (MAP calls 0x80531fc8 LoadNextGPTrack) +0x28 replaces "add r4, r3, r4; lbz r0,
-// 0xb84(r4)": r0 = hudPlayerIds[r4]. A leaf, so branch out and back; only r0 and r3 are read
-// after it, and r5 is free. 4 is kGameLocal.
+// 0xb84(r4)": r0 = hudPlayerIds[r4], and a non-local player there means a live (TV) camera. In a
+// widened race every spare tile follows its CPU instead (D22): each hud below the count reads -1,
+// which isLiveView answers "not live", as it answers a local player. A leaf, so branch out and back
+// (one blr, for kmPatchExitPoint); only r0 and r3 are read after it, and r5 is free.
 asmFunc IsLiveViewHudPlayerId() {
     ASM(
         nofralloc;
         add r5, r3, r4;
         lbz r0, 0xb84(r5);
-        cmplwi r4, 4;
-        blt end;
         lis r5, raceScreenCount @ha;
         lbz r5, raceScreenCount @l(r5);
         cmplw r4, r5;
         bge end;
-        lis r5, hudPlayerIdsExt @ha;
-        addi r5, r5, hudPlayerIdsExt @l;
-        lbzx r0, r5, r4;
+        li r0, -1;
         end :;
         blr;)
 }

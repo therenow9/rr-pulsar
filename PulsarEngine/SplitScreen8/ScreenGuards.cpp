@@ -2,9 +2,9 @@
 #include <MarioKartWii/3D/Model/ModelDirector.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Screens past the game's 4 (Screens.cpp) where per-screen storage is 4 wide: writes are dropped
-// and reads answer "draw". Screen indices of 4+ exist only in a widened race. Culling for those
-// screens is not modelled yet (docs/plans/m2-engine-widening.md, phase B).
+// Screens past the game's 4 (Screens.cpp) where per-screen state is 4 wide: ModelDirector's screen
+// bits move to spare bits, and Effects::Mgr's culling reads "visible". Screen indices of 4+ exist
+// only in a widened race. ClipInfo culling is in Culling.cpp.
 
 namespace SplitScreen8 {
 
@@ -119,34 +119,6 @@ asmFunc LeafScreenBitShow() {
 kmBranch(0x8055d33c, LeafScreenBitShow);
 kmPatchExitPoint(LeafScreenBitShow, 0x8055d348);
 
-// ClipInfoMgr::Update+0x1C replaces "lwz r25, 0x4bf0(r4)": r25 bounds both its ClipScreenInfo loop
-// (4 allocated) and the per-screen bytes at ClipInfo+0x20..0x23, which the next ClipInfo follows.
-// r4 is rewritten before it is read again; LR is saved by the prologue. 4 is kGameLocal.
-asmFunc ClipScreensToGame() {
-    ASM(
-        nofralloc;
-        lwz r25, 0x4bf0(r4);
-        cmpwi r25, 4;
-        blelr;
-        li r25, 4;
-        blr;)
-}
-kmCall(0x80787790, ClipScreensToGame);
-
-// ModelDirector::SetDisableDrawScnOptionsFromClipInfo+0x54 replaces "lbz r0, 0x20(r5)" (r5 =
-// ClipInfo + screen r4): bit 0 set hides the model on that screen. ClipInfoMgr no longer writes
-// screens 4+, so they read 0. The next instruction sets CR0 from r0.
-asmFunc ClipByteForGameScreens() {
-    ASM(
-        nofralloc;
-        li r0, 0;
-        cmplwi r4, 4;
-        bgelr;
-        lbz r0, 0x20(r5);
-        blr;)
-}
-kmCall(0x8055d5a8, ClipByteForGameScreens);
-
 // Effects::Mgr keeps one Sub9d8 (per-player culling for a screen) per racesScenario.screenCount,
 // which stays 4, next to inline per-screen blocks that end where the Sub9d8 pointers begin, so the
 // count cannot widen. Screens 4+ read this stand-in: every player near (0) and on screen (1).
@@ -176,5 +148,20 @@ asmFunc Sub9d8ForGameScreens() {
         blr;)
 }
 kmCall(0x8067d62c, Sub9d8ForGameScreens);
+
+// Audio::ItemWarningMgr::GetItemWarning, a leaf replaced whole: 4 warnings of 0xC at +0x14 in a
+// 0x44-byte object, indexed by a shell target's hud slot, 4-7 for a spare CPU. Those get an entry
+// whose hud is -1, on which PlayTargetedWarning returns at once (+0x5C); spare CPUs have no listener.
+struct ItemWarning {
+    s8 hud;
+    u8 unknown_0x1[0xC - 0x1];
+};
+static ItemWarning noItemWarning = {-1};
+
+static ItemWarning *GetItemWarning(u8 *mgr, u32 hud) {
+    if (raceScreenCount != 0 && hud >= kGameLocal) return &noItemWarning;
+    return reinterpret_cast<ItemWarning *>(mgr + 0x14 + hud * 0xC);
+}
+kmBranch(0x806f8210, GetItemWarning);
 
 }  // namespace SplitScreen8
