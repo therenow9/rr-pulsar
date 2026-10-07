@@ -97,7 +97,11 @@ SectionId DebugBootPrepare(SectionId section) {
     // skins a multi-local race would. RAM only; RR saves settings from its settings page.
     if (Pulsar::Settings::Mgr::IsCreated())
         Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_DISPLAYCUSTOMSKINS, Pulsar::DISPLAYCUSTOMSKINS_DISABLED);
-    // 5-8 locals race in the 4P section: its HUD serves players 1-4 (M3).
+#if SS8_BOOT_SPEEDO
+    if (Pulsar::Settings::Mgr::IsCreated())
+        Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_SPEEDOMETER, Pulsar::SOM_DIGITS_0);
+#endif
+    // 5-8 locals race in the 4P section: the scenario's local count stops at 4 (D25).
     return static_cast<SectionId>(SECTION_P1VS + kBootGCLocals - 1);
 }
 
@@ -322,6 +326,25 @@ asmFunc ScriptedWiiButtonsStub() {
 }
 kmCall(0x8051ffa0, ScriptedWiiButtonsStub);
 #endif
+#endif
+
+#if SS8_BOOT_NO_MAP
+// RaceHUD::OnInit+0x40 replaces "mr r31, r3", the enabled-controls mask from the page's vf 0x68 (RR
+// owns VSMultiHUD's, 0x80633A00): a widened race leaves out the centre map (0x8). Both the control
+// count and InitCtrlRaceBase read r31, so they stay in step; r12 is free after the bctrl.
+asmFunc NoCentreMap() {
+    ASM(
+        nofralloc;
+        mr r31, r3;
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beqlr;
+        li r12, 8;
+        andc r31, r31, r12;
+        blr;)
+}
+kmCall(0x808562b8, NoCentreMap);
 #endif
 
 }  // namespace SplitScreen8
