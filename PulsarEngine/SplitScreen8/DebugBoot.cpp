@@ -4,6 +4,8 @@
 #include <core/rvl/OS/OS.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
+#include <MarioKartWii/Item/ItemManager.hpp>
+#include <MarioKartWii/Item/ItemPlayer.hpp>
 #include <MarioKartWii/Kart/KartManager.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/Race/RaceInfo/RaceInfo.hpp>
@@ -152,6 +154,78 @@ static void AutodriveLocals() {
 }
 #endif
 
+#if SS8_BOOT_RESPAWN
+// Players respawn one by one through the game's own fall path, as a squish respawn does
+// (Kart::Damage::ApplySquishRespawnDamage+0xA0: Collision::ActivateOOB through its thunk with 1, 0, 0),
+// so the wipe, the camera and Lakitu run as after a real fall. The order puts players on both rows and
+// on inner and outer tiles first, then the first CPU, which in a widened race holds a spare tile.
+typedef void (*ActivateOOBFn)(Kart::Collision *, u32, u32, u32);
+typedef Kart::Collision *(*GetCollisionFn)(Kart::Link *);
+static const ActivateOOBFn activateOOB = reinterpret_cast<ActivateOOBFn>(0x80573ec4);
+static const GetCollisionFn getCollision = reinterpret_cast<GetCollisionFn>(0x8059084c);
+static const u8 respawnOrder[] = {0, 1, 2, 4, 7, 5, 3, 6};
+const u32 kRespawnFirst = 900;
+const u32 kRespawnStep = 180;
+const u32 kRespawnLocals = SS8_BOOT_LOCALS < 5 ? SS8_BOOT_LOCALS : 5;
+const u32 kRespawns = kRespawnLocals + (SS8_BOOT_LOCALS < 12 ? 1 : 0);
+
+static void RespawnScripted(u32 frame) {
+    if (frame < kRespawnFirst || (frame - kRespawnFirst) % kRespawnStep != 0) return;
+    const u32 k = (frame - kRespawnFirst) / kRespawnStep;
+    if (k >= kRespawns) return;
+    u32 id = SS8_BOOT_LOCALS;
+    for (u32 i = 0, n = 0; i < sizeof(respawnOrder) && k < kRespawnLocals; ++i) {
+        if (respawnOrder[i] >= SS8_BOOT_LOCALS) continue;
+        if (n++ == k) {
+            id = respawnOrder[i];
+            break;
+        }
+    }
+    Kart::Manager *karts = Kart::Manager::sInstance;
+    if (karts == nullptr) return;
+    OS::Report("ss8 boot: race %u respawn player %u at %u\n", bootRaces, id, frame);
+    activateOOB(getCollision(karts->GetKartPlayer(id)), 1, 0, 0);
+}
+const u32 kRespawnEnd = kRespawnFirst + kRespawns * kRespawnStep;
+#else
+const u32 kRespawnEnd = 0;
+#endif
+
+#if SS8_BOOT_USE_ITEM
+// The last-placed racer uses the item (a Blooper, POW or Lightning then reaches every tile), or P5 a
+// Bullet Bill, set into its inventory first as a pickup would: each Use* removes one.
+typedef void (*UseItemFn)(Item::Player *);
+typedef void (*SetItemFn)(Item::PlayerInventory *, ItemId, bool);
+static const ItemId bootItems[] = {BLOOPER, POW_BLOCK, LIGHTNING, BULLET_BILL};
+// Item::Player::UseBlooper, UsePow, UseThunder and UseBullet, in bootItems' order.
+static const u32 useItems[] = {0x807a81b4, 0x807b1b2c, 0x807b7b7c, 0x807a9afc};
+static const SetItemFn setItem = reinterpret_cast<SetItemFn>(0x807bc940);
+const ItemId kBootItem = bootItems[SS8_BOOT_USE_ITEM - 1];
+const u32 kItemFirst = 1200;
+const u32 kItemStep = 600;
+const u32 kItemUses = 3;
+
+static void UseItemScripted(u32 frame) {
+    if (frame < kItemFirst || (frame - kItemFirst) % kItemStep != 0 || (frame - kItemFirst) / kItemStep >= kItemUses) return;
+    Raceinfo *raceinfo = Raceinfo::sInstance;
+    Item::Manager *items = Item::Manager::sInstance;
+    if (raceinfo == nullptr || raceinfo->playerIdInEachPosition == nullptr || items == nullptr) return;
+    const u32 last = Racedata::sInstance->racesScenario.playerCount - 1;
+    const u32 id = kBootItem == BULLET_BILL ? (SS8_BOOT_LOCALS > kGameLocal ? kGameLocal : 0) : raceinfo->playerIdInEachPosition[last];
+    Item::Player &player = items->players[id];
+    OS::Report("ss8 boot: race %u player %u uses item %u at %u\n", bootRaces, id, kBootItem, frame);
+    setItem(&player.inventory, kBootItem, false);
+    reinterpret_cast<UseItemFn>(useItems[SS8_BOOT_USE_ITEM - 1])(&player);
+}
+const u32 kItemEnd = kItemFirst + kItemUses * kItemStep;
+#else
+const u32 kItemEnd = 0;
+#endif
+
+// The scripted pause comes after the respawns and item uses.
+const u32 kScriptEnd = kRespawnEnd > kItemEnd ? kRespawnEnd : kItemEnd;
+const u32 kPauseFrame = kScriptEnd != 0 ? kScriptEnd + 300 : 1500;
+
 static void BindBootPads() {
     SectionPad &pad = SectionMgr::sInstance->pad;
     for (int i = 0; i < kBootGCLocals; ++i) BindBootPad(pad, i);
@@ -172,7 +246,7 @@ kmWrite32(0x8061C410, 0x4E800020);
 
 // A --boot-manual build, for a playtest with real pads, leaves out both scripts below.
 #if !SS8_BOOT_MANUAL
-// GC port 1 drives the pause menu about 25 s into each race: races 1 and 2 restart (START, Down to
+// GC port 1 drives the pause menu about 25 s into each race (later with --boot-respawn or --boot-use-item): races 1 and 2 restart (START, Down to
 // "Restart", A, Up to "Yes", A) and race 3 quits (START, Down, Down to "Quit", A, Up, A). A press
 // once a second then walks the menus into the next race, so the restart and menu-to-race paths run
 // with no one at the pads. "Are you sure?" defaults to No.
@@ -192,9 +266,9 @@ static u16 ScriptedButtons(u32 frame) {
     const u32 count = (quitting ? sizeof(quit) : sizeof(restart)) / sizeof(u16);
     // An autodrive boot only presses A once a second: through the results into the next race.
     if (SS8_BOOT_AUTODRIVE) return frame % 60 < 5 ? PAD::PAD_BUTTON_A : 0;
-    if (frame < 1500) return 0;
-    const u32 step = (frame - 1500) / 60;
-    if (step < count) return (frame - 1500) % 60 < 6 ? steps[step] : 0;
+    if (frame < kPauseFrame) return 0;
+    const u32 step = (frame - kPauseFrame) / 60;
+    if (step < count) return (frame - kPauseFrame) % 60 < 6 ? steps[step] : 0;
     return step >= count + 3 && frame % 60 < 5 ? PAD::PAD_BUTTON_A : 0;
 }
 
@@ -207,6 +281,12 @@ static u32 CopyPADStatusScripted(Input::Manager *input, u32 channel, PAD::Status
         status->buttons |= buttons;
 #if SS8_BOOT_AUTODRIVE
         if (raceFrames == 60 && bootRaces != 0) AutodriveLocals();
+#endif
+#if SS8_BOOT_RESPAWN
+        if (bootRaces != 0) RespawnScripted(raceFrames);
+#endif
+#if SS8_BOOT_USE_ITEM
+        if (bootRaces != 0) UseItemScripted(raceFrames);
 #endif
         ++raceFrames;
     }
