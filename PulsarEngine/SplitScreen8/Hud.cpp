@@ -2,6 +2,7 @@
 #include <kamek.hpp>
 #include <include/c_stdio.h>
 #include <core/System/SystemManager.hpp>
+#include <core/nw4r/lyt/TextBox.hpp>
 #include <MarioKartWii/UI/Page/RaceHUD/RaceHUD.hpp>
 #include <Settings/Settings.hpp>
 #include <UI/CtrlRaceBase/CustomCtrlRaceBase.hpp>
@@ -236,6 +237,88 @@ const u32 kItemWindowVtable = 0x808d3cc8;
 
 typedef char CtrlRaceCountIs0x198[sizeof(CtrlRaceCount) == 0x198 ? 1 : -1];
 
+// The count pairs (the countdown digits and FINISH) zoom in from many times their settled size, across
+// every tile. A widened race draws them through a copy of CtrlRaceCount's vtable (0x808D3C18, shared with
+// TTSplits and the team leaderboard) whose Draw (+0x14) scales that zoom down to start at the tile.
+const u32 kCountVtableWords = 0x5c / 4;
+static u32 countVtable[kCountVtableWords];
+static CtrlRaceCount *countArray;
+static float countSettledScale;
+static float countZoomStart[2 * kMaxLocal];
+
+typedef void (*LayoutDrawFn)(LayoutUIControl *, u32);
+static const LayoutDrawFn layoutDraw = reinterpret_cast<LayoutDrawFn>(0x8063db84);
+typedef void (*AnimateFn)(MainLayout *);
+static const AnimateFn layoutAnimate = reinterpret_cast<AnimateFn>(0x805e91a8);
+
+// An estimate of the text's width at pane scale 1 from the text box's font: each character's width in
+// font units times fontSizeX / the font's width, plus the character spacing. MKW's tags (0x1A, then a
+// u16 whose high byte is the tag's length in bytes) are skipped. MKW draws through its own text
+// handler, so the drawn word can be wider; the caller keeps a margin.
+static float TextWidth(const nw4r::lyt::TextBox &text) {
+    if (text.font == nullptr || text.stringBuf == nullptr || text.font->GetWidth() == 0) return 0.0f;
+    const float perUnit = text.fontSizeX / text.font->GetWidth();
+    float width = 0.0f;
+    for (const wchar_t *c = text.stringBuf; *c != 0;) {
+        if (*c == 0x1a) {
+            const u32 tagChars = (static_cast<u16>(c[1]) >> 8) / 2;
+            if (tagChars < 2) break;
+            c += tagChars;
+            continue;
+        }
+        width += text.font->GetCharWidth(*c) * perUnit + text.charSpace;
+        ++c;
+    }
+    return width;
+}
+
+// The text's scale runs from its zoom's start down to the settled scale; the zoom is remapped to start
+// where the text fills the tile (its height, or its width for a long word) through count_down_null, the
+// text's parent, which no animation scales. MainLayout::Animate applies the current frame only, so
+// applying it here and again in Draw gives the same values.
+static void ZoomFromTile(CtrlRaceCount &count, u32 index) {
+    layoutAnimate(&count.layout);
+    nw4r::lyt::TextBox *text = static_cast<nw4r::lyt::TextBox *>(count.layout.GetPaneByName("text_00"));
+    nw4r::lyt::Pane *parent = count.layout.GetPaneByName("count_down_null");
+    if (text == nullptr || parent == nullptr) return;
+    const float scale = text->scale.x;
+    float ratio = 1.0f;
+    if (scale > countSettledScale) {
+        if (scale > countZoomStart[index]) countZoomStart[index] = scale;
+        const float controlScale = count.positionAndscale[0].scale.z;
+        float fit = 228.0f / (text->fontSizeY * controlScale);  // a tile is 228 high
+        const float width = TextWidth(*text);
+        // FINISH! draws about 15% wider than the estimate at 8 screens, so the width fits 80% of the tile.
+        const float fitWidth = 0.8f * LayoutWidth() / (raceScreenCount / 2) / (width * controlScale);
+        if (width > 0.0f && fitWidth < fit) fit = fitWidth;
+        if (fit < countSettledScale) fit = countSettledScale;
+        const float start = countZoomStart[index];
+        if (fit < start) ratio = (countSettledScale + (scale - countSettledScale) * (fit - countSettledScale) / (start - countSettledScale)) / scale;
+    } else
+        countZoomStart[index] = 0.0f;
+    parent->scale.x = ratio;
+    parent->scale.z = ratio;
+}
+
+static void CountDraw(CtrlRaceCount *count, u32 zIdx) {
+    ZoomFromTile(*count, count - countArray);
+    layoutDraw(count, zIdx);
+}
+
+// The settled scale is the text pane's own, read before any animation has run.
+static void UseCountDraw(CtrlRaceCount *counts, u32 count) {
+    const u32 *game = *reinterpret_cast<u32 *const *>(counts);
+    for (u32 i = 0; i < kCountVtableWords; ++i) countVtable[i] = game[i];
+    countVtable[0x14 / 4] = reinterpret_cast<u32>(CountDraw);
+    countArray = counts;
+    nw4r::lyt::Pane *text = counts[0].layout.GetPaneByName("text_00");
+    countSettledScale = text != nullptr ? text->scale.x : 0.0f;
+    for (u32 i = 0; i < count; ++i) {
+        *reinterpret_cast<u32 **>(&counts[i]) = countVtable;
+        countZoomStart[i] = 0.0f;
+    }
+}
+
 typedef void (*InitCtrlRaceBaseFn)(Pages::RaceHUD *, u32);
 static const InitCtrlRaceBaseFn initCtrlRaceBase = reinterpret_cast<InitCtrlRaceBaseFn>(0x80857cc0);
 
@@ -256,8 +339,10 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
         const u8 slot = static_cast<CtrlRaceBase *>(control)->hudSlotId;
         if (slot < raceLocalCount) PlaceOnTile(*control, slot, false);
     }
-    if (page->ctrlRaceCountArray != nullptr)
+    if (page->ctrlRaceCountArray != nullptr) {
         for (u32 i = 0; i < 2u * raceLocalCount; ++i) PlaceOnTile(page->ctrlRaceCountArray[i], i / 2, true);
+        UseCountDraw(page->ctrlRaceCountArray, 2u * raceLocalCount);
+    }
 }
 kmCall(0x808562dc, InitCtrlRaceBaseWide);
 
