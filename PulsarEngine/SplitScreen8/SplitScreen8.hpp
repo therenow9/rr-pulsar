@@ -23,6 +23,9 @@ extern u8 raceScreenCount;
 extern u8 raceLocalCount;
 // Real controller holder of controller id 0..kMaxLocal-1, ids 4+ past the manager (D26, Input.cpp).
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id);
+// The colours of a local's hud slot 4..raceLocalCount-1 in a widened race; false for any other slot,
+// which keeps RR's own (Colours.cpp, called from RR's UIColor.cpp).
+bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary);
 #endif
 
 #ifdef SS8_DEBUG_BOOT
