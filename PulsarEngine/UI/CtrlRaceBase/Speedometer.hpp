@@ -12,6 +12,7 @@ public:
     void OnUpdate() override;
     static u32 Count();
     static void Create(Page &page, u32 index, u32 count);
+    void Load(const char *variant, u8 id);
 
 private:
     struct SpeedArg {
@@ -33,7 +34,6 @@ private:
             };
         };
     };
-    void Load(const char *variant, u8 id);
     void Animate(const SpeedArg *args = nullptr);
 };
 }  // namespace UI
