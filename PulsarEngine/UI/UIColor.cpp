@@ -1,6 +1,9 @@
 #include <RetroRewind.hpp>
 #include <Settings/Settings.hpp>
 #include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
+#ifdef SS8_DEBUG_SCREENS
+#include <SplitScreen8/SplitScreen8.hpp>
+#endif
 
 namespace Pulsar {
 namespace UI {
@@ -65,6 +68,9 @@ void GetHUDColor(const ControlManipulator *self, RGBA16 *c0, RGBA16 *c1) {
 kmBranch(0x805f03dc, GetHUDColor);
 
 void GetHUDSlotColor(u8 hudSlotId, RGBA16 *c0, RGBA16 *c1) {
+#ifdef SS8_DEBUG_SCREENS
+    if (SplitScreen8::HudSlotColour(hudSlotId, c0, c1)) return;
+#endif
     if (GetLocalPlayerCount() > 1 && SetLocalPlayerHUDColors(hudSlotId + 1, c0, c1)) return;
     GetHUDColor(nullptr, c0, c1);
 }
