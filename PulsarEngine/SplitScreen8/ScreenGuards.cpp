@@ -165,10 +165,10 @@ static ItemWarning *GetItemWarning(u8 *mgr, u32 hud) {
 kmBranch(0x806f8210, GetItemWarning);
 
 #ifdef SS8_DEBUG_SCREENS
-// Audio::KartActor::Link+0x6C replaces "stb r3, 0xb3(r31)", the hud slot its readers use to index
-// 4-wide per-hud audio (SoundTriggerMgr::curVariant, the echo and ambience volumes). In a widened
-// race hud 4+ is stored as -1, the vanilla CPU path at all 7 readers. CR0 and r12 are set again
-// before they are read; the prologue saved LR.
+// Audio::KartActor::Link+0x6C replaces "stb r3, 0xb3(r31)", the hud slot that also makes Link treat
+// the kart as local (+0xE0, SetKartSound). A local's hud 4+ is kept, and its 4-wide readers are
+// redirected in Audio.cpp (PC2); a spare CPU's hud 4+ is stored as -1, the CPU path. CR0, r11 and r12
+// are set again before they are read; the prologue saved LR.
 asmFunc KartSoundHud() {
     ASM(
         nofralloc;
@@ -178,6 +178,10 @@ asmFunc KartSoundHud() {
         beq store;
         extsb r12, r3;
         cmpwi r12, 4;
+        blt store;
+        lis r11, raceLocalCount @ha;
+        lbz r11, raceLocalCount @l(r11);
+        cmpw r12, r11;
         blt store;
         li r3, -1;
         store :;

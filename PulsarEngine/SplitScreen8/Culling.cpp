@@ -362,6 +362,43 @@ asmFunc SetAllClipWord() {
 }
 kmCall(0x8055d490, SetAllClipWord);
 
+#ifdef SS8_DEBUG_SCREENS
+// Effects::Player::UpdateValues+0x40 replaces "lwz r0, 0x20(r3)" (r3 = the kart's ClipInfo) ahead of
+// "andc 0x01010101": +4 = culled on every screen, which skips the kart's item effects (UpdateItemEffect:
+// star, thunder, POW). In a widened race it takes screens 4-7 as SetAllClipWord does. r12 is free.
+asmFunc PlayerEffectsClipWord() {
+    ASM(
+        nofralloc;
+        lwz r0, 0x20(r3);
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beqlr;
+        lwz r12, 0x4820(r3);
+        and r0, r0, r12;
+        blr;)
+}
+kmCall(0x80693ed4, PlayerEffectsClipWord);
+
+// Item::ObjHolder::UpdateModelPositions+0x38 replaces "lwz r0, 0x20(r4)" (r4 = the item's ClipInfo) ahead
+// of "andc. 0x01010101": an item culled on every screen gets the light update (vtable +0x14) instead of
+// its model placement (+0x10), so a Thundercloud over a kart seen only on tiles 5-8 never hovers there
+// (PD8). In a widened race it takes screens 4-7 too. r12 is reloaded before it is read.
+asmFunc ItemModelClipWord() {
+    ASM(
+        nofralloc;
+        lwz r0, 0x20(r4);
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beqlr;
+        lwz r12, 0x4820(r4);
+        and r0, r0, r12;
+        blr;)
+}
+kmCall(0x80796b68, ItemModelClipWord);
+#endif
+
 // +0x6C replaces "clrlwi. r0, r0, 28" (r0 = ~hidden mask): any screen not hidden.
 asmFunc SetAllHiddenMask() {
     ASM(

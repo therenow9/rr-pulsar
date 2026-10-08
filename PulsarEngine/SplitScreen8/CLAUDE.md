@@ -7,7 +7,8 @@ Breaking a rule below **fails silently** — it builds, it may even work with 8 
 ## Placing a hook
 
 - **Grep `PulsarEngine` for the address and ±0x40 around it before using it.** rr-pulsar patches hundreds of sites; two hooks on one site both apply and the later wins.
-- **Read the disassembly past the site** (`tools/mkwdis.py dis <addr> 20`) and list which registers are read before they are written. A `kmCall` clobbers LR (safe only if the function saved it in its prologue), plus every register the asm touches.
+- **Read the disassembly past the site** (`tools/mkwdis.py dis <addr> 20`) and list which registers are read before they are written. A `kmCall` clobbers LR (safe only if the function saved it in its prologue; a leaf's entry needs a `kmBranch` back through CTR), plus every register the asm touches.
+- **In asm, `addi`, `addis` and a load/store's base read `r0` as the literal 0:** `addi r0, r0, -1` assembles to `li r0, -1`.
 - **Use only command forms rr-pulsar already uses** (`kmWrite32`, `kmCall`, `kmBranch`, `kmPatchExitPoint`, `kmRuntimeUse`). WiiCompiled's translator rejects others at setup time.
 
 ## Players 5–8

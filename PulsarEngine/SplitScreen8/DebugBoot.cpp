@@ -196,13 +196,14 @@ const u32 kRespawnEnd = 0;
 #endif
 
 #if SS8_BOOT_USE_ITEM
-// The last-placed racer uses the item (a Blooper, POW or Lightning then reaches every tile), or P5 a
-// Bullet Bill, set into its inventory first as a pickup would: each Use* removes one.
+// The last-placed racer uses the item (a Blooper, POW or Lightning then reaches every tile), P5 a
+// Bullet Bill, or the last local a Mega Mushroom, a star or a Thundercloud (on the last tile), set into
+// its inventory first as a pickup would: each Use* removes one.
 typedef void (*UseItemFn)(Item::Player *);
 typedef void (*SetItemFn)(Item::PlayerInventory *, ItemId, bool);
-static const ItemId bootItems[] = {BLOOPER, POW_BLOCK, LIGHTNING, BULLET_BILL};
-// Item::Player::UseBlooper, UsePow, UseThunder and UseBullet, in bootItems' order.
-static const u32 useItems[] = {0x807a81b4, 0x807b1b2c, 0x807b7b7c, 0x807a9afc};
+static const ItemId bootItems[] = {BLOOPER, POW_BLOCK, LIGHTNING, BULLET_BILL, MEGA_MUSHROOM, STAR, THUNDER_CLOUD};
+// Item::Player::UseBlooper, UsePow, UseThunder, UseBullet, UseMegaMushroom, UseStar and UseTC, in bootItems' order.
+static const u32 useItems[] = {0x807a81b4, 0x807b1b2c, 0x807b7b7c, 0x807a9afc, 0x807a9e50, 0x807b706c, 0x807af1bc};
 static const SetItemFn setItem = reinterpret_cast<SetItemFn>(0x807bc940);
 const ItemId kBootItem = bootItems[SS8_BOOT_USE_ITEM - 1];
 const u32 kItemFirst = 1200;
@@ -215,7 +216,10 @@ static void UseItemScripted(u32 frame) {
     Item::Manager *items = Item::Manager::sInstance;
     if (raceinfo == nullptr || raceinfo->playerIdInEachPosition == nullptr || items == nullptr) return;
     const u32 last = Racedata::sInstance->racesScenario.playerCount - 1;
-    const u32 id = kBootItem == BULLET_BILL ? (SS8_BOOT_LOCALS > kGameLocal ? kGameLocal : 0) : raceinfo->playerIdInEachPosition[last];
+    const bool own = kBootItem == MEGA_MUSHROOM || kBootItem == STAR || kBootItem == THUNDER_CLOUD;
+    const u32 id = kBootItem == BULLET_BILL ? (SS8_BOOT_LOCALS > kGameLocal ? kGameLocal : 0)
+                   : own                    ? SS8_BOOT_LOCALS - 1
+                                            : raceinfo->playerIdInEachPosition[last];
     Item::Player &player = items->players[id];
     OS::Report("ss8 boot: race %u player %u uses item %u at %u\n", bootRaces, id, kBootItem, frame);
     setItem(&player.inventory, kBootItem, false);
