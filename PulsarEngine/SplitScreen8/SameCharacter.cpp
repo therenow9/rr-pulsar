@@ -67,4 +67,41 @@ asmFunc AwardsMiiHeadOnlyForMiis() {
 }
 kmCall(0x80789598, AwardsMiiHeadOnlyForMiis);
 
+// Whether player p has confirmed a driver: OnButtonDriverClick turns its controls holder off
+// (ControlsManipulatorManager::InitHolders(page vtable +0x70, p, 0), the byte +0xA4 of 0x5C each).
+typedef void *(*GetPageFn)(u32 pageId);
+static const GetPageFn getPage = reinterpret_cast<GetPageFn>(0x8083d44c);
+
+static u32 PlayerConfirmed(u32 player) {
+    u8 *page = static_cast<u8 *>(getPage(0x6b));
+    if (page == nullptr) return 1;
+    u8 *holders = reinterpret_cast<u8 *(*)(u8 *)>((*reinterpret_cast<void ***>(page))[0x70 / 4])(page);
+    if (holders == nullptr) return 1;
+    return holders[(player & 0xff) * 0x5c + 0xa4] == 0;
+}
+
+// CtrlMenuCharacterSelect::OnUpdate+0x70, "cmpwi r0, 1": r0 is player r27's preview model state, 1 once
+// it is confirmed. The model is one per driver, shared, so in multiplayer (r28 players) one player's
+// confirm would show the OK marker of every player on that driver; the player's own holder must also
+// be off. The beq after reads CR0; volatile registers are reloaded after it and OnUpdate saved LR.
+asmFunc OwnConfirmForMarker() {
+    ASM(
+        nofralloc;
+        cmpwi r0, 1;
+        bnelr;
+        cmpwi r28, 1;
+        beqlr;
+        stwu r1, -0x10(r1);
+        mflr r0;
+        stw r0, 0x14(r1);
+        mr r3, r27;
+        bl PlayerConfirmed;
+        lwz r0, 0x14(r1);
+        mtlr r0;
+        addi r1, r1, 0x10;
+        cmpwi r3, 1;
+        blr;)
+}
+kmCall(0x807e311c, OwnConfirmForMarker);
+
 }  // namespace SplitScreen8

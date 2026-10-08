@@ -19,6 +19,12 @@ namespace Sound {
 using namespace nw4r;
 static const Audio::RaceState RACE_STATE_FINAL_LAP_JINGLE = static_cast<Audio::RaceState>(0x6);
 static const u8 INVALID_HUD_SLOT_ID = 0xFF;
+#ifdef SS8_DEBUG_SCREENS
+// SplitScreen8: a local's hud slot reaches 7, past hudPlayerIds' 4 entries.
+#define HUD_PLAYER_ID(settings, hud) Racedata::sInstance->GetPlayerIdOfLocalPlayer(hud)
+#else
+#define HUD_PLAYER_ID(settings, hud) (settings).hudPlayerIds[hud]
+#endif
 static u8 finalLapSpeedupHudSlot = INVALID_HUD_SLOT_ID;
 void UpdateSW2RRRacePercentageMusic();
 
@@ -31,7 +37,7 @@ static void MusicSpeedup(Audio::RaceRSARPlayer *rsarSoundPlayer, u32 jingle, u8 
     const RacedataSettings &raceDataSettings = Racedata::sInstance->racesScenario.settings;
     RaceinfoPlayer *hudPlayer = nullptr;
     if (raceInfo != nullptr && raceInfo->players != nullptr) {
-        hudPlayer = raceInfo->players[raceDataSettings.hudPlayerIds[hudSlotId]];
+        hudPlayer = raceInfo->players[HUD_PLAYER_ID(raceDataSettings, hudSlotId)];
     }
     const bool isNewLapTrigger = (maxLap != curLap);
     const bool hudPlayerReachedFinalLap = hudPlayer != nullptr && hudPlayer->currentLap >= raceDataSettings.lapCount;
@@ -52,7 +58,7 @@ static void MusicSpeedup(Audio::RaceRSARPlayer *rsarSoundPlayer, u32 jingle, u8 
             }
             if (finalLapSpeedupHudSlot == hudSlotId && raceInfo != nullptr && raceInfo->players != nullptr) {
                 const Timer &raceTimer = raceInfo->timerMgr->timers[0];
-                const Timer &playerTimer = raceInfo->players[raceDataSettings.hudPlayerIds[finalLapSpeedupHudSlot]]->lapSplits[maxLap - 2];
+                const Timer &playerTimer = raceInfo->players[HUD_PLAYER_ID(raceDataSettings, finalLapSpeedupHudSlot)]->lapSplits[maxLap - 2];
                 const Timer difference = CtrlRaceGhostDiffTime::SubtractTimers(raceTimer, playerTimer);
                 if (difference.minutes < 1 && difference.seconds < 5) {
                     sound.ambientParam.pitch += 0.0002f;

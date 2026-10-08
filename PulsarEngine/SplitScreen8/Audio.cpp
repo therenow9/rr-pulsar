@@ -5,12 +5,14 @@
 #include <MarioKartWii/3D/Camera/CameraMgr.hpp>
 #include <MarioKartWii/Audio/RaceMgr.hpp>
 #include <MarioKartWii/Audio/RSARPlayer.hpp>
+#include <MarioKartWii/Race/RaceInfo/RaceInfo.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Item and positional sound for locals at hud slots 4-7 (PC1). The roulette flags and the item-get
-// gates are 4 wide, and a 3D sound reaches at most 4 voice outputs (Voice::Acquire clamps to 4), one
-// per listener. So each camera past the 4th folds into the listener of the screen above it (D50), and
-// a widened race pans by tile column (D51). P5-8's own kart audio stays on the CPU path (PC2).
+// Sound for locals at hud slots 4-7. The roulette flags and the item-get gates are 4 wide, and a 3D
+// sound reaches at most 4 voice outputs (Voice::Acquire clamps to 4), one per listener. So each camera
+// past the 4th folds into the listener of the screen above it (D50), and a widened race pans by tile
+// column (D51) (PC1). Their own karts are local to the kart audio, through side copies of its 4-wide
+// per-hud state; the per-listener echo, ambience and track triggers stay with P1-4 (D52) (PC2).
 
 namespace SplitScreen8 {
 
@@ -28,6 +30,10 @@ struct ExtTarget {
 };
 static float extMtx[kExtra][3][4];
 static ExtTarget extTarget[kExtra];
+// RaceMgr::kartActors holds 4 local KartActors; hud 4-7's live here, by hud.
+static Audio::KartActor *extKartActors[kExtra];
+// SoundTriggerMgr+0x12 holds each hud's last track trigger, 4 wide (the object is 0x18); hud 4-7's here.
+static u8 extVariant[kExtra];
 
 typedef void (*RouletteSoundFn)(Audio::RSARPlayer *);
 typedef void (*UpdatePlayerMatrixFn)(Audio::RaceMgr *);
@@ -58,6 +64,7 @@ static void ResetAudioSide() {
     for (u32 i = 0; i < kExtra; ++i) {
         extRoulette[i] = 0;
         extTarget[i].valid = 0;
+        extKartActors[i] = nullptr;
     }
 }
 asmFunc RaceMgrCtorEnd() {
@@ -328,6 +335,220 @@ kmCall(0x80713100, FoldCull);
 kmCall(0x80713360, FoldCull);
 kmCall(0x807133e8, FoldCull);
 kmCall(0x8071348c, FoldCull);
+
+// A KartActor's hud slot (+0xB3), 0-7 for a local of a widened race since KartSoundHud keeps it.
+static s32 ActorHud(const Audio::KartActor *actor) {
+    return reinterpret_cast<const s8 *>(actor)[0xb3];
+}
+
+typedef void (*SetKartSoundFn)(Audio::RaceMgr *, Audio::KartActor *);
+typedef bool (*AnyKartFn)(const u8 *raceMgr);
+typedef void (*ApplyTriggerFn)(u8 *triggers, s32 variant, s32 hud, void *link);
+typedef u8 (*GetPlayerIdxFn)(const void *link);
+typedef void (*EchoVolumeFn)(void *echo, u32 hud, u32 frames, float volume);
+typedef void (*AmbienceVolumeFn)(void *ambience, u32 hud, u32 frames);
+typedef u32 (*GetNewIDFn)(const void *pads, s32 hud);
+static const SetKartSoundFn setKartSound = reinterpret_cast<SetKartSoundFn>(0x80713754);
+static const AnyKartFn isAPlayerInMega = reinterpret_cast<AnyKartFn>(0x807117a0);
+static const AnyKartFn isAPlayerInStar = reinterpret_cast<AnyKartFn>(0x8071172c);
+static const AnyKartFn isAPlayerSquishedOrSmall = reinterpret_cast<AnyKartFn>(0x80711668);
+static const ApplyTriggerFn applyTrigger = reinterpret_cast<ApplyTriggerFn>(0x80719044);
+static const GetPlayerIdxFn getPlayerIdx = reinterpret_cast<GetPlayerIdxFn>(0x80590a5c);
+static const EchoVolumeFn echoSetVolume = reinterpret_cast<EchoVolumeFn>(0x807182b8);
+static const AmbienceVolumeFn setAllAmbiencesVolume = reinterpret_cast<AmbienceVolumeFn>(0x806fcfa0);
+static const GetNewIDFn getNewID = reinterpret_cast<GetNewIDFn>(0x8061b378);
+
+// KartActor::Link+0xBC calls RaceMgr::SetKartSound for a local, which keeps 4 and drops the rest; Link
+// runs in player order, so hud 4-7 could take P1-4's places. They go to extKartActors instead, and the
+// RaceMgr's counts (+0x28; +0x29 scales engine volume by locals racing) stay P1-4's.
+static void SetKartSoundWide(Audio::RaceMgr *mgr, Audio::KartActor *actor) {
+    const s32 hud = ActorHud(actor);
+    if (raceScreenCount != 0 && hud >= kGameLocal) {
+        if (hud < kMaxLocal) extKartActors[hud - kGameLocal] = actor;
+        return;
+    }
+    setKartSound(mgr, actor);
+}
+kmCall(0x807075f0, SetKartSoundWide);
+
+// ItemAlterationMgr::UpdateStatus+0x28/+0x34/+0x40 ask whether any local is in a Mega, a star or
+// squished, to alter the music. Each reads only the race state (+0x40), the actor count (+0x28) and the
+// actors (+0x18), so hud 4-7's are asked through a copy of the RaceMgr holding them instead.
+static bool AnyKartWide(const u8 *mgr, AnyKartFn any) {
+    if (any(mgr)) return true;
+    if (raceScreenCount == 0) return false;
+    u8 copy[0x44];
+    *reinterpret_cast<u32 *>(copy + 0x40) = *reinterpret_cast<const u32 *>(mgr + 0x40);
+    u32 n = 0;
+    for (u32 i = 0; i < kExtra; ++i) {
+        if (extKartActors[i] != nullptr) reinterpret_cast<Audio::KartActor **>(copy + 0x18)[n++] = extKartActors[i];
+    }
+    copy[0x28] = n;
+    return n != 0 && any(copy);
+}
+static bool IsAPlayerInMegaWide(const u8 *mgr) {
+    return AnyKartWide(mgr, isAPlayerInMega);
+}
+static bool IsAPlayerInStarWide(const u8 *mgr) {
+    return AnyKartWide(mgr, isAPlayerInStar);
+}
+static bool IsAPlayerSquishedOrSmallWide(const u8 *mgr) {
+    return AnyKartWide(mgr, isAPlayerSquishedOrSmall);
+}
+kmCall(0x8070fef0, IsAPlayerInMegaWide);
+kmCall(0x8070fefc, IsAPlayerInStarWide);
+kmCall(0x8070ff08, IsAPlayerSquishedOrSmallWide);
+
+// KartActor::ApplyKCLSoundTrigger tail-calls SoundTriggerMgr::ApplyTrigger, whose cases set the hud's
+// listener's ambience, echo and music, then store the trigger in curVariant[hud]. Hud 4-7 share P1-4's
+// listeners, which keep their own settings (D52), so only the store is done for them, under
+// ApplyTrigger's own two early returns (the player's +0x38 bit 1, and the race state).
+static void ApplyTriggerWide(u8 *triggers, s32 variant, s32 hud, void *link) {
+    if (raceScreenCount == 0 || hud < kGameLocal) {
+        applyTrigger(triggers, variant, hud, link);
+        return;
+    }
+    if (hud >= kMaxLocal) return;
+    if (link != nullptr) {
+        const u8 *player = reinterpret_cast<const u8 *>(Raceinfo::sInstance->players[getPlayerIdx(link)]);
+        if (*reinterpret_cast<const u32 *>(player + 0x38) & 2) return;
+    }
+    const u32 state = Audio::RaceMgr::sInstance->raceState;
+    if (state != 1 && (state < 3 || state > 6)) return;
+    extVariant[hud - kGameLocal] = variant;
+}
+kmBranch(0x80708ba4, ApplyTriggerWide);
+
+// SoundTriggerMgr::Init ends here (+0x894, "lwz r0, 0x204(r1)") after giving every hud below the
+// listener count the same starting trigger; hud 4-7 start from hud 0's. r11 and r12 are not read by
+// the epilogue.
+asmFunc InitVariantsWide() {
+    ASM(
+        nofralloc;
+        lbz r12, 0x12(r31);
+        lis r11, extVariant @ha;
+        addi r11, r11, extVariant @l;
+        stb r12, 0(r11);
+        stb r12, 1(r11);
+        stb r12, 2(r11);
+        stb r12, 3(r11);
+        lwz r0, 0x204(r1);
+        blr;)
+}
+kmCall(0x80718edc, InitVariantsWide);
+
+// KartActor::StartSoundLimited+0x298/+0x380, "lbz r0, 0x12(r3)" with r3 = triggers + hud (r0): a
+// local-only sound plays only on trigger 4. Hud 4-7 read extVariant. The cmpwi after sets CR0 again.
+asmFunc LimitedVariantWide() {
+    ASM(
+        nofralloc;
+        cmpwi r0, 4;
+        blt vanilla;
+        lis r12, extVariant @ha;
+        addi r12, r12, extVariant @l;
+        add r12, r12, r0;
+        lbz r0, -4(r12);
+        blr;
+        vanilla :;
+        lbz r0, 0x12(r3);
+        blr;)
+}
+kmCall(0x80708570, LimitedVariantWide);
+kmCall(0x80708658, LimitedVariantWide);
+
+// KartActor::UpdateLapSounds, when a local finishes: EchoMgr::SetVolume and SetAllAmbiencesVolume by
+// hud write 4-wide per-listener arrays, past them for hud 4+ (D52: P1-4's listeners keep theirs).
+static void EchoVolumeLocal(void *echo, u32 hud, u32 frames, float volume) {
+    if (raceScreenCount != 0 && hud >= kGameLocal) return;
+    echoSetVolume(echo, hud, frames, volume);
+}
+static void AmbienceVolumeLocal(void *ambience, u32 hud, u32 frames) {
+    if (raceScreenCount != 0 && hud >= kGameLocal) return;
+    setAllAmbiencesVolume(ambience, hud, frames);
+}
+kmCall(0x8070b3c8, EchoVolumeLocal);
+kmCall(0x8070b3dc, AmbienceVolumeLocal);
+
+// Its +0x19C, "addi r0, r3, -1": the RaceMgr's count of locals racing (+0x29) loses the finisher.
+// Hud 4-7 were never counted (SetKartSoundWide), so theirs subtracts 0: hud >> 2 is 1 only for them,
+// as a finisher's hud is 0-7. No CR field is touched. The addi reads r12: with rA = r0 it is li.
+asmFunc LocalsRacingWide() {
+    ASM(
+        nofralloc;
+        lbz r12, 0xb3(r29);
+        srwi r12, r12, 2;
+        add r12, r3, r12;
+        addi r0, r12, -1;
+        blr;)
+}
+kmCall(0x8070b3ec, LocalsRacingWide);
+
+// RSARPlayer::PlaySound+0xAE4 picks the Wii Remote speakers for a hud's sound through
+// SectionPad::GetNewID, which reads padInfos[hud]; hud 4-7 have none, so they get -1's 0, no speaker.
+static u32 NewIDWide(const void *pads, s32 hud) {
+    if (raceScreenCount != 0 && hud >= kGameLocal) return 0;
+    return getNewID(pads, hud);
+}
+kmCall(0x80715460, NewIDWide);
+
+// The 4 CharacterActor voice-pan sites, "cmplwi r0, 4; bgt" on the hud (+0x6ED): hud 5+ skip the pan
+// and 4 gets the centre. A local's hud 4-7 of a widened race passes (CR0 eq); the bgt reads CR0 only.
+asmFunc VoicePanGate() {
+    ASM(
+        nofralloc;
+        cmplwi r0, 4;
+        blelr;
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beq gt;
+        lis r12, raceLocalCount @ha;
+        lbz r12, raceLocalCount @l(r12);
+        cmplw r0, r12;
+        bge gt;
+        cmplw r0, r0;
+        blr;
+        gt :;
+        cmplwi r0, 4;
+        blr;)
+}
+kmCall(0x808645c8, VoicePanGate);
+kmCall(0x80864b0c, VoicePanGate);
+kmCall(0x80864ff8, VoicePanGate);
+kmCall(0x808658d8, VoicePanGate);
+
+// Their pan leaf (0x806F6BEC, "cmplwi r5, 0xff" first) pans hud 0/2 left and 1/3 right when 2-4 listen.
+// In a widened race a local's hud (r4) takes its column's slot (D51) and anything else the centre (4);
+// r5 = 2 takes the per-hud path. The leaf saves no LR, so this is branched to and returns through CTR,
+// which the leaf never reads; its bne reads the CR0 set last.
+asmFunc VoicePanSlot() {
+    ASM(
+        nofralloc;
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beq end;
+        lis r12, raceLocalCount @ha;
+        lbz r12, raceLocalCount @l(r12);
+        cmplw r4, r12;
+        bge centre;
+        lis r12, panSlot @ha;
+        addi r12, r12, panSlot @l;
+        lbzx r4, r12, r4;
+        extsb.r4, r4;
+        bge slot;
+        centre :;
+        li r4, 4;
+        slot :;
+        li r5, 2;
+        end :;
+        cmplwi r5, 0xff;
+        lis r12, 0x806f;
+        ori r12, r12, 0x6bf0;
+        mtctr r12;
+        bctr;)
+}
+kmBranch(0x806f6bec, VoicePanSlot);
 
 }  // namespace SplitScreen8
 #endif
