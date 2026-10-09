@@ -2,9 +2,7 @@
 #include <core/rvl/OS/OS.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/3D/Scn/GameScreen.hpp>
-#ifdef SS8_DEBUG_SCREENS
 #include <MarioKartWii/Input/InputManager.hpp>
-#endif
 #include <SplitScreen8/SplitScreen8.hpp>
 
 // 6/8 race screens. Only RaceScene::GetScreenCount reports the wide count, so the views, cameras and
@@ -17,16 +15,14 @@ u8 raceScreenCount;
 // Player id per hud slot kGameLocal..kMaxLocal-1; lower slots stay in RacedataSettings::hudPlayerIds.
 static s8 hudPlayerIdsExt[kMaxLocal];
 
-// Only the debug build widens: 5-8 local players have no menu path and their controller holders
-// exist only there (D24, D26). A debug boot can race 1 local player (--boot-locals 1), so it widens
-// from 1; menu-driven debug builds keep 1P vanilla.
+// A debug build also widens a race of 4 or fewer locals to its forced count: from 1 in a debug boot
+// (--boot-locals 1), from 2 in a menu-driven build, so its 1P stays vanilla.
 #ifdef SS8_DEBUG_BOOT
 #define SS8_DEBUG_MIN_LOCALS 1
 #else
 #define SS8_DEBUG_MIN_LOCALS 2
 #endif
 
-#ifdef SS8_DEBUG_SCREENS
 u8 raceLocalCount;
 
 static u32 LocalPlayerCount(const RacedataScenario &scenario) {
@@ -35,23 +31,21 @@ static u32 LocalPlayerCount(const RacedataScenario &scenario) {
         if (scenario.players[i].playerType == PLAYER_REAL_LOCAL) ++locals;
     return locals;
 }
-#endif
 
-// 5-6 local players race on 6 screens and 7-8 on 8; fewer take the debug build's forced count.
+// A VS race of 5-6 local players races on 6 screens and 7-8 on 8; 4 or fewer keep the game's count.
 static u32 WideScreenCount(const RacedataScenario &scenario) {
-#ifdef SS8_DEBUG_SCREENS
     if (scenario.settings.gamemode != MODE_VS_RACE) return 0;
     const u32 locals = LocalPlayerCount(scenario);
     if (locals > kMaxLocal) return 0;
     if (locals > 6) return 8;
+#ifdef SS8_DEBUG_SCREENS
     if (locals > kGameLocal) return SS8_DEBUG_SCREENS > 6 ? SS8_DEBUG_SCREENS : 6;
     return locals >= SS8_DEBUG_MIN_LOCALS ? SS8_DEBUG_SCREENS : 0;
 #else
-    return 0;
+    return locals > kGameLocal ? 6 : 0;
 #endif
 }
 
-#ifdef SS8_DEBUG_SCREENS
 // ComputePlayerCounts+0x194 replaces its last store, "stb r10, 0(r6)" (r10 = local players,
 // unclamped), before its blr: the scenario's count stops at the game's 4 (D25), for Init's call
 // through RR's NonGhostPlayerCount and for RR's own calls. Branched to, so this blr returns.
@@ -66,7 +60,6 @@ asmFunc ClampLocalPlayerCount() {
         blr;)
 }
 kmBranch(0x8052f91c, ClampLocalPlayerCount);
-#endif
 
 #ifdef SS8_DEBUG_SCREENS
 // ComputePlayerCounts+0x118 replaces "cmplwi r9, 3" (r9 = screen count, r10 = local count, r3 =
@@ -99,7 +92,6 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     const u32 wide = screenCount == kGameLocal ? WideScreenCount(scenario) : 0;
     raceScreenCount = wide;
     for (int i = 0; i < kMaxLocal; ++i) hudPlayerIdsExt[i] = -1;
-#ifdef SS8_DEBUG_SCREENS
     const u32 localCount = LocalPlayerCount(scenario);
     raceLocalCount = localCount <= kMaxLocal && (wide != 0 || localCount > kGameLocal) ? localCount : 0;
     s8 extLocals[kMaxLocal - kGameLocal];
@@ -110,10 +102,8 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
         extLocals[extCount++] = i;
         player.playerType = PLAYER_NONE;
     }
-#endif
     scenario.InitScreens(screenCount);
     u32 hud = kGameLocal;
-#ifdef SS8_DEBUG_SCREENS
     for (u32 k = 0; k < extCount; ++k) {
         RacedataPlayer &player = scenario.players[extLocals[k]];
         player.playerType = PLAYER_REAL_LOCAL;
@@ -131,7 +121,6 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
         player.controllerType = controller != nullptr ? controller->GetType() : static_cast<ControllerType>(-1);
         hudPlayerIdsExt[hud++] = extLocals[k];
     }
-#endif
     for (int i = 0; i < 12 && hud < wide; ++i) {
         RacedataPlayer &player = scenario.players[i];
         if (player.playerType == PLAYER_NONE || player.hudSlotId != -1) continue;

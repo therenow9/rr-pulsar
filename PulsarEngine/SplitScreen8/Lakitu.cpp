@@ -1,4 +1,3 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <MarioKartWii/Kart/KartManager.hpp>
 #include <MarioKartWii/Lakitu/LakituManager.hpp>
@@ -153,4 +152,3 @@ static void CallEach80722418(Lakitu::Manager *mgr, u32 arg) {
 kmBranch(0x8071e90c, CallEach80722418);
 
 }  // namespace SplitScreen8
-#endif

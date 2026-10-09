@@ -8,16 +8,17 @@
 #error "a menu script and the debug boot both hook Input::Manager::CopyPADStatus's call (0x80520220)"
 #endif
 
-// Debug build only: presses GC pad buttons on ports 1-4 at fixed frames from boot, so menu paths (the
-// 3P character select, M4's join screen) run with no one at the pads. tools/build_code.py
-// --menu-script turns a script file into SS8_MENU_STEPS; docs/toolchain.md has the format.
+// Debug build only: presses GC pad buttons on ports 1-4, and Classic Controller buttons on Wii channels
+// 1-4 for ports 5-8, at fixed frames from boot, so menu paths (the 3P character select, M4's join
+// screen) run with no one at the pads. tools/build_code.py --menu-script turns a script file into
+// SS8_MENU_STEPS; docs/toolchain.md has the format.
 
 namespace SplitScreen8 {
 
 struct MenuStep {
     u32 frame;  // channel 0's pad reads since boot
-    u32 port;  // 0-3
-    u32 buttons;  // PAD::PAD_BUTTON_*
+    u32 port;  // 0-3 GC ports, 4-7 Wii channels 0-3
+    u32 buttons;  // PAD::PAD_BUTTON_* on a GC port, WPAD_CL_BUTTON_* on a Wii channel
     u32 hold;  // frames
 };
 static const MenuStep menuSteps[] = {SS8_MENU_STEPS};
@@ -41,6 +42,25 @@ static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Stat
     return result;
 }
 kmCall(0x80520220, CopyPADStatusMenuScript);
+
+// WiiController::UpdateImpl+0x1E8 calls UpdateStatesClassic(controller, status, state, uiState) for a
+// channel with a Classic Controller; with the extension readable it takes the held buttons from the
+// status's +0x2A (WPADCLStatus), and the controller's +0x8F8 holds the last frame's. +0x8D4 is the channel.
+typedef void (*UpdateStatesClassicFn)(u8 *controller, u8 *status, void *state, void *uiState);
+static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<UpdateStatesClassicFn>(0x8051f410);
+
+static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *state, void *uiState) {
+    const u32 port = 4 + *reinterpret_cast<const u32 *>(controller + 0x8d4);
+    for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
+        const MenuStep &step = menuSteps[i];
+        if (step.port != port || menuFrames < step.frame || menuFrames >= step.frame + step.hold) continue;
+        if (menuFrames == step.frame) OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, port + 1,
+                                                 step.buttons);
+        *reinterpret_cast<u16 *>(status + 0x2a) |= step.buttons;
+    }
+    updateStatesClassic(controller, status, state, uiState);
+}
+kmCall(0x8051fe6c, UpdateStatesClassicMenuScript);
 
 }  // namespace SplitScreen8
 #endif

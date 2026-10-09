@@ -17,7 +17,6 @@ const int kGameLocal = 4;
 // Screens of the current race: 0 while it uses the game's own count, else 6 or 8 (Screens.cpp).
 extern u8 raceScreenCount;
 
-#ifdef SS8_DEBUG_SCREENS
 // Local players of a widened race or of any race with more than 4, 0 otherwise; the scenario's own
 // count stops at 4 (D25, Screens.cpp).
 extern u8 raceLocalCount;
@@ -26,7 +25,6 @@ Input::RealControllerHolder &Holder(Input::Manager &input, u32 id);
 // The colours of a local's hud slot 4..raceLocalCount-1 in a widened race; false for any other slot,
 // which keeps RR's own (Colours.cpp, called from RR's UIColor.cpp).
 bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary);
-#endif
 
 #ifdef SS8_DEBUG_BOOT
 // Called from Pulsar's BootIntoSection with its section; returns the section the game boots into.

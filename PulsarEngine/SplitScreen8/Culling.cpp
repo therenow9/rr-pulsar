@@ -362,7 +362,6 @@ asmFunc SetAllClipWord() {
 }
 kmCall(0x8055d490, SetAllClipWord);
 
-#ifdef SS8_DEBUG_SCREENS
 // Effects::Player::UpdateValues+0x40 replaces "lwz r0, 0x20(r3)" (r3 = the kart's ClipInfo) ahead of
 // "andc 0x01010101": +4 = culled on every screen, which skips the kart's item effects (UpdateItemEffect:
 // star, thunder, POW). In a widened race it takes screens 4-7 as SetAllClipWord does. r12 is free.
@@ -397,7 +396,6 @@ asmFunc ItemModelClipWord() {
         blr;)
 }
 kmCall(0x80796b68, ItemModelClipWord);
-#endif
 
 // +0x6C replaces "clrlwi. r0, r0, 28" (r0 = ~hidden mask): any screen not hidden.
 asmFunc SetAllHiddenMask() {

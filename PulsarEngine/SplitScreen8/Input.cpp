@@ -1,4 +1,3 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -158,4 +157,3 @@ kmCall(0x80536b8c, HolderOffset);
 kmCall(0x80536bd8, HolderOffset);
 
 }  // namespace SplitScreen8
-#endif

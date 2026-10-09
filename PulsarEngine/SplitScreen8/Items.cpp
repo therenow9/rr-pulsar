@@ -1,4 +1,3 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
@@ -107,4 +106,3 @@ asmFunc ThunderFlashScreens() {
 kmCall(0x807b7d1c, ThunderFlashScreens);
 
 }  // namespace SplitScreen8
-#endif
