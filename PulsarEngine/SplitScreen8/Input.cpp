@@ -177,4 +177,15 @@ kmCall(0x80524034, HolderOffset);
 kmWrite32(0x80523f5c, 0x28000008);  // cmplwi r0, 8 (was 4)
 kmWrite32(0x80524054, 0x28000008);
 
+// SectionPad::SetDriftType finds the holder as mgr + 4 + hud * 0xEC, which for hud 4-7 is an AI
+// holder; the race reads a player's drift type from its own holder's controller (Kart::Status,
+// 0x805944F4). Replaced whole at its entry: the leaf's tail call keeps no frame to patch into.
+typedef void (*HolderDriftFn)(Input::RealControllerHolder *, u16);
+static const HolderDriftFn holderSetDriftType = reinterpret_cast<HolderDriftFn>(0x80520f2c);
+
+static void SetDriftTypeWide(const void *, u32 hud, u16 isDriftAuto) {
+    holderSetDriftType(&Holder(*Input::Manager::sInstance, hud & 0xff), isDriftAuto);
+}
+kmBranch(0x8061b420, SetDriftTypeWide);
+
 }  // namespace SplitScreen8
