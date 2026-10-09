@@ -3,6 +3,9 @@
 #include <core/rvl/PAD.hpp>
 #include <core/rvl/OS/OS.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
+#include <core/egg/mem/ExpHeap.hpp>
+#include <MarioKartWii/Race/RaceData.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 #ifdef SS8_DEBUG_BOOT
 #error "a menu script and the debug boot both hook Input::Manager::CopyPADStatus's call (0x80520220)"
@@ -23,6 +26,7 @@ struct MenuStep {
 };
 static const MenuStep menuSteps[] = {SS8_MENU_STEPS};
 static u32 menuFrames;
+static void ReportHeaps(const char *when);
 
 // GCNController::UpdateImpl+0x70 calls Input::Manager::CopyPADStatus(manager, channel, &padStatus) for
 // each plugged-in port every frame, and reads padStatus after it, as DebugBoot.cpp's race script does.
@@ -38,7 +42,7 @@ static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Stat
         if (menuFrames == step.frame) OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, channel + 1, step.buttons);
         status->buttons |= step.buttons;
     }
-    if (channel == 0) ++menuFrames;
+    if (channel == 0 && ++menuFrames % 300 == 0) ReportHeaps("tick");
     return result;
 }
 kmCall(0x80520220, CopyPADStatusMenuScript);
@@ -61,6 +65,69 @@ static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *stat
     updateStatesClassic(controller, status, state, uiState);
 }
 kmCall(0x8051fe6c, UpdateStatesClassicMenuScript);
+
+// Every EGG heap's free bytes, in EGG's own list (0x80384320), at each section load and every 300 frames:
+// a menu page's allocations land on the scene heaps (D57's method). An ExpHeap reports its total free
+// bytes, any other heap its largest block.
+static nw4r::ut::List *const heapList = reinterpret_cast<nw4r::ut::List *>(0x80384320);
+
+static void ReportHeaps(const char *when) {
+    u32 index = 0;
+    for (void *node = nw4r::ut::List_GetNext(heapList, nullptr); node != nullptr; node = nw4r::ut::List_GetNext(heapList, node)) {
+        EGG::Heap *heap = static_cast<EGG::Heap *>(node);
+        const u32 kind = heap->getHeapKind();
+        const u32 free = kind == EGG::HEAP_TYPE_EXP ? static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize() : heap->getAllocatableSize(4);
+        OS::Report("ss8 heap: %s frame %u #%u %08x kind %u free %u name %s\n", when, menuFrames, index++, heap, kind, free,
+                   heap->name != nullptr ? heap->name : "-");
+    }
+}
+
+// A script's "pick" lines fill P5-8's extPicks in a 5-8 player game, which phase C's select pages will
+// write; the main menu clears them (Entry.cpp), and section 0x54 loads after it.
+#ifdef SS8_MENU_PICKS
+struct MenuPick {
+    u32 slot;  // 0-3 for P5-8
+    u32 character;
+    u32 kart;
+};
+static const MenuPick menuPicks[] = {SS8_MENU_PICKS};
+#endif
+
+// The race scenario's first 8 players, once per race at its first frame (InitRace has run by then).
+static bool racePlayersReported;
+
+static void ReportRacePlayers() {
+    if (racePlayersReported || Racedata::sInstance == nullptr) return;
+    racePlayersReported = true;
+    for (u32 i = 0; i < kMaxLocal; ++i) {
+        const RacedataPlayer &player = Racedata::sInstance->racesScenario.players[i];
+        OS::Report("ss8 race player %u: type %d character %#x kart %#x\n", i, player.playerType, player.characterId,
+                   player.kartId);
+    }
+    // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
+    // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).
+    for (u32 i = 0; Input::Manager::sInstance != nullptr && i < kMaxLocal; ++i) {
+        const Input::RealControllerHolder &holder = Holder(*Input::Manager::sInstance, i);
+        const u8 *controller = reinterpret_cast<const u8 *>(holder.curController);
+        OS::Report("ss8 holder %u: drift %u controller %d\n", i, *reinterpret_cast<const u16 *>(reinterpret_cast<const u8 *>(&holder) + 0xc0),
+                   controller != nullptr ? controller[0x51] : -1);
+    }
+}
+static RaceFrameHook reportRacePlayers(ReportRacePlayers);
+
+static void OnSectionLoad() {
+    racePlayersReported = false;
+#ifdef SS8_MENU_PICKS
+    for (u32 i = 0; menuLocalCount > kGameLocal && i < sizeof(menuPicks) / sizeof(menuPicks[0]); ++i) {
+        ExtPick &pick = extPicks[menuPicks[i].slot];
+        pick.character = static_cast<CharacterId>(menuPicks[i].character);
+        pick.kart = static_cast<KartId>(menuPicks[i].kart);
+        pick.picked = true;
+    }
+#endif
+    ReportHeaps("section");
+}
+static SectionLoadHook menuScriptSectionLoad(OnSectionLoad);
 
 }  // namespace SplitScreen8
 #endif

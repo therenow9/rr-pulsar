@@ -26,6 +26,14 @@ Input::RealControllerHolder &Holder(Input::Manager &input, u32 id);
 // Local players of the 5-8 player game the menus are setting up, 0 outside one; SectionParams' own
 // count stays 4 in it (D60, Entry.cpp).
 extern u8 menuLocalCount;
+// P5-8's character and kart, read at InitRace in place of D62's default once picked; cleared at the
+// main menu (Entry.cpp). SectionParams' own picks are 4 wide.
+struct ExtPick {
+    CharacterId character;
+    KartId kart;
+    bool picked;
+};
+extern ExtPick extPicks[kMaxLocal - kGameLocal];
 // The join page of a 5-8 player game (D64, Join.cpp), built by Pulsar's ExpSection in that game's section 0x54.
 Page *NewJoinPage();
 // P5-8's join state cleared and holders 4-7 put back on the dummy controller (Join.cpp).

@@ -212,6 +212,7 @@ kmBranch(0x808515a0, EntryDeselectStub);
 static void EntryActivate(Pages::MainMenu *page) {
     menuLocalCount = 0;
     ClearExtPads();
+    for (u32 i = 0; i < kMaxLocal - kGameLocal; ++i) extPicks[i].picked = false;
     // The buttons' text is laid out after CreateControl, so the digits are set here.
     for (u32 i = 0; i < kEntryButtons; ++i) {
         if (entryButtons[i] != nullptr) SetButtonDigit(*entryButtons[i], L'5' + i);
@@ -301,20 +302,24 @@ asmFunc MultiActivateStub() {
 }
 kmCall(0x8084d3e0, MultiActivateStub);
 
+ExtPick extPicks[kMaxLocal - kGameLocal];
+
 // The menus' pages set every player's type from the game's count, 4 (VSModeSelect::OnActivate,
 // CharacterSelect::OnActivate, MultiPlayer's VS click), so players 5..N are made local where each race
-// takes the menu scenario: InitRace, before RacedataScenario::Init counts its locals. A player still
-// a CPU there takes D62's default until phase C's select pages, as the debug boot picks it: character
-// i on the Standard Kart of its weight class.
+// takes the menu scenario: InitRace, before RacedataScenario::Init counts its locals. The scenario's
+// character and kart for 5..N are rewritten there too: character select's CPU fill (0x8083EC28) and
+// kart select's (0x8084745C) give every slot from 4 a random one. With no pick, D62's default:
+// character i on the Standard Kart of its weight class, as the debug boot picks it.
 static void MenuLocalsLocal(Racedata *racedata) {
     if (menuLocalCount <= kGameLocal) return;
     for (u32 i = kGameLocal; i < menuLocalCount; ++i) {
         RacedataPlayer &player = racedata->menusScenario.players[i];
         if (player.playerType == PLAYER_REAL_LOCAL) continue;
-        const CharacterId character = static_cast<CharacterId>(i);
+        const ExtPick &pick = extPicks[i - kGameLocal];
+        const CharacterId character = pick.picked ? pick.character : static_cast<CharacterId>(i);
         player.playerType = PLAYER_REAL_LOCAL;
         player.characterId = character;
-        player.kartId = static_cast<KartId>(GetCharacterWeightClass(character));
+        player.kartId = pick.picked ? pick.kart : static_cast<KartId>(GetCharacterWeightClass(character));
     }
 }
 
