@@ -264,14 +264,25 @@ kmWrite32(0x8061C410, 0x4E800020);
 typedef u32 (*CopyPADStatusFn)(Input::Manager *, u32, PAD::Status *);
 static const CopyPADStatusFn copyPADStatus = reinterpret_cast<CopyPADStatusFn>(0x80524628);
 
-static u16 ScriptedButtons(u32 frame) {
+static u32 PauseSteps(const u16 **steps) {
     static const u16 restart[] = {PAD::PAD_BUTTON_START, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_A, PAD::PAD_BUTTON_UP,
                                   PAD::PAD_BUTTON_A};
     static const u16 quit[] = {PAD::PAD_BUTTON_START, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_A,
                                PAD::PAD_BUTTON_UP, PAD::PAD_BUTTON_A};
     const bool quitting = bootRaces % 3 == 0;
-    const u16 *steps = quitting ? quit : restart;
-    const u32 count = (quitting ? sizeof(quit) : sizeof(restart)) / sizeof(u16);
+    *steps = quitting ? quit : restart;
+    return (quitting ? sizeof(quit) : sizeof(restart)) / sizeof(u16);
+}
+
+// The pause menu's steps, from its START to its last A.
+static bool InPauseSteps(u32 frame) {
+    const u16 *steps;
+    return !SS8_BOOT_AUTODRIVE && frame >= kPauseFrame && (frame - kPauseFrame) / 60 < PauseSteps(&steps);
+}
+
+static u16 ScriptedButtons(u32 frame) {
+    const u16 *steps;
+    const u32 count = PauseSteps(&steps);
     // An autodrive boot only presses A once a second: through the results into the next race.
     if (SS8_BOOT_AUTODRIVE) return frame % 60 < 5 ? PAD::PAD_BUTTON_A : 0;
     if (frame < kPauseFrame) return 0;
@@ -285,8 +296,9 @@ static u32 CopyPADStatusScripted(Input::Manager *input, u32 channel, PAD::Status
     if (channel == 0 && status != nullptr) {
         const u16 buttons = ScriptedButtons(raceFrames);
         if (buttons != 0 && ScriptedButtons(raceFrames - 1) != buttons)
-            OS::Report("ss8 boot: race %u press %04x at %u\n", bootRaces, buttons, raceFrames);
-        status->buttons |= buttons;
+            OS::Report("ss8 boot: race %u press %04x at %u by P%u\n", bootRaces, buttons, raceFrames,
+                       SS8_BOOT_PAUSE_BY && InPauseSteps(raceFrames) ? SS8_BOOT_PAUSE_BY : 1);
+        if (!SS8_BOOT_PAUSE_BY || !InPauseSteps(raceFrames)) status->buttons |= buttons;
 #if SS8_BOOT_AUTODRIVE
         if (raceFrames == 60 && bootRaces != 0) AutodriveLocals();
 #endif
@@ -329,6 +341,28 @@ asmFunc ScriptedWiiButtonsStub() {
         blr;)
 }
 kmCall(0x8051ffa0, ScriptedWiiButtonsStub);
+#endif
+
+#if SS8_BOOT_PAUSE_BY
+// --boot-pause-by N: player N (5-8) drives the pause menu's steps on its Classic Controller instead of
+// GC port 1. WiiController::UpdateImpl+0x1E8 calls UpdateStatesClassic(controller, status, state, uiState),
+// which takes the held buttons from the status's +0x2A (WPADCLStatus) when the extension reads.
+typedef void (*UpdateStatesClassicFn)(u8 *controller, u8 *status, void *state, void *uiState);
+static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<UpdateStatesClassicFn>(0x8051f410);
+
+// PAD::PAD_BUTTON_* to WPAD_CL_BUTTON_*, for the buttons the pause steps use.
+static u16 ClassicButtons(u16 pad) {
+    return (pad & PAD::PAD_BUTTON_START ? 0x400 : 0) | (pad & PAD::PAD_BUTTON_A ? 0x10 : 0) |
+           (pad & PAD::PAD_BUTTON_UP ? 0x1 : 0) | (pad & PAD::PAD_BUTTON_DOWN ? 0x4000 : 0);
+}
+
+static void UpdateStatesClassicPauseBy(u8 *controller, u8 *status, void *state, void *uiState) {
+    const u32 channel = *reinterpret_cast<const u32 *>(controller + 0x8d4);
+    if (bootRaces != 0 && channel == SS8_BOOT_PAUSE_BY - 5 && InPauseSteps(raceFrames))
+        *reinterpret_cast<u16 *>(status + 0x2a) |= ClassicButtons(ScriptedButtons(raceFrames));
+    updateStatesClassic(controller, status, state, uiState);
+}
+kmCall(0x8051fe6c, UpdateStatesClassicPauseBy);
 #endif
 #endif
 

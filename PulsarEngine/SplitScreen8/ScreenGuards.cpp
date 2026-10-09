@@ -164,7 +164,6 @@ static ItemWarning *GetItemWarning(u8 *mgr, u32 hud) {
 }
 kmBranch(0x806f8210, GetItemWarning);
 
-#ifdef SS8_DEBUG_SCREENS
 // Audio::KartActor::Link+0x6C replaces "stb r3, 0xb3(r31)", the hud slot that also makes Link treat
 // the kart as local (+0xE0, SetKartSound). A local's hud 4+ is kept, and its 4-wide readers are
 // redirected in Audio.cpp (PC2); a spare CPU's hud 4+ is stored as -1, the CPU path. CR0, r11 and r12
@@ -189,6 +188,5 @@ asmFunc KartSoundHud() {
         blr;)
 }
 kmCall(0x807075a0, KartSoundHud);
-#endif
 
 }  // namespace SplitScreen8

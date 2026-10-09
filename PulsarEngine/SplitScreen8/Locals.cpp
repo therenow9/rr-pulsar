@@ -1,4 +1,3 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
@@ -155,4 +154,3 @@ asmFunc HumansKartCalled() {
 kmCall(0x807432b4, HumansKartCalled);
 
 }  // namespace SplitScreen8
-#endif

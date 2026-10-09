@@ -1,4 +1,3 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <core/System/SystemManager.hpp>
 #include <MarioKartWii/UI/Layout/ControlLoader.hpp>
@@ -192,4 +191,3 @@ asmFunc WideWipeInitStub() {
 kmCall(0x806522b0, WideWipeInitStub);
 
 }  // namespace SplitScreen8
-#endif

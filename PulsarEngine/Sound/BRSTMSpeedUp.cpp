@@ -19,12 +19,9 @@ namespace Sound {
 using namespace nw4r;
 static const Audio::RaceState RACE_STATE_FINAL_LAP_JINGLE = static_cast<Audio::RaceState>(0x6);
 static const u8 INVALID_HUD_SLOT_ID = 0xFF;
-#ifdef SS8_DEBUG_SCREENS
-// SplitScreen8: a local's hud slot reaches 7, past hudPlayerIds' 4 entries.
-#define HUD_PLAYER_ID(settings, hud) Racedata::sInstance->GetPlayerIdOfLocalPlayer(hud)
-#else
-#define HUD_PLAYER_ID(settings, hud) (settings).hudPlayerIds[hud]
-#endif
+// SplitScreen8: a local's hud slot reaches 7, past hudPlayerIds' 4 entries; slots 0-3 keep RR's read.
+#define HUD_PLAYER_ID(settings, hud) \
+    ((hud) < 4 ? (settings).hudPlayerIds[hud] : Racedata::sInstance->GetPlayerIdOfLocalPlayer(hud))
 static u8 finalLapSpeedupHudSlot = INVALID_HUD_SLOT_ID;
 void UpdateCheckpointMusic();
 bool IsCheckpointFinalLap();

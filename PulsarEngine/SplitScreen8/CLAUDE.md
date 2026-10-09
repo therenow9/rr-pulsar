@@ -16,4 +16,5 @@ Breaking a rule below **fails silently** — it builds, it may even work with 8 
 - **Every hook outside `SameCharacter.cpp` early-returns for ≤ 4 local players.**
 - **Indices 0–3 stay on the game's own storage; 4–7 go to a side table here**, sized by `kMaxLocal`, never a literal.
 - **A game slot can be -1.** Check before indexing.
+- **Menu input managers have 5 slots and read slot 4 with no mask** (`ManipulatorManager::Update`, `ControlsManipulatorManager::Update`). Anything that makes slot 4 answer a real holder (`Pause.cpp`) must be gone by the next section load, or every menu page sees that pad.
 - The `widen-to-eight` skill is the procedure for any 4-wide structure.

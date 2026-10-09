@@ -1,10 +1,10 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <core/nw4r/snd/BasicSound.hpp>
 #include <core/nw4r/snd/SoundHandle.hpp>
 #include <MarioKartWii/3D/Camera/CameraMgr.hpp>
 #include <MarioKartWii/Audio/RaceMgr.hpp>
 #include <MarioKartWii/Audio/RSARPlayer.hpp>
+#include <MarioKartWii/Input/InputManager.hpp>
 #include <MarioKartWii/Race/RaceInfo/RaceInfo.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
@@ -348,6 +348,7 @@ typedef u8 (*GetPlayerIdxFn)(const void *link);
 typedef void (*EchoVolumeFn)(void *echo, u32 hud, u32 frames, float volume);
 typedef void (*AmbienceVolumeFn)(void *ambience, u32 hud, u32 frames);
 typedef u32 (*GetNewIDFn)(const void *pads, s32 hud);
+typedef u32 (*CalculateIDFn)(const Input::RealControllerHolder *);
 static const SetKartSoundFn setKartSound = reinterpret_cast<SetKartSoundFn>(0x80713754);
 static const AnyKartFn isAPlayerInMega = reinterpret_cast<AnyKartFn>(0x807117a0);
 static const AnyKartFn isAPlayerInStar = reinterpret_cast<AnyKartFn>(0x8071172c);
@@ -357,6 +358,7 @@ static const GetPlayerIdxFn getPlayerIdx = reinterpret_cast<GetPlayerIdxFn>(0x80
 static const EchoVolumeFn echoSetVolume = reinterpret_cast<EchoVolumeFn>(0x807182b8);
 static const AmbienceVolumeFn setAllAmbiencesVolume = reinterpret_cast<AmbienceVolumeFn>(0x806fcfa0);
 static const GetNewIDFn getNewID = reinterpret_cast<GetNewIDFn>(0x8061b378);
+static const CalculateIDFn calculateID = reinterpret_cast<CalculateIDFn>(0x8061be40);
 
 // KartActor::Link+0xBC calls RaceMgr::SetKartSound for a local, which keeps 4 and drops the rest; Link
 // runs in player order, so hud 4-7 could take P1-4's places. They go to extKartActors instead, and the
@@ -484,10 +486,12 @@ asmFunc LocalsRacingWide() {
 kmCall(0x8070b3ec, LocalsRacingWide);
 
 // RSARPlayer::PlaySound+0xAE4 picks the Wii Remote speakers for a hud's sound through
-// SectionPad::GetNewID, which reads padInfos[hud]; hud 4-7 have none, so they get -1's 0, no speaker.
+// SectionPad::GetNewID, which reads padInfos[hud]; hud 4-7 have none, so a local's ID is worked out
+// from its holder as SectionPad::Update works out padInfos' (CalculateID), and anything else gets 0.
 static u32 NewIDWide(const void *pads, s32 hud) {
-    if (raceScreenCount != 0 && hud >= kGameLocal) return 0;
-    return getNewID(pads, hud);
+    if (raceScreenCount == 0 || hud < kGameLocal) return getNewID(pads, hud);
+    if (hud >= raceLocalCount || hud >= kMaxLocal) return 0;
+    return calculateID(&Holder(*Input::Manager::sInstance, hud));
 }
 kmCall(0x80715460, NewIDWide);
 
@@ -551,4 +555,3 @@ asmFunc VoicePanSlot() {
 kmBranch(0x806f6bec, VoicePanSlot);
 
 }  // namespace SplitScreen8
-#endif

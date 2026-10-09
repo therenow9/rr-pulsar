@@ -1,4 +1,3 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <MarioKartWii/UI/Ctrl/CtrlRace/CtrlRaceResult.hpp>
 #include <UI/UI.hpp>
@@ -92,4 +91,3 @@ asmFunc ResultRowColourHook() {
 kmCall(0x807f63a8, ResultRowColourHook);
 
 }  // namespace SplitScreen8
-#endif

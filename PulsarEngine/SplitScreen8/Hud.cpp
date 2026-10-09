@@ -1,4 +1,3 @@
-#ifdef SS8_DEBUG_SCREENS
 #include <kamek.hpp>
 #include <include/c_stdio.h>
 #include <core/System/SystemManager.hpp>
@@ -62,8 +61,7 @@ asmFunc HudCountR0R5() {
 kmCall(0x80857b3c, HudCountR0R5);
 kmCall(0x808574e4, HudCountR0R5);
 
-// UpdateRaceBalloons+0x44: r0 from r3. OnItemObjTargeting keeps 4: RaceBalloons::OnItemObjTargeting
-// reads ClipInfo's per-screen floats, which hold 4 screens.
+// UpdateRaceBalloons+0x44 and OnItemObjTargeting+0x3C: r0 from r3.
 asmFunc HudCountR0R3() {
     ASM(
         nofralloc;
@@ -80,6 +78,44 @@ asmFunc HudCountR0R3() {
         blr;)
 }
 kmCall(0x80858b28, HudCountR0R3);
+kmCall(0x80858a8c, HudCountR0R3);
+
+// RaceBalloons::OnItemObjTargeting reads the targeting item's distance from its balloon's screen as
+// "lfs fN, 0xc(r3)", r3 = the item's ClipInfo + screen * 4 (r0): screens 4+ read the shadow's, at
+// r3 + 0x47F0 (Culling.cpp's kClipShadow - 4 * 4). r3 and r12 are written before they are read after
+// each site, CR0 is set again, and the function saved LR. +0xC4 and +0x118 load f0, +0x140 f1.
+asmFunc BalloonDistanceF0() {
+    ASM(
+        nofralloc;
+        cmplwi r0, 16;
+        blt load;
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beq load;
+        addi r3, r3, 0x47f0;
+        load :;
+        lfs f0, 0xc(r3);
+        blr;)
+}
+kmCall(0x807f1e78, BalloonDistanceF0);
+kmCall(0x807f1ecc, BalloonDistanceF0);
+
+asmFunc BalloonDistanceF1() {
+    ASM(
+        nofralloc;
+        cmplwi r0, 16;
+        blt load;
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beq load;
+        addi r3, r3, 0x47f0;
+        load :;
+        lfs f1, 0xc(r3);
+        blr;)
+}
+kmCall(0x807f1ef4, BalloonDistanceF1);
 
 // RaceHUD's accesses of hudHasPlayer[slot], each "op rV, 0x60(page + slot)": slots 0-3 stay on the page,
 // 4.. go to hudHasPlayerExt. Only r12 and CR0 are written; CR0 is set again before it is read at each.
@@ -367,4 +403,3 @@ static void SpeedoCreate(Page &page, u32 index, u32 count) {
 static Pulsar::UI::CustomCtrlBuilder wideSpeedos(SpeedoCount, SpeedoCreate);
 
 }  // namespace SplitScreen8
-#endif
