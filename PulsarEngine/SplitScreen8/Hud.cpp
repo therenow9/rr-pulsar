@@ -117,6 +117,25 @@ asmFunc BalloonDistanceF1() {
 }
 kmCall(0x807f1ef4, BalloonDistanceF1);
 
+// RendererRaceUIScreen::Draw takes its UI pass from the GameScreen's index (r0): a switch gives screens
+// 0-3 passes 2-5 and branches here, at its default, with r4 = 2, screen 0's pass, which would draw P1's
+// item warning and name tags on tiles 5-8. In a widened race screen s draws pass s + 2, the pass
+// InitCtrlRaceBase gives slot s's balloons. r4 and r12 are free until Section::Draw; CR0 is not read.
+asmFunc UIScreenPass() {
+    ASM(
+        nofralloc;
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmplw r0, r12;
+        bge game;
+        mr r4, r0;
+        addi r4, r4, 2;
+        game :;
+        blr;)
+}
+kmBranch(0x805b41f8, UIScreenPass);
+kmPatchExitPoint(UIScreenPass, 0x805b4218);
+
 // RaceHUD's accesses of hudHasPlayer[slot], each "op rV, 0x60(page + slot)": slots 0-3 stay on the page,
 // 4.. go to hudHasPlayerExt. Only r12 and CR0 are written; CR0 is set again before it is read at each.
 // InitCtrlRaceBase+0x3DC: "stb r0, 0x60(r3)", the page in r15.
