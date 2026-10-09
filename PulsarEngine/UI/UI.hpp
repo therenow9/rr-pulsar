@@ -45,8 +45,9 @@ enum PulPageId {
     PULPAGE_EXTENDEDTEAMS_RESULT_TOTAL_IRREGULAR,
     PULPAGE_VRLEADERBOARD,
     PULPAGE_TRANSMISSIONSELECT,
+    PULPAGE_SS8JOIN,  // SplitScreen8's 5-8 player join page
 
-    PULPAGE_MAX = PULPAGE_TRANSMISSIONSELECT - PULPAGE_INITIAL + 1
+    PULPAGE_MAX = PULPAGE_SS8JOIN - PULPAGE_INITIAL + 1
 };
 
 class ExpSection : public Section {  // u32 id -> either a standard pageId but can also be a PulPageId

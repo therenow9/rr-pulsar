@@ -60,9 +60,11 @@ asmFunc ConstructExtHoldersStub() {
 }
 kmCall(0x8052316c, ConstructExtHoldersStub);
 
-// Per frame, after Update's loop over holders 0-3 (bound at 0x80523954), with the same pause flag.
+// Per frame, after Update's loop over holders 0-3 (bound at 0x80523954), with the same pause flag:
+// those a race of more than 4 locals uses, and those a 5-8 player game's menus join (Join.cpp).
 static void UpdateExtHolders(Input::Manager *input) {
-    for (u32 id = kGameLocal; id < raceLocalCount; ++id) Holder(*input, id).Update(input->isPaused);
+    const u32 count = raceLocalCount > menuLocalCount ? raceLocalCount : menuLocalCount;
+    for (u32 id = kGameLocal; id < count; ++id) Holder(*input, id).Update(input->isPaused);
 }
 
 // Update+0x6C replaces "lwz r12, 0x15b4(r29)" (r29 = the manager); r3, r4 and r12 are set after it.
@@ -139,7 +141,7 @@ kmBranch(0x805245cc, EndGhostWriting);
 // Replaces "mulli r0, r0, 0xec" where r0 is a controller id and the result is added to the manager:
 // ids 4-7 also step over the AI holders (kExtGap, 0x3da8). Branchless, so CR0 is untouched; r12 is
 // dead at every site (InitControllers' VS path, RaceinfoPlayer::__ct's kart holder pointer,
-// ComputeGPRank x2), and each function saved LR in its prologue.
+// ComputeGPRank x2, TrySetController's two scans), and each function saved LR in its prologue.
 asmFunc HolderOffset() {
     ASM(
         nofralloc;
@@ -155,5 +157,24 @@ kmCall(0x8052ee68, HolderOffset);
 kmCall(0x80534140, HolderOffset);
 kmCall(0x80536b8c, HolderOffset);
 kmCall(0x80536bd8, HolderOffset);
+
+// TrySetController (r4 = the holder id) binds a pressed controller no other holder has: its holder
+// "mulli r30, r4, 0xec" (0x80523ECC) steps over the AI holders for ids 4-7, as HolderOffset does, and
+// its two scans of the other holders (0x80523F3C/F5C Wii, 0x80524034/4054 GC) cover all eight. With
+// 1-4 players holders 4-7 hold the dummy controller, which no scan matches, so their answer is unchanged.
+asmFunc TrySetHolderOffset() {
+    ASM(
+        nofralloc;
+        srwi r12, r4, 2;
+        mulli r30, r4, 0xec;
+        mulli r12, r12, 0x3da8;
+        add r30, r30, r12;
+        blr;)
+}
+kmCall(0x80523ecc, TrySetHolderOffset);
+kmCall(0x80523f3c, HolderOffset);
+kmCall(0x80524034, HolderOffset);
+kmWrite32(0x80523f5c, 0x28000008);  // cmplwi r0, 8 (was 4)
+kmWrite32(0x80524054, 0x28000008);
 
 }  // namespace SplitScreen8

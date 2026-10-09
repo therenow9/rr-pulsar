@@ -28,6 +28,7 @@
 #include <AutoTrackSelect/AutoVote.hpp>
 #include <AutoTrackSelect/ChooseNextTrack.hpp>
 #include <Gamemodes/KO/KORaceEndPage.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 #include <Gamemodes/KO/KOMgr.hpp>
 #include <Gamemodes/KO/KOWinnerPage.hpp>
 #include <Settings/UI/SettingsPanel.hpp>
@@ -135,6 +136,7 @@ void ExpSection::CreatePulPages() {
             break;
         case SECTION_LOCAL_MULTIPLAYER:  // 0x54
             this->CreateAndInitPage(*this, SettingsPanel::id);
+            if (SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal) this->CreateAndInitPage(*this, PULPAGE_SS8JOIN);
             this->CreateAndInitPage(*this, SettingsPageSelect::id);
             this->CreateAndInitPage(*this, CustomItemPage::id);
             break;
@@ -263,6 +265,9 @@ void ExpSection::CreateAndInitPage(ExpSection &self, u32 id) {
             break;
         case CustomItemPage::id:
             page = new CustomItemPage;
+            break;
+        case PULPAGE_SS8JOIN:
+            page = SplitScreen8::NewJoinPage();
             break;
         default:
             page = self.CreatePageById(initId);

@@ -488,9 +488,11 @@ kmCall(0x8070b3ec, LocalsRacingWide);
 // RSARPlayer::PlaySound+0xAE4 picks the Wii Remote speakers for a hud's sound through
 // SectionPad::GetNewID, which reads padInfos[hud]; hud 4-7 have none, so a local's ID is worked out
 // from its holder as SectionPad::Update works out padInfos' (CalculateID), and anything else gets 0.
+// The join page's chime (Join.cpp) passes P5-8's slot as the hud, with raceScreenCount 0 or stale.
 static u32 NewIDWide(const void *pads, s32 hud) {
-    if (raceScreenCount == 0 || hud < kGameLocal) return getNewID(pads, hud);
-    if (hud >= raceLocalCount || hud >= kMaxLocal) return 0;
+    if (hud < kGameLocal || (raceScreenCount == 0 && menuLocalCount == 0)) return getNewID(pads, hud);
+    const u32 count = raceLocalCount > menuLocalCount ? raceLocalCount : menuLocalCount;
+    if (hud >= count || hud >= kMaxLocal) return 0;
     return calculateID(&Holder(*Input::Manager::sInstance, hud));
 }
 kmCall(0x80715460, NewIDWide);
