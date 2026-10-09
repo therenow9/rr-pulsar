@@ -27,10 +27,14 @@ static bool IsWideLocalHud(u32 hud) {
     return raceLocalCount > kGameLocal && hud >= kGameLocal && hud < raceLocalCount;
 }
 
+void SlotPalette(u32 slot, RGBA16 *primary, RGBA16 *secondary) {
+    *primary = kColours[slot - kGameLocal].hud[0];
+    *secondary = kColours[slot - kGameLocal].hud[1];
+}
+
 bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary) {
     if (!IsWideLocalHud(hud)) return false;
-    *primary = kColours[hud - kGameLocal].hud[0];
-    *secondary = kColours[hud - kGameLocal].hud[1];
+    SlotPalette(hud, primary, secondary);
     return true;
 }
 
