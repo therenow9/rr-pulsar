@@ -336,6 +336,25 @@ kmCall(0x80713360, FoldCull);
 kmCall(0x807133e8, FoldCull);
 kmCall(0x8071348c, FoldCull);
 
+// SortAndToggleActors then keeps the nearest 0x808A1ED4[listeners] = 5 karts and 0x808A1EDC[listeners]
+// = 6 character (voice) actors and switches the rest off, which in 4P spares every local. Past 4 locals
+// each limit grows by the extra locals (PD10). Replaces "lbzx r0, r25, r0" before "cmpw r22, r0"; r12
+// and CR0 are free there and the function saved LR.
+asmFunc CullLimitWide() {
+    ASM(
+        nofralloc;
+        lbzx r0, r25, r0;
+        lis r12, raceLocalCount @ha;
+        lbz r12, raceLocalCount @l(r12);
+        cmplwi r12, 4;
+        blelr;
+        addi r12, r12, -4;
+        add r0, r0, r12;
+        blr;)
+}
+kmCall(0x80713610, CullLimitWide);
+kmCall(0x8071365c, CullLimitWide);
+
 // A KartActor's hud slot (+0xB3), 0-7 for a local of a widened race since KartSoundHud keeps it.
 static s32 ActorHud(const Audio::KartActor *actor) {
     return reinterpret_cast<const s8 *>(actor)[0xb3];
