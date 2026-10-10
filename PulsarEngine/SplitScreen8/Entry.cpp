@@ -81,11 +81,11 @@ static void PlaceInRow(PushButton &button, u32 index) {
 
 // TopMenuMultiWaku is all picture panes but its heading; widening the pictures keeps the text's size.
 static void WidenPanel(LayoutUIControl &panel) {
-    static const char *const panes[] = {"touch", "black", "borderline", "waku_sha", "waku_co",
-                                        "Picture_00", "waku_light", "Picture_02", "Picture_01"};
+    static const char *const panes[] = {"touch", "black", "borderline", "waku_sha", "waku_co", "Picture_00", "waku_light", "Picture_02", "Picture_01"};
     for (u32 i = 0; i < sizeof(panes) / sizeof(panes[0]); ++i) {
         nw4r::lyt::Pane *pane = panel.layout.GetPaneByName(panes[i]);
-        if (pane != nullptr) pane->size.x *= kPanelScale;
+        if (pane != nullptr)
+            pane->size.x *= kPanelScale;
     }
 }
 
@@ -215,12 +215,15 @@ static void EntryActivate(Pages::MainMenu *page) {
     for (u32 i = 0; i < kMaxLocal - kGameLocal; ++i) extPicks[i].picked = false;
     // The buttons' text is laid out after CreateControl, so the digits are set here.
     for (u32 i = 0; i < kEntryButtons; ++i) {
-        if (entryButtons[i] != nullptr) SetButtonDigit(*entryButtons[i], L'5' + i);
+        if (entryButtons[i] != nullptr)
+            SetButtonDigit(*entryButtons[i], L'5' + i);
     }
-    if (lastEntryCount <= kGameLocal || SectionMgr::sInstance->sectionParams->category != 3) return;
+    if (lastEntryCount <= kGameLocal || SectionMgr::sInstance->sectionParams->category != 3)
+        return;
     PushButton *button = entryButtons[lastEntryCount - kGameLocal - 1];
     lastEntryCount = 0;
-    if (button == nullptr) return;
+    if (button == nullptr)
+        return;
     const SelectButtonFn select = reinterpret_cast<SelectButtonFn>((*reinterpret_cast<void ***>(page))[0x78 / 4]);
     select(page, button);
 }
@@ -266,14 +269,17 @@ kmCall(0x8084db8c, RegisteredPadsOrJoin);
 // its OnInit took "Multiplayer (4P)" from the game's count (titleBmg = 0x7EC + count).
 // Section 0x54 is built again for every game, so a page that hid Battle never serves a 1-4 player one.
 static void MultiActivate(Pages::MultiPlayer *page) {
-    if (menuLocalCount <= kGameLocal) return;
+    if (menuLocalCount <= kGameLocal)
+        return;
     for (int i = 0; i < page->externControlCount; ++i) {
         PushButton *button = page->externControls[i];
-        if (button == nullptr || button->buttonId != 1) continue;  // Battle
+        if (button == nullptr || button->buttonId != 1)
+            continue;  // Battle
         button->isHidden = true;
         button->manipulator.inaccessible = true;
     }
-    if (page->titleText == nullptr) return;
+    if (page->titleText == nullptr)
+        return;
     static const wchar_t *const titles[kEntryButtons] = {
         L"Multiplayer (5P)",
         L"Multiplayer (6P)",
@@ -311,10 +317,12 @@ ExtPick extPicks[kMaxLocal - kGameLocal];
 // kart select's (0x8084745C) give every slot from 4 a random one. With no pick, D62's default:
 // character i on the Standard Kart of its weight class, as the debug boot picks it.
 static void MenuLocalsLocal(Racedata *racedata) {
-    if (menuLocalCount <= kGameLocal) return;
+    if (menuLocalCount <= kGameLocal)
+        return;
     for (u32 i = kGameLocal; i < menuLocalCount; ++i) {
         RacedataPlayer &player = racedata->menusScenario.players[i];
-        if (player.playerType == PLAYER_REAL_LOCAL) continue;
+        if (player.playerType == PLAYER_REAL_LOCAL)
+            continue;
         const ExtPick &pick = extPicks[i - kGameLocal];
         const CharacterId character = pick.picked ? pick.character : static_cast<CharacterId>(i);
         player.playerType = PLAYER_REAL_LOCAL;

@@ -52,23 +52,6 @@ bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary);
 // Player slot 4..kMaxLocal-1's colour pair, the owner's purple, white, brown and teal (Colours.cpp).
 void SlotPalette(u32 slot, RGBA16 *primary, RGBA16 *secondary);
 
-// Each local player's custom-character skin, D72 (Skins.cpp). Hud 0 and any online room use RR's own
-// table, as 1P does; huds 1+ keep their own. RR's CustomCharacters reads and writes through these.
-u8 PlayerSkinTable(u8 hud, CharacterId character);
-bool SetPlayerSkinTable(u8 hud, CharacterId character, u8 table);
-void ResetPlayerSkinTables();
-// The table of local race player playerId by its hud, the default table for any other player.
-u8 LocalRaceSkinTable(u8 playerId, CharacterId character);
-// The hud whose skin a menu driver model being loaded takes (RR's ResolveMenuTable); 0 otherwise.
-extern u8 menuLoadHud;
-// In offline multiplayer, reloads hud's preview with its own skin and returns true; false leaves
-// RR's path to run.
-bool ReinitPlayerMenuModel(u8 hud, CharacterId character);
-void DestroyPlayerMenuModels();
-// The voice group local race player playerId takes in offline multiplayer, D77 (Voices.cpp): baseGroup
-// (RR's for its skin), or a lent group when an earlier local holds baseGroup with other voices.
-u32 LocalVoiceGroup(u8 playerId, u32 baseGroup);
-
 #ifdef SS8_DEBUG_BOOT
 // Called from Pulsar's BootIntoSection with its section; returns the section the game boots into.
 SectionId DebugBootPrepare(SectionId section);

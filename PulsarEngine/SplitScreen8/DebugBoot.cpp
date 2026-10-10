@@ -31,11 +31,13 @@ static const FillParamsFn fillParams = reinterpret_cast<FillParamsFn>(0x80522364
 
 static void BindBootWiiHolders() {
     Input::Manager *input = Input::Manager::sInstance;
-    if (input == nullptr) return;
+    if (input == nullptr)
+        return;
     for (u32 id = kGameLocal; id < SS8_BOOT_LOCALS; ++id) {
         Input::RealControllerHolder &holder = Holder(*input, id);
         Input::Controller *controller = &input->wiiControllers[id - kGameLocal];
-        if (holder.curController != controller) holder.SetController(controller, nullptr);
+        if (holder.curController != controller)
+            holder.SetController(controller, nullptr);
         holder.controller3 = holder.curController;
         fillParams(&holder.params, holder.curController);
     }
@@ -49,8 +51,10 @@ SectionId DebugBootPrepare(SectionId section) {
     Pulsar::CupsConfig *cups = Pulsar::CupsConfig::sInstance;
     SectionMgr *sectionMgr = SectionMgr::sInstance;
     const Pulsar::PulsarId track = static_cast<Pulsar::PulsarId>(SS8_BOOT_TRACK);
-    if (racedata == nullptr || cups == nullptr || sectionMgr == nullptr || sectionMgr->sectionParams == nullptr) return section;
-    if (!cups->IsValidTrack(track)) return section;
+    if (racedata == nullptr || cups == nullptr || sectionMgr == nullptr || sectionMgr->sectionParams == nullptr)
+        return section;
+    if (!cups->IsValidTrack(track))
+        return section;
 
     racedata->ResetScenarios();
     RacedataScenario &scenario = racedata->menusScenario;
@@ -113,15 +117,17 @@ SectionId DebugBootPrepare(SectionId section) {
 static void BindBootPad(SectionPad &pad, u32 slot) {
     PadInfo &info = pad.padInfos[slot];
     Input::Manager *input = Input::Manager::sInstance;
-    if (info.controllerHolder != nullptr && info.controllerIDActive == info.controllerID) return;
+    if (info.controllerHolder != nullptr && info.controllerIDActive == info.controllerID)
+        return;
     const u32 channel = ((info.controllerID & 0xFF00) >> 8) - 1;
-    if (input == nullptr || channel > 3) return;
-    Input::Controller *controller = pad.GetType(info.controllerID) == GCN
-                                        ? static_cast<Input::Controller *>(&input->gcnControllers[channel])
-                                        : static_cast<Input::Controller *>(&input->wiiControllers[channel]);
+    if (input == nullptr || channel > 3)
+        return;
+    Input::Controller *controller =
+      pad.GetType(info.controllerID) == GCN ? static_cast<Input::Controller *>(&input->gcnControllers[channel]) : static_cast<Input::Controller *>(&input->wiiControllers[channel]);
     Input::RealControllerHolder *holder = nullptr;
     for (int i = 0; i < 4 && holder == nullptr; ++i)
-        if (input->realControllerHolders[i].curController == controller) holder = &input->realControllerHolders[i];
+        if (input->realControllerHolders[i].curController == controller)
+            holder = &input->realControllerHolders[i];
     if (holder == nullptr) {
         holder = &input->realControllerHolders[slot];
         holder->SetController(controller, nullptr);
@@ -147,11 +153,11 @@ static void AutodriveLocals() {
     Input::Manager *input = Input::Manager::sInstance;
     Raceinfo *raceinfo = Raceinfo::sInstance;
     Kart::Manager *karts = Kart::Manager::sInstance;
-    if (input == nullptr || raceinfo == nullptr || raceinfo->players == nullptr || karts == nullptr) return;
+    if (input == nullptr || raceinfo == nullptr || raceinfo->players == nullptr || karts == nullptr)
+        return;
     for (int id = 0; id < SS8_BOOT_LOCALS; ++id) {
         Kart::Player *kart = karts->GetKartPlayer(id);
-        raceinfo->players[id]->realControllerHolder =
-            reinterpret_cast<Input::RealControllerHolder *>(&input->virtualControllerHolders[id]);
+        raceinfo->players[id]->realControllerHolder = reinterpret_cast<Input::RealControllerHolder *>(&input->virtualControllerHolders[id]);
         kart->pointers.kartStatus->bitfield4 |= 1;
         startPostRaceAI(*reinterpret_cast<void **>(reinterpret_cast<u8 *>(kart->kartSub) + 0x20));
     }
@@ -174,19 +180,23 @@ const u32 kRespawnLocals = SS8_BOOT_LOCALS < 5 ? SS8_BOOT_LOCALS : 5;
 const u32 kRespawns = kRespawnLocals + (SS8_BOOT_LOCALS < 12 ? 1 : 0);
 
 static void RespawnScripted(u32 frame) {
-    if (frame < kRespawnFirst || (frame - kRespawnFirst) % kRespawnStep != 0) return;
+    if (frame < kRespawnFirst || (frame - kRespawnFirst) % kRespawnStep != 0)
+        return;
     const u32 k = (frame - kRespawnFirst) / kRespawnStep;
-    if (k >= kRespawns) return;
+    if (k >= kRespawns)
+        return;
     u32 id = SS8_BOOT_LOCALS;
     for (u32 i = 0, n = 0; i < sizeof(respawnOrder) && k < kRespawnLocals; ++i) {
-        if (respawnOrder[i] >= SS8_BOOT_LOCALS) continue;
+        if (respawnOrder[i] >= SS8_BOOT_LOCALS)
+            continue;
         if (n++ == k) {
             id = respawnOrder[i];
             break;
         }
     }
     Kart::Manager *karts = Kart::Manager::sInstance;
-    if (karts == nullptr) return;
+    if (karts == nullptr)
+        return;
     OS::Report("ss8 boot: race %u respawn player %u at %u\n", bootRaces, id, frame);
     activateOOB(getCollision(karts->GetKartPlayer(id)), 1, 0, 0);
 }
@@ -211,15 +221,15 @@ const u32 kItemStep = 600;
 const u32 kItemUses = 3;
 
 static void UseItemScripted(u32 frame) {
-    if (frame < kItemFirst || (frame - kItemFirst) % kItemStep != 0 || (frame - kItemFirst) / kItemStep >= kItemUses) return;
+    if (frame < kItemFirst || (frame - kItemFirst) % kItemStep != 0 || (frame - kItemFirst) / kItemStep >= kItemUses)
+        return;
     Raceinfo *raceinfo = Raceinfo::sInstance;
     Item::Manager *items = Item::Manager::sInstance;
-    if (raceinfo == nullptr || raceinfo->playerIdInEachPosition == nullptr || items == nullptr) return;
+    if (raceinfo == nullptr || raceinfo->playerIdInEachPosition == nullptr || items == nullptr)
+        return;
     const u32 last = Racedata::sInstance->racesScenario.playerCount - 1;
     const bool own = kBootItem == MEGA_MUSHROOM || kBootItem == STAR || kBootItem == THUNDER_CLOUD;
-    const u32 id = kBootItem == BULLET_BILL ? (SS8_BOOT_LOCALS > kGameLocal ? kGameLocal : 0)
-                   : own                    ? SS8_BOOT_LOCALS - 1
-                                            : raceinfo->playerIdInEachPosition[last];
+    const u32 id = kBootItem == BULLET_BILL ? (SS8_BOOT_LOCALS > kGameLocal ? kGameLocal : 0) : own ? SS8_BOOT_LOCALS - 1 : raceinfo->playerIdInEachPosition[last];
     Item::Player &player = items->players[id];
     OS::Report("ss8 boot: race %u player %u uses item %u at %u\n", bootRaces, id, kBootItem, frame);
     setItem(&player.inventory, kBootItem, false);
@@ -265,10 +275,8 @@ typedef u32 (*CopyPADStatusFn)(Input::Manager *, u32, PAD::Status *);
 static const CopyPADStatusFn copyPADStatus = reinterpret_cast<CopyPADStatusFn>(0x80524628);
 
 static u32 PauseSteps(const u16 **steps) {
-    static const u16 restart[] = {PAD::PAD_BUTTON_START, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_A, PAD::PAD_BUTTON_UP,
-                                  PAD::PAD_BUTTON_A};
-    static const u16 quit[] = {PAD::PAD_BUTTON_START, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_A,
-                               PAD::PAD_BUTTON_UP, PAD::PAD_BUTTON_A};
+    static const u16 restart[] = {PAD::PAD_BUTTON_START, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_A, PAD::PAD_BUTTON_UP, PAD::PAD_BUTTON_A};
+    static const u16 quit[] = {PAD::PAD_BUTTON_START, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_DOWN, PAD::PAD_BUTTON_A, PAD::PAD_BUTTON_UP, PAD::PAD_BUTTON_A};
     const bool quitting = bootRaces % 3 == 0;
     *steps = quitting ? quit : restart;
     return (quitting ? sizeof(quit) : sizeof(restart)) / sizeof(u16);
@@ -284,10 +292,13 @@ static u16 ScriptedButtons(u32 frame) {
     const u16 *steps;
     const u32 count = PauseSteps(&steps);
     // An autodrive boot only presses A once a second: through the results into the next race.
-    if (SS8_BOOT_AUTODRIVE) return frame % 60 < 5 ? PAD::PAD_BUTTON_A : 0;
-    if (frame < kPauseFrame) return 0;
+    if (SS8_BOOT_AUTODRIVE)
+        return frame % 60 < 5 ? PAD::PAD_BUTTON_A : 0;
+    if (frame < kPauseFrame)
+        return 0;
     const u32 step = (frame - kPauseFrame) / 60;
-    if (step < count) return (frame - kPauseFrame) % 60 < 6 ? steps[step] : 0;
+    if (step < count)
+        return (frame - kPauseFrame) % 60 < 6 ? steps[step] : 0;
     return step >= count + 3 && frame % 60 < 5 ? PAD::PAD_BUTTON_A : 0;
 }
 
@@ -296,17 +307,20 @@ static u32 CopyPADStatusScripted(Input::Manager *input, u32 channel, PAD::Status
     if (channel == 0 && status != nullptr) {
         const u16 buttons = ScriptedButtons(raceFrames);
         if (buttons != 0 && ScriptedButtons(raceFrames - 1) != buttons)
-            OS::Report("ss8 boot: race %u press %04x at %u by P%u\n", bootRaces, buttons, raceFrames,
-                       SS8_BOOT_PAUSE_BY && InPauseSteps(raceFrames) ? SS8_BOOT_PAUSE_BY : 1);
-        if (!SS8_BOOT_PAUSE_BY || !InPauseSteps(raceFrames)) status->buttons |= buttons;
+            OS::Report("ss8 boot: race %u press %04x at %u by P%u\n", bootRaces, buttons, raceFrames, SS8_BOOT_PAUSE_BY && InPauseSteps(raceFrames) ? SS8_BOOT_PAUSE_BY : 1);
+        if (!SS8_BOOT_PAUSE_BY || !InPauseSteps(raceFrames))
+            status->buttons |= buttons;
 #if SS8_BOOT_AUTODRIVE
-        if (raceFrames == 60 && bootRaces != 0) AutodriveLocals();
+        if (raceFrames == 60 && bootRaces != 0)
+            AutodriveLocals();
 #endif
 #if SS8_BOOT_RESPAWN
-        if (bootRaces != 0) RespawnScripted(raceFrames);
+        if (bootRaces != 0)
+            RespawnScripted(raceFrames);
 #endif
 #if SS8_BOOT_USE_ITEM
-        if (bootRaces != 0) UseItemScripted(raceFrames);
+        if (bootRaces != 0)
+            UseItemScripted(raceFrames);
 #endif
         ++raceFrames;
     }
@@ -320,7 +334,8 @@ kmCall(0x80520220, CopyPADStatusScripted);
 // KPAD path still runs.
 static void ScriptedWiiButtons(const u8 *controller, Input::State *state) {
     const u32 channel = *reinterpret_cast<const u32 *>(controller + 0x8d4);
-    if (channel < SS8_BOOT_LOCALS - kGameLocal && channel % 2 == 0) state->buttonActions |= 1;
+    if (channel < SS8_BOOT_LOCALS - kGameLocal && channel % 2 == 0)
+        state->buttonActions |= 1;
 }
 
 // WiiController::UpdateImpl+0x31C replaces "addi r11, r1, 0x70" before _rest_gpr_24, where every path
@@ -352,8 +367,7 @@ static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<Update
 
 // PAD::PAD_BUTTON_* to WPAD_CL_BUTTON_*, for the buttons the pause steps use.
 static u16 ClassicButtons(u16 pad) {
-    return (pad & PAD::PAD_BUTTON_START ? 0x400 : 0) | (pad & PAD::PAD_BUTTON_A ? 0x10 : 0) |
-           (pad & PAD::PAD_BUTTON_UP ? 0x1 : 0) | (pad & PAD::PAD_BUTTON_DOWN ? 0x4000 : 0);
+    return (pad & PAD::PAD_BUTTON_START ? 0x400 : 0) | (pad & PAD::PAD_BUTTON_A ? 0x10 : 0) | (pad & PAD::PAD_BUTTON_UP ? 0x1 : 0) | (pad & PAD::PAD_BUTTON_DOWN ? 0x4000 : 0);
 }
 
 static void UpdateStatesClassicPauseBy(u8 *controller, u8 *status, void *state, void *uiState) {

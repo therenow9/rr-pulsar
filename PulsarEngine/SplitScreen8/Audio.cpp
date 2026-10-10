@@ -58,8 +58,7 @@ static void ResetAudioSide() {
     for (u32 hud = 0; hud < kMaxLocal; ++hud) {
         // A column left of the middle pans left, right of it right, the middle one of 3 none.
         const u32 twice = cols == 0 ? 0 : 2 * (hud % cols) + 1;
-        panSlot[hud] = cols == 0 || twice == cols ? -1 : twice < cols ? 0
-                                                                      : 1;
+        panSlot[hud] = cols == 0 || twice == cols ? -1 : twice < cols ? 0 : 1;
     }
     for (u32 i = 0; i < kExtra; ++i) {
         extRoulette[i] = 0;
@@ -171,17 +170,20 @@ static void RouletteSoundWide(Audio::RSARPlayer *player) {
     s32 left = 0;
     s32 right = 0;
     for (u32 hud = 0; hud < kMaxLocal; ++hud) {
-        const u8 flag = hud < kGameLocal ? flags[hud] : hud < raceLocalCount ? extRoulette[hud - kGameLocal]
-                                                                             : 0;
-        if (flag == 0) continue;
-        if (panSlot[hud] != 1) ++left;
-        if (panSlot[hud] != 0) ++right;
+        const u8 flag = hud < kGameLocal ? flags[hud] : hud < raceLocalCount ? extRoulette[hud - kGameLocal] : 0;
+        if (flag == 0)
+            continue;
+        if (panSlot[hud] != 1)
+            ++left;
+        if (panSlot[hud] != 0)
+            ++right;
     }
-    if (left == 0 && right == 0) return;
-    const float pan = left == 0 ? 1.0f : right == 0 ? -1.0f
-                                                    : (right - left) * 0.5f;
+    if (left == 0 && right == 0)
+        return;
+    const float pan = left == 0 ? 1.0f : right == 0 ? -1.0f : (right - left) * 0.5f;
     player->HoldSound(0xe2);
-    if (rouletteHandle.basicSound != nullptr) setPan(rouletteHandle.basicSound, pan);
+    if (rouletteHandle.basicSound != nullptr)
+        setPan(rouletteHandle.basicSound, pan);
     for (u32 i = 0; i < kGameLocal; ++i) flags[i] = 0;
     for (u32 i = 0; i < kExtra; ++i) extRoulette[i] = 0;
 }
@@ -214,13 +216,15 @@ kmCall(0x8071551c, ChimePanSlot);
 // the same gates and the same distance factor by game type.
 static void UpdatePlayerMatrixWide(Audio::RaceMgr *mgr) {
     updatePlayerMatrix(mgr);
-    if (raceScreenCount == 0) return;
+    if (raceScreenCount == 0)
+        return;
     if (isDemo()) {
         for (u32 i = 0; i < kExtra; ++i) extTarget[i].valid = 0;
         return;
     }
     const u8 *gate = *reinterpret_cast<u8 **>(0x809c1998);
-    if (gate != nullptr && *reinterpret_cast<const s32 *>(gate + 0x28) >= 0) return;
+    if (gate != nullptr && *reinterpret_cast<const s32 *>(gate + 0x28) >= 0)
+        return;
     float factor;
     if (static_cast<u32>(mgr->gameType) - 7 <= 5)
         factor = *reinterpret_cast<const float *>(0x808a1e90);
@@ -230,7 +234,8 @@ static void UpdatePlayerMatrixWide(Audio::RaceMgr *mgr) {
         factor = *reinterpret_cast<const float *>(0x808a1f00);
     const RaceCameraMgr *cameras = RaceCameraMgr::sInstance;
     for (u32 k = kGameLocal; k < raceLocalCount && k < kMaxLocal; ++k) {
-        if (cameras == nullptr || k >= cameras->cameraCount) break;
+        if (cameras == nullptr || k >= cameras->cameraCount)
+            break;
         ExtTarget &target = extTarget[k - kGameLocal];
         getViewMtx(cameras->sortedCameras[k], extMtx[k - kGameLocal], &target, factor);
         target.valid = 1;
@@ -243,10 +248,13 @@ kmCall(0x80710de4, UpdatePlayerMatrixWide);
 // the screen below it, when that is a local past the 4th: whichever is nearer gives the vector (D50).
 static void FoldMultVec(const float (*listener)[4], const float *pos, float *out, s32 i) {
     multVec(listener, pos, out);
-    if (raceScreenCount == 0 || i < 0) return;
+    if (raceScreenCount == 0 || i < 0)
+        return;
     const u32 k = i + raceScreenCount / 2;
-    if (k < kGameLocal || k >= raceLocalCount || k >= kMaxLocal) return;
-    if (extTarget[k - kGameLocal].valid == 0) return;
+    if (k < kGameLocal || k >= raceLocalCount || k >= kMaxLocal)
+        return;
+    if (extTarget[k - kGameLocal].valid == 0)
+        return;
     float other[3];
     multVec(extMtx[k - kGameLocal], pos, other);
     const float otherSq = other[0] * other[0] + other[1] * other[1] + other[2] * other[2];
@@ -385,7 +393,8 @@ static const CalculateIDFn calculateID = reinterpret_cast<CalculateIDFn>(0x8061b
 static void SetKartSoundWide(Audio::RaceMgr *mgr, Audio::KartActor *actor) {
     const s32 hud = ActorHud(actor);
     if (raceScreenCount != 0 && hud >= kGameLocal) {
-        if (hud < kMaxLocal) extKartActors[hud - kGameLocal] = actor;
+        if (hud < kMaxLocal)
+            extKartActors[hud - kGameLocal] = actor;
         return;
     }
     setKartSound(mgr, actor);
@@ -396,13 +405,16 @@ kmCall(0x807075f0, SetKartSoundWide);
 // squished, to alter the music. Each reads only the race state (+0x40), the actor count (+0x28) and the
 // actors (+0x18), so hud 4-7's are asked through a copy of the RaceMgr holding them instead.
 static bool AnyKartWide(const u8 *mgr, AnyKartFn any) {
-    if (any(mgr)) return true;
-    if (raceScreenCount == 0) return false;
+    if (any(mgr))
+        return true;
+    if (raceScreenCount == 0)
+        return false;
     u8 copy[0x44];
     *reinterpret_cast<u32 *>(copy + 0x40) = *reinterpret_cast<const u32 *>(mgr + 0x40);
     u32 n = 0;
     for (u32 i = 0; i < kExtra; ++i) {
-        if (extKartActors[i] != nullptr) reinterpret_cast<Audio::KartActor **>(copy + 0x18)[n++] = extKartActors[i];
+        if (extKartActors[i] != nullptr)
+            reinterpret_cast<Audio::KartActor **>(copy + 0x18)[n++] = extKartActors[i];
     }
     copy[0x28] = n;
     return n != 0 && any(copy);
@@ -429,13 +441,16 @@ static void ApplyTriggerWide(u8 *triggers, s32 variant, s32 hud, void *link) {
         applyTrigger(triggers, variant, hud, link);
         return;
     }
-    if (hud >= kMaxLocal) return;
+    if (hud >= kMaxLocal)
+        return;
     if (link != nullptr) {
         const u8 *player = reinterpret_cast<const u8 *>(Raceinfo::sInstance->players[getPlayerIdx(link)]);
-        if (*reinterpret_cast<const u32 *>(player + 0x38) & 2) return;
+        if (*reinterpret_cast<const u32 *>(player + 0x38) & 2)
+            return;
     }
     const u32 state = Audio::RaceMgr::sInstance->raceState;
-    if (state != 1 && (state < 3 || state > 6)) return;
+    if (state != 1 && (state < 3 || state > 6))
+        return;
     extVariant[hud - kGameLocal] = variant;
 }
 kmBranch(0x80708ba4, ApplyTriggerWide);
@@ -480,11 +495,13 @@ kmCall(0x80708658, LimitedVariantWide);
 // KartActor::UpdateLapSounds, when a local finishes: EchoMgr::SetVolume and SetAllAmbiencesVolume by
 // hud write 4-wide per-listener arrays, past them for hud 4+ (D52: P1-4's listeners keep theirs).
 static void EchoVolumeLocal(void *echo, u32 hud, u32 frames, float volume) {
-    if (raceScreenCount != 0 && hud >= kGameLocal) return;
+    if (raceScreenCount != 0 && hud >= kGameLocal)
+        return;
     echoSetVolume(echo, hud, frames, volume);
 }
 static void AmbienceVolumeLocal(void *ambience, u32 hud, u32 frames) {
-    if (raceScreenCount != 0 && hud >= kGameLocal) return;
+    if (raceScreenCount != 0 && hud >= kGameLocal)
+        return;
     setAllAmbiencesVolume(ambience, hud, frames);
 }
 kmCall(0x8070b3c8, EchoVolumeLocal);
@@ -509,9 +526,11 @@ kmCall(0x8070b3ec, LocalsRacingWide);
 // from its holder as SectionPad::Update works out padInfos' (CalculateID), and anything else gets 0.
 // The join page's chime (Join.cpp) passes P5-8's slot as the hud, with raceScreenCount 0 or stale.
 static u32 NewIDWide(const void *pads, s32 hud) {
-    if (hud < kGameLocal || (raceScreenCount == 0 && menuLocalCount == 0)) return getNewID(pads, hud);
+    if (hud < kGameLocal || (raceScreenCount == 0 && menuLocalCount == 0))
+        return getNewID(pads, hud);
     const u32 count = raceLocalCount > menuLocalCount ? raceLocalCount : menuLocalCount;
-    if (hud >= count || hud >= kMaxLocal) return 0;
+    if (hud >= count || hud >= kMaxLocal)
+        return 0;
     return calculateID(&Holder(*Input::Manager::sInstance, hud));
 }
 kmCall(0x80715460, NewIDWide);

@@ -1,6 +1,6 @@
 # PulsarEngine/SplitScreen8
 
-The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except three things the owner wants (root `CLAUDE.md`): same-character select in every multiplayer count (`SameCharacter.cpp`), the main menu's seven Multiplayer buttons (D63, `Entry.cpp`), and each player's own custom-character skin, voices included, in every offline multiplayer game (D72, D75, D77; `Skins.cpp`, `Voices.cpp`). 1P is untouched.
+The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except three things the owner wants (root `CLAUDE.md`): same-character select in every multiplayer count (`SameCharacter.cpp`), the main menu's seven Multiplayer buttons (D63, `Entry.cpp`), and each player's own custom-character skin, voices included, in every offline multiplayer game (D72, D75). That one is RR code bound upstream, in RR's own `Driver/LocalPlayerSkins.cpp` on RR's slots (D83), and its voices are RR's own per-player aliasing (D85). 1P is untouched.
 
 Breaking a rule below **fails silently** — it builds, it may even work with 8 players, and it breaks something unrelated. `docs/widening-inventory.md` and `docs/m1-same-character.md` (repo root) have the reasoning.
 
@@ -13,7 +13,7 @@ Breaking a rule below **fails silently** — it builds, it may even work with 8 
 
 ## Players 5–8
 
-- **Every hook outside those three early-returns for ≤ 4 local players.** `Skins.cpp`'s hooks act only in offline multiplayer (section 0x54) and leave 1P and online to RR; `Voices.cpp` lends a voice group only in an offline race of two or more locals and answers RR's own group otherwise.
+- **Every hook outside those three early-returns for ≤ 4 local players.** RR's `LocalPlayerSkins.cpp` acts only in offline multiplayer (section 0x54, two or more players) and answers RR's own `selectedSlots` for player 1 and online rooms.
 - **Indices 0–3 stay on the game's own storage; 4–7 go to a side table here**, sized by `kMaxLocal`, never a literal.
 - **A game slot can be -1.** Check before indexing.
 - **Menu input managers have 5 slots and read slot 4 with no mask** (`ManipulatorManager::Update`, `ControlsManipulatorManager::Update`). Anything that makes slot 4 answer a real holder (`Pause.cpp`) must be gone by the next section load, or every menu page sees that pad.

@@ -377,7 +377,7 @@ static Audio::Handle *HoldRosalinaLumaSound(Audio::RaceActor *actor, u32 soundId
 }
 kmWritePointer(0x808dbcd8, HoldRosalinaLumaSound);
 
-static s8 GetPlayerVoiceAlias(u32 playerId) {
+s8 GetPlayerVoiceAlias(u32 playerId) {
     EnsureVoiceAssignments();
     return sVoiceAssignmentsReady && playerId < 12 ? sPlayerVoiceAliases[playerId] : -1;
 }

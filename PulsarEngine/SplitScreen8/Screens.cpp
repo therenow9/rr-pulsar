@@ -28,18 +28,23 @@ u8 raceLocalCount;
 static u32 LocalPlayerCount(const RacedataScenario &scenario) {
     u32 locals = 0;
     for (int i = 0; i < 12; ++i)
-        if (scenario.players[i].playerType == PLAYER_REAL_LOCAL) ++locals;
+        if (scenario.players[i].playerType == PLAYER_REAL_LOCAL)
+            ++locals;
     return locals;
 }
 
 // A VS race of 5-6 local players races on 6 screens and 7-8 on 8; 4 or fewer keep the game's count.
 static u32 WideScreenCount(const RacedataScenario &scenario) {
-    if (scenario.settings.gamemode != MODE_VS_RACE) return 0;
+    if (scenario.settings.gamemode != MODE_VS_RACE)
+        return 0;
     const u32 locals = LocalPlayerCount(scenario);
-    if (locals > kMaxLocal) return 0;
-    if (locals > 6) return 8;
+    if (locals > kMaxLocal)
+        return 0;
+    if (locals > 6)
+        return 8;
 #ifdef SS8_DEBUG_SCREENS
-    if (locals > kGameLocal) return SS8_DEBUG_SCREENS > 6 ? SS8_DEBUG_SCREENS : 6;
+    if (locals > kGameLocal)
+        return SS8_DEBUG_SCREENS > 6 ? SS8_DEBUG_SCREENS : 6;
     return locals >= SS8_DEBUG_MIN_LOCALS ? SS8_DEBUG_SCREENS : 0;
 #else
     return locals > kGameLocal ? 6 : 0;
@@ -98,7 +103,8 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     u32 extCount = 0;
     for (int i = 0, locals = 0; i < 12 && raceLocalCount > kGameLocal; ++i) {
         RacedataPlayer &player = scenario.players[i];
-        if (player.playerType != PLAYER_REAL_LOCAL || locals++ < kGameLocal) continue;
+        if (player.playerType != PLAYER_REAL_LOCAL || locals++ < kGameLocal)
+            continue;
         extLocals[extCount++] = i;
         player.playerType = PLAYER_NONE;
     }
@@ -123,7 +129,8 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     }
     for (int i = 0; i < 12 && hud < wide; ++i) {
         RacedataPlayer &player = scenario.players[i];
-        if (player.playerType == PLAYER_NONE || player.hudSlotId != -1) continue;
+        if (player.playerType == PLAYER_NONE || player.hudSlotId != -1)
+            continue;
         player.hudSlotId = hud;
         hudPlayerIdsExt[hud] = i;
         ++hud;
@@ -181,10 +188,11 @@ kmCall(0x807bd6bc, SpareTileDriverModel);
 static u32 GetRaceScreenCount() {
 #ifdef SS8_DEBUG_SCREENS
     const RacedataScenario &race = Racedata::sInstance->racesScenario;
-    OS::Report("ss8 screens: wide %u, race players %u screens %u locals %u (%u) mode %u\n", raceScreenCount, race.playerCount,
-               race.screenCount, race.localPlayerCount, raceLocalCount, race.settings.gamemode);
+    OS::Report(
+      "ss8 screens: wide %u, race players %u screens %u locals %u (%u) mode %u\n", raceScreenCount, race.playerCount, race.screenCount, race.localPlayerCount, raceLocalCount, race.settings.gamemode);
 #endif
-    if (raceScreenCount != 0) return raceScreenCount;
+    if (raceScreenCount != 0)
+        return raceScreenCount;
     return Racedata::sInstance->racesScenario.screenCount;
 }
 kmBranch(0x80554f68, GetRaceScreenCount);
@@ -222,7 +230,8 @@ kmCall(0x806f0bb4, RouteCopiesPerScreen);
 // Racedata::GetPlayerIdOfLocalPlayer. Retro Rewind's KO spectating fix owns the function's blr
 // (KOMisc.cpp, 0x80531f7c), so leave through it with the id in r3.
 static s32 HudPlayerId(const Racedata &racedata, u32 hud) {
-    if (hud >= kGameLocal && hud < raceScreenCount) return hudPlayerIdsExt[hud];
+    if (hud >= kGameLocal && hud < raceScreenCount)
+        return hudPlayerIdsExt[hud];
     return static_cast<s8>(racedata.racesScenario.settings.hudPlayerIds[hud]);
 }
 

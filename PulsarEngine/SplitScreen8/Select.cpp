@@ -55,7 +55,8 @@ static void WriteKarts() {
         RacedataPlayer &player = Racedata::sInstance->menusScenario.players[i];
         KartId kart = static_cast<KartId>(GetCharacterWeightClass(player.characterId));
         for (u8 k = 0; k < 12; ++k)
-            if (characterIdToKartIdByIdx(player.characterId, k) == params->karts[i]) kart = params->karts[i];
+            if (characterIdToKartIdByIdx(player.characterId, k) == params->karts[i])
+                kart = params->karts[i];
         player.kartId = kart;
     }
     fillCpuKarts();
@@ -65,7 +66,9 @@ class SelectPage : public Page {
 public:
     explicit SelectPage(const SelectStep &step);
     ~SelectPage() override;
-    PageId GetNextPage() const override { return this->nextPageId; }
+    PageId GetNextPage() const override {
+        return this->nextPageId;
+    }
     void OnInit() override;
     void OnActivate() override;
     void AfterControlUpdate() override;
@@ -83,7 +86,8 @@ private:
 
 Page *NewSelectPage(u32 id) {
     for (u32 i = 0; i < sizeof(kSteps) / sizeof(kSteps[0]); ++i)
-        if (kSteps[i].id == id) return new SelectPage(kSteps[i]);
+        if (kSteps[i].id == id)
+            return new SelectPage(kSteps[i]);
     return nullptr;
 }
 
@@ -92,7 +96,9 @@ SelectPage::SelectPage(const SelectStep &step) : step(step) {
     this->titleText = new CtrlMenuPageTitleText;
 }
 
-SelectPage::~SelectPage() { delete this->titleText; }
+SelectPage::~SelectPage() {
+    delete this->titleText;
+}
 
 void SelectPage::OnInit() {
     this->InitControlGroup(1);
@@ -117,7 +123,8 @@ void SelectPage::OnActivate() {
 }
 
 void SelectPage::AfterControlUpdate() {
-    if (this->currentState != STATE_ACTIVE || this->leaving) return;
+    if (this->currentState != STATE_ACTIVE || this->leaving)
+        return;
     const u32 count = menuLocalCount;
     u32 readyCount = 0;
     for (u32 player = 0; player < count; ++player) {
@@ -134,11 +141,15 @@ void SelectPage::AfterControlUpdate() {
                 return;
             }
         }
-        if (this->ready[player]) ++readyCount;
+        if (this->ready[player])
+            ++readyCount;
     }
-    if (readyCount < count) return;
-    if (this->step.id == Pulsar::UI::PULPAGE_SS8CHARSELECT) WriteCharacters();
-    if (this->step.id == Pulsar::UI::PULPAGE_SS8KARTSELECT) WriteKarts();
+    if (readyCount < count)
+        return;
+    if (this->step.id == Pulsar::UI::PULPAGE_SS8CHARSELECT)
+        WriteCharacters();
+    if (this->step.id == Pulsar::UI::PULPAGE_SS8KARTSELECT)
+        WriteKarts();
     this->Leave(this->step.next, 0);
 }
 
@@ -149,7 +160,8 @@ void SelectPage::Leave(u32 next, u32 animDirection) {
     this->nextPageId = static_cast<PageId>(next);
     if (next == PAGE_CUP_SELECT && animDirection == 0) {
         Page *cupSelect = SectionMgr::sInstance->curSection->pages[PAGE_CUP_SELECT];
-        if (cupSelect != nullptr) static_cast<Pages::Menu *>(cupSelect)->prevPageId = static_cast<PageId>(this->step.id);
+        if (cupSelect != nullptr)
+            static_cast<Pages::Menu *>(cupSelect)->prevPageId = static_cast<PageId>(this->step.id);
     }
     OS::Report("ss8 select: %s page -> %#x\n", this->step.name, next);
     this->EndStateAnimated(animDirection, 0.0f);

@@ -78,7 +78,9 @@ struct ExtPad {
 };
 static ExtPad extPads[kMaxLocal - kGameLocal];
 
-static Input::RealControllerHolder &SlotHolder(u32 slot) { return Holder(*Input::Manager::sInstance, slot); }
+static Input::RealControllerHolder &SlotHolder(u32 slot) {
+    return Holder(*Input::Manager::sInstance, slot);
+}
 
 static bool IsColourTrack(const nw4r::lyt::AnimationLink &link) {
     const nw4r::lyt::res::AnimationBlock *res = link.animTrans->resource;
@@ -87,7 +89,8 @@ static bool IsColourTrack(const nw4r::lyt::AnimationLink &link) {
     const u32 *infoOffsets = nw4r::ut::ConvertOffsToPtr<u32>(content, sizeof(*content));
     for (int i = 0; i < content->infoCount; ++i) {
         const nw4r::lyt::res::AnimationInfo *info = nw4r::ut::ConvertOffsToPtr<nw4r::lyt::res::AnimationInfo>(content, infoOffsets[i]);
-        if (info->kind == nw4r::lyt::res::ANIMATIONTYPE_RLMC) return true;
+        if (info->kind == nw4r::lyt::res::ANIMATIONTYPE_RLMC)
+            return true;
     }
     return false;
 }
@@ -101,7 +104,8 @@ static void UnbindColourTracks(nw4r::lyt::Material *material) {
     while (unbound) {
         unbound = false;
         for (Links::Iterator it = material->animLinkList.GetBeginIter(); it != material->animLinkList.GetEndIter(); ++it) {
-            if (it->disable || !IsColourTrack(*it)) continue;
+            if (it->disable || !IsColourTrack(*it))
+                continue;
             material->UnbindAnimation(it->animTrans);
             unbound = true;
             break;
@@ -113,9 +117,11 @@ static void UnbindColourTracks(nw4r::lyt::Material *material) {
 // animation group; for P5-8 those tracks are unbound and the slot palette written once.
 static void ColourPane(LayoutUIControl &control, const char *name, u8 r, u8 g, u8 b) {
     nw4r::lyt::Pane *pane = control.layout.GetPaneByName(name);
-    if (pane == nullptr) return;
+    if (pane == nullptr)
+        return;
     nw4r::lyt::Material *material = pane->GetMaterial();
-    if (material == nullptr) return;
+    if (material == nullptr)
+        return;
     UnbindColourTracks(material);
     material->tevColours[1].r = r;
     material->tevColours[1].g = g;
@@ -134,7 +140,9 @@ class JoinPage : public Page {
 public:
     JoinPage();
     ~JoinPage() override;
-    PageId GetNextPage() const override { return this->nextPageId; }
+    PageId GetNextPage() const override {
+        return this->nextPageId;
+    }
     void OnInit() override;
     void OnActivate() override;
     void AfterControlUpdate() override;
@@ -166,7 +174,9 @@ private:
     u32 confirmFrame;  // 0 at D64's layout, kConfirmFrames at D70's
 };
 
-Page *NewJoinPage() { return new JoinPage; }
+Page *NewJoinPage() {
+    return new JoinPage;
+}
 
 JoinPage::JoinPage() {
     this->nextPageId = PAGE_NONE;
@@ -205,7 +215,8 @@ void JoinPage::OnInit() {
         this->AddControl(3 + slot, pad, 0);
         const bool game = slot < kGameLocal;
         padLoad(&pad, "pad_recognize", "EntryPlayerPad", "Pad1P_Div4", game ? slot : kGameLocal, game, 0, 0);
-        if (!game) ColourSlot(pad, slot);
+        if (!game)
+            ColourSlot(pad, slot);
     }
     this->confirmFrame = 0;
     this->PlaceSlots();
@@ -228,7 +239,8 @@ void JoinPage::OnActivate() {
     this->prompted = -2;
     // As RegisteredPads::OnActivate does (0x80603170): no background model behind the slots.
     Page *background = SectionMgr::sInstance->curSection->pages[0x5c];
-    if (background != nullptr) requestBackModel(reinterpret_cast<BackGroundModelControl *>(reinterpret_cast<u8 *>(background) + 0x1c8), -1);
+    if (background != nullptr)
+        requestBackModel(reinterpret_cast<BackGroundModelControl *>(reinterpret_cast<u8 *>(background) + 0x1c8), -1);
     for (u32 slot = 0; slot < kMaxLocal; ++slot) {
         this->shownIds[slot] = ~0u;
         this->pads[slot]->isHidden = slot >= menuLocalCount;
@@ -236,14 +248,17 @@ void JoinPage::OnActivate() {
 }
 
 bool JoinPage::Joined(u32 slot) const {
-    if (slot < kGameLocal) return hasAController(&SectionMgr::sInstance->pad, slot);
+    if (slot < kGameLocal)
+        return hasAController(&SectionMgr::sInstance->pad, slot);
     const ExtPad &pad = extPads[slot - kGameLocal];
     return !pad.waiting && pad.id != 0 && pad.id == calculateID(&SlotHolder(slot));
 }
 
 u32 JoinPage::SlotId(u32 slot) const {
-    if (!this->Joined(slot)) return 0;
-    if (slot < kGameLocal) return SectionMgr::sInstance->pad.GetCurrentID(slot);
+    if (!this->Joined(slot))
+        return 0;
+    if (slot < kGameLocal)
+        return SectionMgr::sInstance->pad.GetCurrentID(slot);
     return extPads[slot - kGameLocal].id;
 }
 
@@ -272,7 +287,8 @@ void JoinPage::Release(u32 slot) {
 }
 
 void JoinPage::Prompt(s32 slot) {
-    if (slot == this->prompted) return;
+    if (slot == this->prompted)
+        return;
     this->prompted = slot;
     if (slot >= 0 && slot < kGameLocal) {
         this->bottomText->SetMessage(kPromptBmg + slot);
@@ -328,7 +344,8 @@ void JoinPage::OpenConfirm() {
 }
 
 void JoinPage::AfterControlUpdate() {
-    if (this->currentState != STATE_ACTIVE || this->leaving) return;
+    if (this->currentState != STATE_ACTIVE || this->leaving)
+        return;
     const u32 frame = this->confirming ? kConfirmFrames : 0;
     if (this->confirmFrame != frame) {
         this->confirmFrame += frame > this->confirmFrame ? 1 : -1;
@@ -341,28 +358,35 @@ void JoinPage::AfterControlUpdate() {
     const u32 count = menuLocalCount;
     for (u32 slot = kGameLocal; slot < count; ++slot) {
         ExtPad &pad = extPads[slot - kGameLocal];
-        if (!pad.waiting) continue;
+        if (!pad.waiting)
+            continue;
         trySetController(Input::Manager::sInstance, slot, 0);
         const u32 id = calculateID(&SlotHolder(slot));
-        if (id == 0) continue;
+        if (id == 0)
+            continue;
         pad.id = id;
         pad.waiting = false;
     }
     for (u32 slot = 1; slot < count; ++slot) {
-        if (!this->Joined(slot)) continue;
+        if (!this->Joined(slot))
+            continue;
         const Input::RealControllerHolder *holder = PlayerHolder(slot);
         if (holder != nullptr && UIPressed(*holder, BACK_PRESS)) {
             this->Release(slot);
-            if (static_cast<s32>(slot) == this->requested) this->requested = -1;
+            if (static_cast<s32>(slot) == this->requested)
+                this->requested = -1;
         }
     }
     s32 next = -1;
     for (u32 slot = 0; slot < count && next < 0; ++slot) {
-        if (!this->Joined(slot)) next = slot;
+        if (!this->Joined(slot))
+            next = slot;
     }
     if (next != this->requested) {
-        if (this->requested >= 0 && !this->Joined(this->requested)) this->Release(this->requested);
-        if (next >= 0) this->Request(next);
+        if (this->requested >= 0 && !this->Joined(this->requested))
+            this->Release(this->requested);
+        if (next >= 0)
+            this->Request(next);
         this->requested = next;
     }
     for (u32 slot = 0; slot < count; ++slot) {
@@ -370,7 +394,8 @@ void JoinPage::AfterControlUpdate() {
         if (id != this->shownIds[slot]) {
             padSetId(this->pads[slot], id);
             // The lamp row, "{arg border|0}", draws hud 0-3 only; P5-8's slots (hud 4) show "???".
-            if (slot >= kGameLocal) resetMsg(this->pads[slot]);
+            if (slot >= kGameLocal)
+                resetMsg(this->pads[slot]);
             if (id != 0 && this->shownIds[slot] != ~0u) {
                 padRegister(this->pads[slot]);
                 this->PlaySound(kJoinSound, slot);
@@ -378,10 +403,12 @@ void JoinPage::AfterControlUpdate() {
             this->shownIds[slot] = id;
         }
         // PadControl::OnUpdate asks SectionPad about its hud, 4 for every P5-8 slot.
-        if (slot >= kGameLocal) this->pads[slot]->animator.GetAnimationGroupById(3).PlayAnimationAtFrame(id != 0 ? 0 : 1, 0.0f);
+        if (slot >= kGameLocal)
+            this->pads[slot]->animator.GetAnimationGroupById(3).PlayAnimationAtFrame(id != 0 ? 0 : 1, 0.0f);
     }
     this->Prompt(next);
-    if (next < 0) this->OpenConfirm();
+    if (next < 0)
+        this->OpenConfirm();
 }
 
 // ConfirmPads' OK and Back end RegisteredPads through its canEnd, which RegisteredPads::AfterControlUpdate
@@ -396,7 +423,8 @@ void JoinPage::Confirming() {
         this->Leave(registered->endAnimDirection, registered->endAnimLength);
         return;
     }
-    if (!isPageTopLayer(SectionMgr::sInstance->curSection, this)) return;
+    if (!isPageTopLayer(SectionMgr::sInstance->curSection, this))
+        return;
     this->confirming = false;
     resetAllPads(&SectionMgr::sInstance->pad);
     for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) this->Release(slot);
@@ -410,7 +438,8 @@ void JoinPage::Leave(u32 animDirection, float animLength) {
 
 // Back to the main menu, as RegisterPad's back does from section 0x54 (0x80603C94).
 void JoinPage::OnBackPress(u32) {
-    if (this->leaving || this->confirming) return;
+    if (this->leaving || this->confirming)
+        return;
     this->Leave(1, 0.0f);
     SectionMgr *sectionMgr = SectionMgr::sInstance;
     resetPadsStatus(&sectionMgr->pad);
@@ -440,7 +469,8 @@ void ClearExtPads() {
     for (u32 slot = kGameLocal; slot < kMaxLocal; ++slot) {
         extPads[slot - kGameLocal].id = 0;
         extPads[slot - kGameLocal].waiting = false;
-        if (input != nullptr) SlotHolder(slot).SetController(&input->dummyController, nullptr);
+        if (input != nullptr)
+            SlotHolder(slot).SetController(&input->dummyController, nullptr);
     }
 }
 

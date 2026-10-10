@@ -30,8 +30,7 @@ static WipeControl &ExtWipe(Pages::Wipe &page, u32 i) {
 }
 
 static LayoutUIControl &ExtLine(Pages::Wipe &page, u32 i) {
-    return *reinterpret_cast<LayoutUIControl *>(reinterpret_cast<u8 *>(&page) + kExtOffset + kExtWipes * kWipeControlSize +
-                                                i * kLineControlSize);
+    return *reinterpret_cast<LayoutUIControl *>(reinterpret_cast<u8 *>(&page) + kExtOffset + kExtWipes * kWipeControlSize + i * kLineControlSize);
 }
 
 // Section::CreatePageById, case 0x3A, replaces "li r3, 0x7a8", the size passed to new. CR0 is set again
@@ -62,7 +61,8 @@ static const ControlDtorFn layoutControlDtor = reinterpret_cast<ControlDtorFn>(0
 // allocated wide constructs its extras as the ctor's __construct_array constructs the game's.
 static Pages::Wipe *WipeCtor(Pages::Wipe *page) {
     wipeCtor(page);
-    if (raceScreenCount == 0) return page;
+    if (raceScreenCount == 0)
+        return page;
     for (u32 i = 0; i < kExtWipes; ++i) wipeControlCtor(&ExtWipe(*page, i));
     for (u32 i = 0; i < kExtLines; ++i) layoutControlCtor(&ExtLine(*page, i));
     widePage = page;
@@ -75,7 +75,8 @@ kmCall(0x806238dc, WipeCtor);
 static void WipeLineDtor(LayoutUIControl *line, s32 flag) {
     layoutControlDtor(line, flag);
     Pages::Wipe *page = reinterpret_cast<Pages::Wipe *>(reinterpret_cast<u8 *>(line) - offsetof(Pages::Wipe, partition_line));
-    if (page != widePage) return;
+    if (page != widePage)
+        return;
     for (u32 i = 0; i < kExtLines; ++i) layoutControlDtor(&ExtLine(*page, i), -1);
     for (u32 i = 0; i < kExtWipes; ++i) wipeControlDtor(&ExtWipe(*page, i), -1);
     widePage = nullptr;
@@ -89,7 +90,8 @@ static u32 ExtWipeCount(u32 gameWipes) {
 
 // Controls of the page: the game's wipes and partition line, then the extra wipes and lines.
 static u32 WipeGroupSize(const Pages::Wipe *page, u32 gameWipes) {
-    if (page != widePage) return gameWipes + 1;
+    if (page != widePage)
+        return gameWipes + 1;
     return gameWipes + 1 + ExtWipeCount(gameWipes) + kExtLines;
 }
 
@@ -157,7 +159,8 @@ static void PlaceLines(Pages::Wipe &page, u32 firstIdx) {
 // After OnInit has loaded the game's wipes (idx = hud slot) and line: the extra wipes for hud slots
 // 4.., then every wipe moved to its tile, then the lines.
 static void WideWipeInit(Pages::Wipe *page, u32 gameWipes) {
-    if (page != widePage) return;
+    if (page != widePage)
+        return;
     const u32 ext = ExtWipeCount(gameWipes);
     for (u32 i = 0; i < ext; ++i) {
         WipeControl &wipe = ExtWipe(*page, i);

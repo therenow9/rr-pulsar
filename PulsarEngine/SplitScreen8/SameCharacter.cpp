@@ -74,15 +74,17 @@ static const GetPageFn getPage = reinterpret_cast<GetPageFn>(0x8083d44c);
 
 static u32 PlayerConfirmed(u32 player) {
     u8 *page = static_cast<u8 *>(getPage(0x6b));
-    if (page == nullptr) return 1;
+    if (page == nullptr)
+        return 1;
     u8 *holders = reinterpret_cast<u8 *(*)(u8 *)>((*reinterpret_cast<void ***>(page))[0x70 / 4])(page);
-    if (holders == nullptr) return 1;
+    if (holders == nullptr)
+        return 1;
     return holders[(player & 0xff) * 0x5c + 0xa4] == 0;
 }
 
 // CtrlMenuCharacterSelect::OnUpdate+0x70, "cmpwi r0, 1": r0 is player r27's preview model state, 1 once
 // it is confirmed. Two players can still share a driver's model (online 2P, or a failed load of a
-// player's own model in Skins.cpp), so in multiplayer (r28 players) the player's own holder must also be
+// player's own preview in RR's Driver/LocalPlayerSkins.cpp), so in multiplayer (r28 players) the player's own holder must also be
 // off, or one player's confirm would show every OK marker on that driver. The beq after reads CR0;
 // volatile registers are reloaded after it and OnUpdate saved LR.
 asmFunc OwnConfirmForMarker() {

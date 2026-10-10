@@ -54,19 +54,24 @@ static float Dot(const float *plane, const float *d) {
 // distance. The comparisons keep the game's branch senses (bgt / ble after fcmpo), so a NaN takes the
 // same path.
 static u8 Classify(const Clip &clip, const ClipScreen &screen, u8 flags, float &distance) {
-    const float d[3] = {clip.position[0] - screen.position[0], clip.position[1] - screen.position[1],
-                        clip.position[2] - screen.position[2]};
+    const float d[3] = {clip.position[0] - screen.position[0], clip.position[1] - screen.position[1], clip.position[2] - screen.position[2]};
     distance = screen.scale * (d[2] * d[2] + d[0] * d[0] + d[1] * d[1]);
-    if (!(distance <= clip.farSquared)) return kCulled | kFar;
-    if (clip.areaType != 2 && (clip.areaIds & screen.areaIds) != 0) return kCulled;
+    if (!(distance <= clip.farSquared))
+        return kCulled | kFar;
+    if (clip.areaType != 2 && (clip.areaIds & screen.areaIds) != 0)
+        return kCulled;
     const float r = clip.radius;
     if (Dot(screen.planes[0], d) > r || !(Dot(screen.planes[2], d) <= r)) {
-        if ((flags & kOtherPlanes) == 0) return kCulled;
-        if (Dot(screen.planes[1], d) > r || !(Dot(screen.planes[3], d) <= r)) return kCulled;
+        if ((flags & kOtherPlanes) == 0)
+            return kCulled;
+        if (Dot(screen.planes[1], d) > r || !(Dot(screen.planes[3], d) <= r))
+            return kCulled;
         return 0;
     }
-    if ((flags & kOtherPlanes) != 0) return 0;
-    if (Dot(screen.planes[4], d) > r || !(Dot(screen.planes[5], d) <= r)) return kCulled;
+    if ((flags & kOtherPlanes) != 0)
+        return 0;
+    if (Dot(screen.planes[4], d) > r || !(Dot(screen.planes[5], d) <= r))
+        return kCulled;
     return 0;
 }
 
@@ -76,10 +81,12 @@ static u32 selfChecked;
 static u32 selfMismatched;
 
 static void SelfCheck(const Clip &clip, const ClipScreen *screens) {
-    if (((clip.flags[0] | clip.flags[1] | clip.flags[2] | clip.flags[3]) & kSkip) != 0) return;
+    if (((clip.flags[0] | clip.flags[1] | clip.flags[2] | clip.flags[3]) & kSkip) != 0)
+        return;
     for (u32 s = 0; s < kGameLocal; ++s) {
         const u8 flags = clip.flags[s];
-        if ((flags & kNever) != 0) continue;
+        if ((flags & kNever) != 0)
+            continue;
         float distance;
         const u8 bits = Classify(clip, screens[s], flags, distance);
         const float diff = distance - clip.distance[s];
@@ -87,9 +94,8 @@ static void SelfCheck(const Clip &clip, const ClipScreen *screens) {
         const bool same = (flags & (kCulled | kFar)) == bits && diff <= tolerance && -diff <= tolerance;
         ++selfChecked;
         if (!same && ++selfMismatched <= 8) {
-            OS::Report("ss8 clip self-check: screen %u flags %02x mine %02x distance %08x mine %08x\n", s, flags,
-                       bits, *reinterpret_cast<const u32 *>(&clip.distance[s]),
-                       *reinterpret_cast<const u32 *>(&distance));
+            OS::Report("ss8 clip self-check: screen %u flags %02x mine %02x distance %08x mine %08x\n", s, flags, bits, *reinterpret_cast<const u32 *>(&clip.distance[s]),
+              *reinterpret_cast<const u32 *>(&distance));
         }
         if (selfChecked % 0x40000 == 0) {
             OS::Report("ss8 clip self-check: %u checked, %u mismatched\n", selfChecked, selfMismatched);
@@ -174,7 +180,8 @@ static void ClipShadowInit(Clip &clip, s32 onlyScreen) {
     for (u32 s = kGameLocal; s < kMaxLocal; ++s) {
         const u32 i = s - kGameLocal;
         u8 flags = clip.flags[0] & ~kNever;
-        if (s >= raceScreenCount || (onlyScreen != -1 && onlyScreen != static_cast<s32>(s))) flags |= kNever;
+        if (s >= raceScreenCount || (onlyScreen != -1 && onlyScreen != static_cast<s32>(s)))
+            flags |= kNever;
         shadow.flags[i] = flags;
         shadow.distance[i] = clip.distance[0];
     }

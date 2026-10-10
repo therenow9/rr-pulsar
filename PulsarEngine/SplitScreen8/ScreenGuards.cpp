@@ -159,7 +159,8 @@ struct ItemWarning {
 static ItemWarning noItemWarning = {-1};
 
 static ItemWarning *GetItemWarning(u8 *mgr, u32 hud) {
-    if (raceScreenCount != 0 && hud >= kGameLocal) return &noItemWarning;
+    if (raceScreenCount != 0 && hud >= kGameLocal)
+        return &noItemWarning;
     return reinterpret_cast<ItemWarning *>(mgr + 0x14 + hud * 0xC);
 }
 kmBranch(0x806f8210, GetItemWarning);

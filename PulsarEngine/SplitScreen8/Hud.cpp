@@ -252,7 +252,9 @@ kmBranch(0x806339f8, VSMultiNameBalloonCount);
 // Layout units: 832 x 456 at 16:9, 608 x 456 at 4:3, centred on 0, y up; each row of tiles is centred
 // 114 above or below 0, as a 4P quadrant is. Element scale 0.50 at 8 screens and 0.65 at 6 (the
 // owner's picks, D42).
-static float LayoutWidth() { return SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f; }
+static float LayoutWidth() {
+    return SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f;
+}
 
 typedef void (*PositionFromBaseFn)(UIControl *);
 static const PositionFromBaseFn positionFromBase = reinterpret_cast<PositionFromBaseFn>(0x8063d3cc);
@@ -311,13 +313,15 @@ static const AnimateFn layoutAnimate = reinterpret_cast<AnimateFn>(0x805e91a8);
 // u16 whose high byte is the tag's length in bytes) are skipped. MKW draws through its own text
 // handler, so the drawn word can be wider; the caller keeps a margin.
 static float TextWidth(const nw4r::lyt::TextBox &text) {
-    if (text.font == nullptr || text.stringBuf == nullptr || text.font->GetWidth() == 0) return 0.0f;
+    if (text.font == nullptr || text.stringBuf == nullptr || text.font->GetWidth() == 0)
+        return 0.0f;
     const float perUnit = text.fontSizeX / text.font->GetWidth();
     float width = 0.0f;
     for (const wchar_t *c = text.stringBuf; *c != 0;) {
         if (*c == 0x1a) {
             const u32 tagChars = (static_cast<u16>(c[1]) >> 8) / 2;
-            if (tagChars < 2) break;
+            if (tagChars < 2)
+                break;
             c += tagChars;
             continue;
         }
@@ -335,20 +339,25 @@ static void ZoomFromTile(CtrlRaceCount &count, u32 index) {
     layoutAnimate(&count.layout);
     nw4r::lyt::TextBox *text = static_cast<nw4r::lyt::TextBox *>(count.layout.GetPaneByName("text_00"));
     nw4r::lyt::Pane *parent = count.layout.GetPaneByName("count_down_null");
-    if (text == nullptr || parent == nullptr) return;
+    if (text == nullptr || parent == nullptr)
+        return;
     const float scale = text->scale.x;
     float ratio = 1.0f;
     if (scale > countSettledScale) {
-        if (scale > countZoomStart[index]) countZoomStart[index] = scale;
+        if (scale > countZoomStart[index])
+            countZoomStart[index] = scale;
         const float controlScale = count.positionAndscale[0].scale.z;
         float fit = 228.0f / (text->fontSizeY * controlScale);  // a tile is 228 high
         const float width = TextWidth(*text);
         // FINISH! draws about 15% wider than the estimate at 8 screens, so the width fits 80% of the tile.
         const float fitWidth = 0.8f * LayoutWidth() / (raceScreenCount / 2) / (width * controlScale);
-        if (width > 0.0f && fitWidth < fit) fit = fitWidth;
-        if (fit < countSettledScale) fit = countSettledScale;
+        if (width > 0.0f && fitWidth < fit)
+            fit = fitWidth;
+        if (fit < countSettledScale)
+            fit = countSettledScale;
         const float start = countZoomStart[index];
-        if (fit < start) ratio = (countSettledScale + (scale - countSettledScale) * (fit - countSettledScale) / (start - countSettledScale)) / scale;
+        if (fit < start)
+            ratio = (countSettledScale + (scale - countSettledScale) * (fit - countSettledScale) / (start - countSettledScale)) / scale;
     } else
         countZoomStart[index] = 0.0f;
     parent->scale.x = ratio;
@@ -384,15 +393,19 @@ static const InitCtrlRaceBaseFn initCtrlRaceBase = reinterpret_cast<InitCtrlRace
 static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
     for (u32 i = 0; i < kMaxLocal; ++i) hudHasPlayerExt[i] = 0;
     initCtrlRaceBase(page, bitField);
-    if (raceScreenCount == 0 || raceLocalCount == 0) return;
+    if (raceScreenCount == 0 || raceLocalCount == 0)
+        return;
     const ControlGroup &group = page->controlGroup;
     for (u32 i = 0; i < group.controlCount; ++i) {
         UIControl *control = group.controlArray[i];
-        if (control == nullptr) continue;
+        if (control == nullptr)
+            continue;
         const u32 vtable = *reinterpret_cast<const u32 *>(control);
-        if (vtable != kRankNumVtable && vtable != kLapVtable && vtable != kItemWindowVtable) continue;
+        if (vtable != kRankNumVtable && vtable != kLapVtable && vtable != kItemWindowVtable)
+            continue;
         const u8 slot = static_cast<CtrlRaceBase *>(control)->hudSlotId;
-        if (slot < raceLocalCount) PlaceOnTile(*control, slot, false);
+        if (slot < raceLocalCount)
+            PlaceOnTile(*control, slot, false);
     }
     if (page->ctrlRaceCountArray != nullptr) {
         for (u32 i = 0; i < 2u * raceLocalCount; ++i) PlaceOnTile(page->ctrlRaceCountArray[i], i / 2, true);
@@ -404,8 +417,10 @@ kmCall(0x808562dc, InitCtrlRaceBaseWide);
 // A speedometer per local tile (D43), when RR's setting is on; RR's own builds one for a single local
 // only, which a widened 1-local race keeps.
 static u32 SpeedoCount() {
-    if (raceScreenCount == 0 || raceLocalCount < 2) return 0;
-    if (Pulsar::Settings::Mgr::Get().GetSettingValue(Pulsar::Settings::SETTING_SPEEDOMETER) == Pulsar::SOM_DISABLED) return 0;
+    if (raceScreenCount == 0 || raceLocalCount < 2)
+        return 0;
+    if (Pulsar::Settings::Mgr::Get().GetSettingValue(Pulsar::Settings::SETTING_SPEEDOMETER) == Pulsar::SOM_DISABLED)
+        return 0;
     return raceLocalCount;
 }
 

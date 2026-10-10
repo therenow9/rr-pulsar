@@ -6,7 +6,11 @@
 #include <core/egg/mem/ExpHeap.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
-#include <CustomCharacters/CustomCharacters.hpp>
+#include <Driver/CustomCharacters.hpp>
+#include <Race/CustomCharacters.hpp>
+#include <Race/CustomCharacterVoice.hpp>
+#include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
+#include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 
 #ifdef SS8_DEBUG_BOOT
 #error "a menu script and the debug boot both hook Input::Manager::CopyPADStatus's call (0x80520220)"
@@ -28,6 +32,7 @@ struct MenuStep {
 static const MenuStep menuSteps[] = {SS8_MENU_STEPS};
 static u32 menuFrames;
 static void ReportHeaps(const char *when);
+static void ReportSkins();
 
 // GCNController::UpdateImpl+0x70 calls Input::Manager::CopyPADStatus(manager, channel, &padStatus) for
 // each plugged-in port every frame, and reads padStatus after it, as DebugBoot.cpp's race script does.
@@ -36,14 +41,20 @@ static const CopyPADStatusFn copyPADStatus = reinterpret_cast<CopyPADStatusFn>(0
 
 static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Status *status) {
     const u32 result = copyPADStatus(input, channel, status);
-    if (status == nullptr) return result;
+    if (status == nullptr)
+        return result;
     for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
         const MenuStep &step = menuSteps[i];
-        if (step.port != channel || menuFrames < step.frame || menuFrames >= step.frame + step.hold) continue;
-        if (menuFrames == step.frame) OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, channel + 1, step.buttons);
+        if (step.port != channel || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
+            continue;
+        if (menuFrames == step.frame)
+            OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, channel + 1, step.buttons);
         status->buttons |= step.buttons;
     }
-    if (channel == 0 && ++menuFrames % 300 == 0) ReportHeaps("tick");
+    if (channel == 0)
+        ReportSkins();
+    if (channel == 0 && ++menuFrames % 300 == 0)
+        ReportHeaps("tick");
     return result;
 }
 kmCall(0x80520220, CopyPADStatusMenuScript);
@@ -58,9 +69,10 @@ static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *stat
     const u32 port = 4 + *reinterpret_cast<const u32 *>(controller + 0x8d4);
     for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
         const MenuStep &step = menuSteps[i];
-        if (step.port != port || menuFrames < step.frame || menuFrames >= step.frame + step.hold) continue;
-        if (menuFrames == step.frame) OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, port + 1,
-                                                 step.buttons);
+        if (step.port != port || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
+            continue;
+        if (menuFrames == step.frame)
+            OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, port + 1, step.buttons);
         *reinterpret_cast<u16 *>(status + 0x2a) |= step.buttons;
     }
     updateStatesClassic(controller, status, state, uiState);
@@ -78,8 +90,28 @@ static void ReportHeaps(const char *when) {
         EGG::Heap *heap = static_cast<EGG::Heap *>(node);
         const u32 kind = heap->getHeapKind();
         const u32 free = kind == EGG::HEAP_TYPE_EXP ? static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize() : heap->getAllocatableSize(4);
-        OS::Report("ss8 heap: %s frame %u #%u %08x kind %u free %u name %s\n", when, menuFrames, index++, heap, kind, free,
-                   heap->name != nullptr ? heap->name : "-");
+        OS::Report("ss8 heap: %s frame %u #%u %08x kind %u free %u name %s\n", when, menuFrames, index++, heap, kind, free, heap->name != nullptr ? heap->name : "-");
+    }
+}
+
+// Each menu player's character, skin slot and whether they show the character's shared model or a
+// preview of their own (RR's Driver/LocalPlayerSkins.cpp, D72), when any of the three changes.
+static u32 reportedSkins[kGameLocal];
+
+static void ReportSkins() {
+    const MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
+    const MenuDriverModelMgr *mgr = modelMgr != nullptr && modelMgr->isActive ? modelMgr->driverModels : static_cast<const MenuDriverModelMgr *>(nullptr);
+    for (u32 hud = 0; mgr != nullptr && hud < mgr->playerCount && hud < kGameLocal; ++hud) {
+        const u32 character = static_cast<u32>(mgr->players[hud].id);
+        if (character >= Pulsar::Driver::CHARACTER_COUNT)
+            continue;
+        const bool shared = mgr->players[hud].playerModel == &mgr->models[character];
+        const u32 slot = Pulsar::Driver::GetLocalPlayerSlot(hud, mgr->players[hud].id);
+        const u32 key = 0x80000000 | character << 16 | slot << 1 | (shared ? 1 : 0);
+        if (reportedSkins[hud] == key)
+            continue;
+        reportedSkins[hud] = key;
+        OS::Report("ss8 skin: hud %u character %#x slot %u %s\n", hud, character, slot, shared ? "shared" : "own");
     }
 }
 
@@ -94,43 +126,33 @@ struct MenuPick {
 static const MenuPick menuPicks[] = {SS8_MENU_PICKS};
 #endif
 
-}  // namespace SplitScreen8
-namespace Pulsar {
-namespace CustomCharacters {
-bool VoiceBaseGroupForTable(CharacterId character, u8 table, u32 &groupId);
-}  // namespace CustomCharacters
-}  // namespace Pulsar
-namespace SplitScreen8 {
-
 // The race scenario's first 8 players, once per race at its first frame (InitRace has run by then),
-// with the skin table RR's race readers get for each, and the PC voice group RR's base is and the one
-// the player takes (D77).
+// with the skin slot RR's race readers get for each and the character whose voice groups RR lends
+// that player (-1 for none).
 static bool racePlayersReported;
 
 static void ReportRacePlayers() {
-    if (racePlayersReported || Racedata::sInstance == nullptr) return;
+    if (racePlayersReported || Racedata::sInstance == nullptr)
+        return;
     racePlayersReported = true;
     for (u32 i = 0; i < kMaxLocal; ++i) {
         const RacedataPlayer &player = Racedata::sInstance->racesScenario.players[i];
-        const u8 table = Pulsar::CustomCharacters::RaceSkinTable(i, player.characterId);
-        u32 voice = 0xffffffff;
-        if (!Pulsar::CustomCharacters::VoiceBaseGroupForTable(player.characterId, table, voice)) voice = 0xffffffff;
-        OS::Report("ss8 race player %u: type %d character %#x kart %#x skin %u voice %u -> %u\n", i, player.playerType,
-                   player.characterId, player.kartId, table, voice, LocalVoiceGroup(i, voice));
+        const u32 slot = Pulsar::Race::GetPlayerCustomCharacterSlot(i, player.characterId);
+        OS::Report("ss8 race player %u: type %d character %#x kart %#x skin %u voice %d\n", i, player.playerType, player.characterId, player.kartId, slot, Pulsar::Race::GetPlayerVoiceAlias(i));
     }
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).
     for (u32 i = 0; Input::Manager::sInstance != nullptr && i < kMaxLocal; ++i) {
         const Input::RealControllerHolder &holder = Holder(*Input::Manager::sInstance, i);
         const u8 *controller = reinterpret_cast<const u8 *>(holder.curController);
-        OS::Report("ss8 holder %u: drift %u controller %d\n", i, *reinterpret_cast<const u16 *>(reinterpret_cast<const u8 *>(&holder) + 0xc0),
-                   controller != nullptr ? controller[0x51] : -1);
+        OS::Report("ss8 holder %u: drift %u controller %d\n", i, *reinterpret_cast<const u16 *>(reinterpret_cast<const u8 *>(&holder) + 0xc0), controller != nullptr ? controller[0x51] : -1);
     }
 }
 static RaceFrameHook reportRacePlayers(ReportRacePlayers);
 
 static void OnSectionLoad() {
     racePlayersReported = false;
+    memset(reportedSkins, 0, sizeof(reportedSkins));
 #ifdef SS8_MENU_PICKS
     for (u32 i = 0; menuLocalCount > kGameLocal && i < sizeof(menuPicks) / sizeof(menuPicks[0]); ++i) {
         ExtPick &pick = extPicks[menuPicks[i].slot];

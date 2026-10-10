@@ -26,7 +26,8 @@ Input::RealControllerHolder &Holder(Input::Manager &input, u32 id) {
 // P1-4's holders are SectionPad's (null for a slot with no pad); P5-8's are holders 4-7, which the
 // menus of a 5-8 player game update (UpdateExtHolders).
 Input::RealControllerHolder *PlayerHolder(u32 player) {
-    if (player < kGameLocal) return SectionMgr::sInstance->pad.padInfos[player].controllerHolder;
+    if (player < kGameLocal)
+        return SectionMgr::sInstance->pad.padInfos[player].controllerHolder;
     return &Holder(*Input::Manager::sInstance, player);
 }
 
@@ -47,7 +48,8 @@ kmWrite32(0x80523158, 0x3860450c);
 // Built as Manager::__ct's loop builds holders 0-3 (0x80523438): the holder's +0x1C and its ghost
 // writer's +0x18 take the id, and the holder starts on the dummy controller.
 static Input::Manager *ConstructExtHolders(Input::Manager *input) {
-    if (input == nullptr) return input;
+    if (input == nullptr)
+        return input;
     for (u32 id = kGameLocal; id < kMaxLocal; ++id) {
         Input::RealControllerHolder &holder = Holder(*input, id);
         holderCtor(&holder);

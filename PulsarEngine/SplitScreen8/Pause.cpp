@@ -28,16 +28,20 @@ static bool StartPressed(const Input::RealControllerHolder &holder) {
 // once no pause is up, and a new START from a player 5-8 opens one.
 static void CheckExtPause(PageManipulatorManager *manager) {
     Pages::RaceHUD *page = Pages::RaceHUD::sInstance;
-    if (page == nullptr || manager != &page->manipulatorManager || PauseUp(*page)) return;
+    if (page == nullptr || manager != &page->manipulatorManager || PauseUp(*page))
+        return;
     pauseProxy = nullptr;
-    if (raceScreenCount == 0 || raceLocalCount <= kGameLocal || manager->inaccessible) return;
+    if (raceScreenCount == 0 || raceLocalCount <= kGameLocal || manager->inaccessible)
+        return;
     Input::Manager *input = Input::Manager::sInstance;
     for (u32 id = kGameLocal; id < raceLocalCount; ++id) {
         Input::RealControllerHolder &holder = Holder(*input, id);
-        if (!StartPressed(holder)) continue;
+        if (!StartPressed(holder))
+            continue;
         pauseProxy = &holder;
         page->OnPause(kGameLocal);
-        if (!PauseUp(*page)) pauseProxy = nullptr;
+        if (!PauseUp(*page))
+            pauseProxy = nullptr;
         return;
     }
 }
@@ -90,7 +94,9 @@ kmPatchExitPoint(ControllerHolderProxy, 0x8061b39c);
 // ManipulatorManager::Update and ControlsManipulatorManager::Update ask every slot 0-4 with no mask
 // (0x805EEDC0, 0x805F1F7C, 0x805F1FE8), so a proxy left by a Quit would reach the menus: it goes at
 // every race load (a Restart) and every section load (a Quit).
-static void ClearPauseProxy() { pauseProxy = nullptr; }
+static void ClearPauseProxy() {
+    pauseProxy = nullptr;
+}
 static RaceLoadHook clearPauseProxyOnRace(ClearPauseProxy);
 static SectionLoadHook clearPauseProxyOnSection(ClearPauseProxy);
 

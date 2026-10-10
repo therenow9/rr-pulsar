@@ -33,7 +33,8 @@ void SlotPalette(u32 slot, RGBA16 *primary, RGBA16 *secondary) {
 }
 
 bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary) {
-    if (!IsWideLocalHud(hud)) return false;
+    if (!IsWideLocalHud(hud))
+        return false;
     SlotPalette(hud, primary, secondary);
     return true;
 }
@@ -48,8 +49,10 @@ static u8 rowHud = 0xff;
 
 static u8 ResultRowHud(const void *racedata, u8 playerId) {
     const u8 hud = getHudSlotId(racedata, playerId);
-    if (raceLocalCount <= kGameLocal || hud < kGameLocal || hud == 0xff) return hud;
-    if (!IsWideLocalHud(hud) || Pulsar::UI::ExtendedTeamManager::IsActivated()) return kGameLocal;
+    if (raceLocalCount <= kGameLocal || hud < kGameLocal || hud == 0xff)
+        return hud;
+    if (!IsWideLocalHud(hud) || Pulsar::UI::ExtendedTeamManager::IsActivated())
+        return kGameLocal;
     rowHud = hud;
     return hud - kGameLocal;
 }
@@ -59,9 +62,11 @@ static void ResultRowColour(CtrlRaceResult *row) {
     const PlayerColours &colours = kColours[rowHud - kGameLocal];
     rowHud = 0xff;
     nw4r::lyt::Pane *base = row->layout.GetPaneByName("select_base");
-    if (base == nullptr) return;
+    if (base == nullptr)
+        return;
     nw4r::lyt::Material *material = base->GetMaterial();
-    if (material == nullptr) return;
+    if (material == nullptr)
+        return;
     Pulsar::UI::UnbindRLMC(material);
     for (int i = 0; i < 2; ++i) {
         material->tevColours[i].r = colours.result[i][0];

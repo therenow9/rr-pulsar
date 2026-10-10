@@ -40,9 +40,11 @@ static void VirtualCall(Lakitu::Player *player, u32 slot, u32 arg) {
 
 // The manager's players[0..count), then the side table.
 static Lakitu::Player *LakituAt(const Lakitu::Manager &mgr, u32 i) {
-    if (i < mgr.localPlayerCount) return mgr.lakituPlayers[i];
+    if (i < mgr.localPlayerCount)
+        return mgr.lakituPlayers[i];
     i -= mgr.localPlayerCount;
-    if (i >= kMaxLocal - kGameLocal) return nullptr;
+    if (i >= kMaxLocal - kGameLocal)
+        return nullptr;
     return extLakitu[i];
 }
 static u32 LakituCount(const Lakitu::Manager &mgr) {
@@ -56,14 +58,18 @@ static u32 LakituCount(const Lakitu::Manager &mgr) {
 static void CreatePlayersWide(Lakitu::Manager *mgr) {
     for (u32 i = 0; i < kMaxLocal - kGameLocal; ++i) extLakitu[i] = nullptr;
     createPlayers(mgr);
-    if (raceScreenCount == 0) return;
+    if (raceScreenCount == 0)
+        return;
     for (u32 hud = kGameLocal; hud < raceScreenCount; ++hud) {
         const s32 id = Racedata::sInstance->GetPlayerIdOfLocalPlayer(hud);
-        if (id < 0) continue;
+        if (id < 0)
+            continue;
         Kart::Player *kart = Kart::Manager::sInstance->GetKartPlayer(id);
-        if (!isLocal(kart)) continue;
+        if (!isLocal(kart))
+            continue;
         void *memory = gameNew(0x218);
-        if (memory == nullptr) continue;
+        if (memory == nullptr)
+            continue;
         Lakitu::Player *player = playerCtor(memory, kart);
         loadGraphics(player, hud);
         *reinterpret_cast<u32 *>(reinterpret_cast<u8 *>(player) + 0x1d0) = 2;
@@ -78,7 +84,8 @@ kmCall(0x8071e674, CreatePlayersWide);
 // manager); the extras are deleted the same way. CR0 is set again here; the prologue saved LR.
 static void DeleteExtLakitu() {
     for (u32 i = 0; i < kMaxLocal - kGameLocal; ++i) {
-        if (extLakitu[i] != nullptr) VirtualCall(extLakitu[i], 0x8, 1);
+        if (extLakitu[i] != nullptr)
+            VirtualCall(extLakitu[i], 0x8, 1);
         extLakitu[i] = nullptr;
     }
 }
@@ -101,7 +108,8 @@ kmCall(0x8071e408, DeleteExtLakituStub);
 // The six manager functions that walk players[0..count), replaced whole.
 static void Update(Lakitu::Manager *mgr) {
     for (u32 i = 0; i < LakituCount(*mgr); ++i)
-        if (Lakitu::Player *player = LakituAt(*mgr, i)) VirtualCall(player, 0x10, 0);
+        if (Lakitu::Player *player = LakituAt(*mgr, i))
+            VirtualCall(player, 0x10, 0);
 }
 kmBranch(0x8071e6c0, Update);
 
@@ -141,13 +149,15 @@ kmBranch(0x8071e82c, ClearPlayer5C);
 
 static void StartCountdownAnm(Lakitu::Manager *mgr) {
     for (u32 i = 0; i < LakituCount(*mgr); ++i)
-        if (Lakitu::Player *player = LakituAt(*mgr, i)) startCountdownAction(player);
+        if (Lakitu::Player *player = LakituAt(*mgr, i))
+            startCountdownAction(player);
 }
 kmBranch(0x8071e8a4, StartCountdownAnm);
 
 static void CallEach80722418(Lakitu::Manager *mgr, u32 arg) {
     for (u32 i = 0; i < LakituCount(*mgr); ++i)
-        if (Lakitu::Player *player = LakituAt(*mgr, i)) unknown80722418(player, arg);
+        if (Lakitu::Player *player = LakituAt(*mgr, i))
+            unknown80722418(player, arg);
 }
 kmBranch(0x8071e90c, CallEach80722418);
 

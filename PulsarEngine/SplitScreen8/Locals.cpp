@@ -43,9 +43,11 @@ static u8 *&HumanRanked(u8 *ai, u32 i) {
 // 4th gets the entry the registration (0x807414B8) would make: its AI object, from the kart AI's
 // +0x10, +0x144, through that object's vtable (+0x34) at +0x3C.
 static void RegisterKartWithAI(u8 *ai, void *kartAI) {
-    if (*reinterpret_cast<const u32 *>(ai + 0x178) == 0 && HumanCount(ai) == 0) extHumanCount = 0;
+    if (*reinterpret_cast<const u32 *>(ai + 0x178) == 0 && HumanCount(ai) == 0)
+        extHumanCount = 0;
     if (raceLocalCount > kGameLocal && HumanCount(ai) >= kGameLocal && !isCPU(kartAI)) {
-        if (extHumanCount >= kMaxLocal - kGameLocal) return;
+        if (extHumanCount >= kMaxLocal - kGameLocal)
+            return;
         u8 *owner = *reinterpret_cast<u8 **>(*reinterpret_cast<u8 **>(static_cast<u8 *>(kartAI) + 0x10) + 0x144);
         const HumanOfFn humanOf = *reinterpret_cast<HumanOfFn *>(*reinterpret_cast<u8 **>(owner + 0x34) + 0x3c);
         extHumans[extHumanCount].ai = humanOf(owner);
@@ -108,11 +110,13 @@ static void SortHumansWide(u8 *ai) {
     for (u32 i = 0; i < total; ++i) {
         u8 *human = HumanAI(ai, i);
         const s32 rank = *reinterpret_cast<const s32 *>(human + 0x14);
-        if (rank >= 1 && rank <= 12) byRank[rank - 1] = human;
+        if (rank >= 1 && rank <= 12)
+            byRank[rank - 1] = human;
     }
     u32 n = 0;
     for (u32 r = 0; r < 12; ++r) {
-        if (byRank[r] != nullptr) HumanRanked(ai, n++) = byRank[r];
+        if (byRank[r] != nullptr)
+            HumanRanked(ai, n++) = byRank[r];
     }
 }
 kmCall(0x80741708, SortHumansWide);
