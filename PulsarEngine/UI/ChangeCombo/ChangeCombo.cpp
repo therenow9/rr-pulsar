@@ -288,7 +288,7 @@ static void RandomizeCombo() {
         u32 slotCount = 0;
         for (u32 slot = 0; slot <= Driver::MAX_CUSTOM_CHARACTER_SLOTS; ++slot) {
             if (Driver::characterTables[character][slot] && random.NextLimited(++slotCount) == 0)
-                Driver::selectedSlots[character] = slot;
+                Driver::SetLocalPlayerSlot(hudId, character, slot);
         }
         const u32 weight = GetCharacterWeightClass(character);
         const u32 randomizedKartPos = GetRandomEnabledVehiclePosition(random, weight);

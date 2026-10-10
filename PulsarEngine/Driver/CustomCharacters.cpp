@@ -60,13 +60,13 @@ void CreateCharacterTable() {
 }
 static Settings::Hook CreateCharacterTableHook(CreateCharacterTable);
 
-static s32 LoadKartArchive(char *path, u32 size, const char *format, const char *name) {
+static s32 LoadKartArchiveForPlayer(char *path, u32 size, const char *format, const char *name, u32 hud) {
     u32 character = 0;
     while (character < CHARACTER_COUNT && strcmp(name, ArchiveMgr::GetKartArchivePostfix(static_cast<CharacterId>(character))) != 0) {
         ++character;
     }
 
-    const u32 slot = character < CHARACTER_COUNT ? selectedSlots[character] : 0;
+    const u32 slot = character < CHARACTER_COUNT ? GetLocalPlayerSlot(hud, static_cast<CharacterId>(character)) : 0;
     const char *battleSuffix = strstr(format, "_BT") != nullptr ? "_BT" : "";
     if (slot != 0) {
         char archivePath[0x80];
@@ -77,12 +77,30 @@ static s32 LoadKartArchive(char *path, u32 size, const char *format, const char 
 
     return snprintf(path, size, "Scene/Model/Kart/%s-allkart%s", name, battleSuffix);
 }
-kmCall(0x80541160, LoadKartArchive);
-kmCall(0x805411a0, LoadKartArchive);
-kmCall(0x80541f60, LoadKartArchive);
-kmCall(0x80541fa0, LoadKartArchive);
-kmCall(0x80542140, LoadKartArchive);
-kmCall(0x80542180, LoadKartArchive);
+
+// The menu's kart archives sit one per player in ArchiveMgr's holders (+0x8, 0x1C each). At these
+// snprintf calls r31 (0x805410E4) or r30 (LoadKartArchiveAsync 0x80541E44, and 0x80542030) holds the player's holder.
+static u32 KartArchiveHolderPlayer(u32 holder) {
+    return (holder - reinterpret_cast<u32>(ArchiveMgr::sInstance) - 8) / 0x1c;
+}
+
+static s32 LoadKartArchiveHolderR31(char *path, u32 size, const char *format, const char *name) {
+    register u32 holder;
+    asm(mr holder, r31;);
+    return LoadKartArchiveForPlayer(path, size, format, name, KartArchiveHolderPlayer(holder));
+}
+kmCall(0x80541160, LoadKartArchiveHolderR31);
+kmCall(0x805411a0, LoadKartArchiveHolderR31);
+
+static s32 LoadKartArchiveHolderR30(char *path, u32 size, const char *format, const char *name) {
+    register u32 holder;
+    asm(mr holder, r30;);
+    return LoadKartArchiveForPlayer(path, size, format, name, KartArchiveHolderPlayer(holder));
+}
+kmCall(0x80541f60, LoadKartArchiveHolderR30);
+kmCall(0x80541fa0, LoadKartArchiveHolderR30);
+kmCall(0x80542140, LoadKartArchiveHolderR30);
+kmCall(0x80542180, LoadKartArchiveHolderR30);
 
 static void UnloadDriverBRRES(u32 character) {
     if (customModels[character] == nullptr)
@@ -309,12 +327,14 @@ static void PageAfterControlUpdate(Page *page) {
             continue;
 
         const u32 character = static_cast<u32>(characterSelectPage->models[player].curCharacter);
-        if (character >= CHARACTER_COUNT || changed[character])
+        // Offline, each player owns their slot, so two players on one character can both cycle.
+        if (character >= CHARACTER_COUNT || (changed[character] && !HasOwnLocalPlayerSlots()))
             continue;
         if (MenuModelMgr::sInstance->driverModels->players[player].playerModel->state != MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE)
             continue;
 
-        u32 slot = selectedSlots[character];
+        const u32 previousSlot = GetLocalPlayerSlot(player, static_cast<CharacterId>(character));
+        u32 slot = previousSlot;
         for (u32 tries = 0; tries <= MAX_CUSTOM_CHARACTER_SLOTS; ++tries) {
             if (direction < 0)
                 slot = slot == 0 ? MAX_CUSTOM_CHARACTER_SLOTS : slot - 1;
@@ -323,12 +343,12 @@ static void PageAfterControlUpdate(Page *page) {
             if (characterTables[character][slot])
                 break;
         }
-        if (slot == selectedSlots[character])
+        if (slot == previousSlot)
             continue;
         changed[character] = true;
-        selectedSlots[character] = slot;
-        if (!LoadDriverBRRES(static_cast<CharacterId>(character), slot))
-            selectedSlots[character] = 0;
+        SetLocalPlayerSlot(player, static_cast<CharacterId>(character), slot);
+        if (!LoadLocalPlayerModel(player, static_cast<CharacterId>(character), slot))
+            SetLocalPlayerSlot(player, static_cast<CharacterId>(character), 0);
         else
             Audio::RSARPlayer::PlaySoundById(direction < 0 ? SOUND_ID_LEFT_ARROW_PRESS : SOUND_ID_RIGHT_ARROW_PRESS, 0, 0);
         UI::SetCharacterSelectIcon(
@@ -344,10 +364,11 @@ static void PageAfterControlUpdate(Page *page) {
             }
         }
 
-        const u32 slot = focused ? selectedSlots[character] : 0;
+        u32 standingHud;
+        const u32 slot = GetSharedModelSlot(static_cast<CharacterId>(character), focused, standingHud);
         if ((customModels[character] != nullptr && loadedSlots[character] != slot) || (customModels[character] == nullptr && slot != 0)) {
             if (!LoadDriverBRRES(static_cast<CharacterId>(character), slot))
-                selectedSlots[character] = 0;
+                SetLocalPlayerSlot(standingHud, static_cast<CharacterId>(character), 0);
         }
     }
 
@@ -357,7 +378,7 @@ static void PageAfterControlUpdate(Page *page) {
         const u32 character = static_cast<u32>(characterSelectPage->models[player].curCharacter);
         if (character >= CHARACTER_COUNT)
             continue;
-        characterSelectPage->names[player].SetMessage(UI::GetCharacterNameBMGId(character, false, 12));
+        characterSelectPage->names[player].SetMessage(UI::GetCharacterSlotNameBMGId(character, GetLocalPlayerSlot(player, static_cast<CharacterId>(character)), false));
     }
 
     for (u32 player = 0; player < 4; ++player) {
@@ -418,8 +439,9 @@ kmCall(0x8083d9dc, CharacterSelectName);
 
 static void RequestDriverModel(MenuModelMgr *manager, u8 playerId, CharacterId characterId) {
     const u32 character = static_cast<u32>(characterId);
-    if (manager->isActive && character < CHARACTER_COUNT && selectedSlots[character] != 0)
-        LoadDriverBRRES(characterId, selectedSlots[character]);
+    const u32 slot = character < CHARACTER_COUNT ? GetRequestedModelSlot(playerId, characterId) : 0;
+    if (manager->isActive && slot != 0)
+        LoadDriverBRRES(characterId, slot);
     manager->RequestDriverModel(playerId, characterId);
 }
 kmCall(0x805f5604, RequestDriverModel);
@@ -427,6 +449,7 @@ kmCall(0x805f5918, RequestDriverModel);
 kmBranch(0x805f5704, RequestDriverModel);
 
 static void ResetScnMgr() {
+    DestroyLocalPlayerPreviews();
     for (u32 character = 0; character < CHARACTER_COUNT; ++character) UnloadDriverBRRES(character);
     ScnMgr::Reset();
 }

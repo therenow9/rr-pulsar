@@ -29,17 +29,20 @@ void SetCharacterSelectIcon(LayoutUIControl *control, const char *paneName, cons
 }
 kmCall(0x807e2b38, SetCharacterSelectIcon);
 
+u32 GetCharacterSlotNameBMGId(u32 character, u32 slot, bool useGenericMiiName) {
+    if (character < Driver::CHARACTER_COUNT && slot != 0) {
+        const u32 customBmgId = (character << 16) | BMG_CUSTOM_CHARACTER_NAME_START | slot;
+        const wchar_t *customName = GetCustomMsg(customBmgId);
+        if (customName != nullptr && customName[0] != L'\0')
+            return customBmgId;
+    }
+    return GetCharacterBMGId(static_cast<CharacterId>(character), useGenericMiiName);
+}
+
 u32 GetCharacterNameBMGId(u32 character, bool useGenericMiiName, u32 playerId, bool isAward) {
     if (character < Driver::CHARACTER_COUNT
-      && (playerId >= 12 || Racedata::sInstance->racesScenario.settings.gamemode < MODE_PRIVATE_VS || Racedata::sInstance->racesScenario.settings.gamemode > MODE_PRIVATE_BATTLE)) {
-        const u32 slot = Race::GetPlayerCustomCharacterSlot(playerId, static_cast<CharacterId>(character), isAward);
-        if (slot != 0) {
-            const u32 customBmgId = (character << 16) | BMG_CUSTOM_CHARACTER_NAME_START | slot;
-            const wchar_t *customName = GetCustomMsg(customBmgId);
-            if (customName != nullptr && customName[0] != L'\0')
-                return customBmgId;
-        }
-    }
+      && (playerId >= 12 || Racedata::sInstance->racesScenario.settings.gamemode < MODE_PRIVATE_VS || Racedata::sInstance->racesScenario.settings.gamemode > MODE_PRIVATE_BATTLE))
+        return GetCharacterSlotNameBMGId(character, Race::GetPlayerCustomCharacterSlot(playerId, static_cast<CharacterId>(character), isAward), useGenericMiiName);
     return GetCharacterBMGId(static_cast<CharacterId>(character), useGenericMiiName);
 }
 

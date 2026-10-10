@@ -49,6 +49,10 @@ void RandomizeCPUCharacterTables(const RacedataScenario &scenario) {
             continue;
         if (entry.playerType == PLAYER_REAL_ONLINE)
             continue;
+        if (entry.playerType == PLAYER_REAL_LOCAL) {
+            racePlayerSlots[player] = Driver::GetLocalPlayerSlot(Racedata::sInstance->GetHudSlotId(player), entry.characterId);
+            continue;
+        }
         if (entry.playerType != PLAYER_CPU) {
             racePlayerSlots[player] = Driver::selectedSlots[character];
             continue;
