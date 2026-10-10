@@ -12,10 +12,10 @@
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The character, kart and drift pages of a 5-8 player game (D67, D71), before C4 and C5 give them
-// their controls: each player readies with A and un-readies with B, P1's B with nobody ready goes back,
-// and the last ready moves on. Built only with --ss8-pages (SS8_PAGES) until the character page can
-// be played; normal builds keep phase B's flow. docs/plans/m4-menu-flow.md, phase C, C3.
+// The kart and drift pages of a 5-8 player game (D67, D71), before C5 gives them their controls: each
+// player readies with A and un-readies with B, P1's B with nobody ready goes back, and the last ready
+// moves on. The character page is CharSelect.cpp's. Built only with --ss8-pages (SS8_PAGES) until the
+// pages can be played; normal builds keep phase B's flow. docs/plans/m4-menu-flow.md, phase C, C3.
 
 namespace SplitScreen8 {
 
@@ -27,37 +27,32 @@ struct SelectStep {
     const char *name;
 };
 static const SelectStep kSteps[] = {
-    {Pulsar::UI::PULPAGE_SS8CHARSELECT, PAGE_VS_MODE_SELECT, Pulsar::UI::PULPAGE_SS8KARTSELECT, L"Characters", "character"},
     {Pulsar::UI::PULPAGE_SS8KARTSELECT, Pulsar::UI::PULPAGE_SS8CHARSELECT, Pulsar::UI::PULPAGE_SS8DRIFTSELECT, L"Vehicles", "kart"},
     {Pulsar::UI::PULPAGE_SS8DRIFTSELECT, Pulsar::UI::PULPAGE_SS8KARTSELECT, PAGE_CUP_SELECT, L"Drift", "drift"},
 };
 
-// The vanilla pages' last confirm gives every CPU from the game's count (4, D60) a random character
-// (CharacterSelect, 0x8083EC28) or kart (KartSelect, 0x8084745C); neither reads an argument. P5-8 are
-// among them until InitRace makes them local (MenuLocalsLocal, Entry.cpp).
+// The vanilla kart page's last confirm gives every CPU from the game's count (4, D60) a random kart
+// (KartSelect, 0x8084745C); it reads no argument. P5-8 are among them until InitRace makes them local
+// (MenuLocalsLocal, Entry.cpp).
 typedef void (*FillCpusFn)();
-static const FillCpusFn fillCpuCharacters = reinterpret_cast<FillCpusFn>(0x8083ec28);
 static const FillCpusFn fillCpuKarts = reinterpret_cast<FillCpusFn>(0x8084745c);
 typedef KartId (*KartByIdxFn)(CharacterId, u8);
 static const KartByIdxFn characterIdToKartIdByIdx = reinterpret_cast<KartByIdxFn>(0x8081cef4);  // not in Kamek's externals
 
-// Nobody picks on these pages yet: P1-4 take SectionParams' last picks, written where the vanilla
-// pages' confirms write them; a last kart outside the character's 12 becomes its class's Standard Kart.
-static void WriteCharacters() {
-    const SectionParams *params = SectionMgr::sInstance->sectionParams;
-    for (u32 i = 0; i < kGameLocal; ++i) Racedata::sInstance->menusScenario.players[i].characterId = params->characters[i];
-    fillCpuCharacters();
+KartId KartForCharacter(CharacterId character, KartId kart) {
+    for (u8 k = 0; k < 12; ++k)
+        if (characterIdToKartIdByIdx(character, k) == kart)
+            return kart;
+    return static_cast<KartId>(GetCharacterWeightClass(character));
 }
 
+// Nobody picks a kart yet: P1-4 take SectionParams' last karts, written where the vanilla page's confirm
+// writes them.
 static void WriteKarts() {
     const SectionParams *params = SectionMgr::sInstance->sectionParams;
     for (u32 i = 0; i < kGameLocal; ++i) {
         RacedataPlayer &player = Racedata::sInstance->menusScenario.players[i];
-        KartId kart = static_cast<KartId>(GetCharacterWeightClass(player.characterId));
-        for (u8 k = 0; k < 12; ++k)
-            if (characterIdToKartIdByIdx(player.characterId, k) == params->karts[i])
-                kart = params->karts[i];
-        player.kartId = kart;
+        player.kartId = KartForCharacter(player.characterId, params->karts[i]);
     }
     fillCpuKarts();
 }
@@ -85,6 +80,8 @@ private:
 };
 
 Page *NewSelectPage(u32 id) {
+    if (id == Pulsar::UI::PULPAGE_SS8CHARSELECT)
+        return NewCharSelectPage();
     for (u32 i = 0; i < sizeof(kSteps) / sizeof(kSteps[0]); ++i)
         if (kSteps[i].id == id)
             return new SelectPage(kSteps[i]);
@@ -146,8 +143,6 @@ void SelectPage::AfterControlUpdate() {
     }
     if (readyCount < count)
         return;
-    if (this->step.id == Pulsar::UI::PULPAGE_SS8CHARSELECT)
-        WriteCharacters();
     if (this->step.id == Pulsar::UI::PULPAGE_SS8KARTSELECT)
         WriteKarts();
     this->Leave(this->step.next, 0);

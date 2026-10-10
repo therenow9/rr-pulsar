@@ -38,6 +38,8 @@ struct ExtPick {
     bool picked;
 };
 extern ExtPick extPicks[kMaxLocal - kGameLocal];
+// Player 5..kMaxLocal's character: their pick, else D62's default, character id = player (Entry.cpp).
+CharacterId ExtCharacter(u32 player);
 // The join page of a 5-8 player game (D64, Join.cpp), built by Pulsar's ExpSection in that game's section 0x54.
 Page *NewJoinPage();
 // P5-8's join state cleared and holders 4-7 put back on the dummy controller (Join.cpp).
@@ -45,6 +47,10 @@ void ClearExtPads();
 #ifdef SS8_PAGES
 // The character, kart or drift page of a 5-8 player game (D67, Select.cpp), by its PulPageId.
 Page *NewSelectPage(u32 id);
+// The character page (CharSelect.cpp).
+Page *NewCharSelectPage();
+// The kart if it is one of the character's 12, else the Standard Kart of the character's weight class (Select.cpp).
+KartId KartForCharacter(CharacterId character, KartId kart);
 #endif
 // The colours of a local's hud slot 4..raceLocalCount-1 in a widened race; false for any other slot,
 // which keeps RR's own (Colours.cpp, called from RR's UIColor.cpp).

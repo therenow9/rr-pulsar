@@ -316,6 +316,11 @@ ExtPick extPicks[kMaxLocal - kGameLocal];
 // character and kart for 5..N are rewritten there too: character select's CPU fill (0x8083EC28) and
 // kart select's (0x8084745C) give every slot from 4 a random one. With no pick, D62's default:
 // character i on the Standard Kart of its weight class, as the debug boot picks it.
+CharacterId ExtCharacter(u32 player) {
+    const ExtPick &pick = extPicks[player - kGameLocal];
+    return pick.picked ? pick.character : static_cast<CharacterId>(player);
+}
+
 static void MenuLocalsLocal(Racedata *racedata) {
     if (menuLocalCount <= kGameLocal)
         return;
@@ -324,7 +329,7 @@ static void MenuLocalsLocal(Racedata *racedata) {
         if (player.playerType == PLAYER_REAL_LOCAL)
             continue;
         const ExtPick &pick = extPicks[i - kGameLocal];
-        const CharacterId character = pick.picked ? pick.character : static_cast<CharacterId>(i);
+        const CharacterId character = ExtCharacter(i);
         player.playerType = PLAYER_REAL_LOCAL;
         player.characterId = character;
         player.kartId = pick.picked ? pick.kart : static_cast<KartId>(GetCharacterWeightClass(character));

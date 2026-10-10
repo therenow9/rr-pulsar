@@ -6,7 +6,10 @@
 
 namespace SplitScreen8 {
 
-static const char multiButtonCtrName[] = "CharacterSelect%d_%d_Multi";
+// The generated controls' OK markers each take half the button with 2 players and a quarter with 3-4
+// (D95, tools/assets/gen_charselect_multi.py).
+static const char multiButtonCtrName2[] = "CharacterSelect%d_%d_Multi2";
+static const char multiButtonCtrName4[] = "CharacterSelect%d_%d_Multi4";
 
 // CtrlMenuCharacterSelect::LoadButton+0x5C: drop "cmpwi r28, 0" (isMii). The bne
 // that follows then reuses the "player count != 1" result, so every multiplayer
@@ -14,12 +17,17 @@ static const char multiButtonCtrName[] = "CharacterSelect%d_%d_Multi";
 kmWrite32(0x807e2984, 0x60000000);
 
 // LoadButton+0x98: the Mii path formats "CharacterSelect%d_%d_Mii"; use the
-// _Multi controls instead, which exist for every column.
+// _Multi controls instead, which exist for every column. r29 is the player count
+// (0x807E2954), and nothing reads CR0 before the snprintf.
 asmFunc LoadMultiButtonCtrName() {
     ASM(
         nofralloc;
-        lis r5, multiButtonCtrName @ha;
-        addi r5, r5, multiButtonCtrName @l;
+        cmpwi r29, 2;
+        lis r5, multiButtonCtrName2 @ha;
+        addi r5, r5, multiButtonCtrName2 @l;
+        beqlr;
+        lis r5, multiButtonCtrName4 @ha;
+        addi r5, r5, multiButtonCtrName4 @l;
         blr;)
 }
 kmCall(0x807e29c0, LoadMultiButtonCtrName);
