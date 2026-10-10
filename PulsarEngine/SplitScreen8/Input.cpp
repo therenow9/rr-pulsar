@@ -1,5 +1,6 @@
 #include <kamek.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
+#include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
 // Real controller holders 4-7 for local players 5-8 (D26). They follow Input::Manager's own 0x415C
@@ -20,6 +21,19 @@ static const HolderFn startGhostReading = reinterpret_cast<HolderFn>(0x805215d4)
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id) {
     u8 *base = reinterpret_cast<u8 *>(&input) + 4 + id * kHolderSize;
     return *reinterpret_cast<Input::RealControllerHolder *>(id < kGameLocal ? base : base + kExtGap);
+}
+
+// P1-4's holders are SectionPad's (null for a slot with no pad); P5-8's are holders 4-7, which the
+// menus of a 5-8 player game update (UpdateExtHolders).
+Input::RealControllerHolder *PlayerHolder(u32 player) {
+    if (player < kGameLocal) return SectionMgr::sInstance->pad.padInfos[player].controllerHolder;
+    return &Holder(*Input::Manager::sInstance, player);
+}
+
+// uiinputStates[0] is this frame's, [1] the last frame's; buttonActions has one bit per Action.
+bool UIPressed(const Input::RealControllerHolder &holder, u32 action) {
+    const u32 bit = 1 << action;
+    return (holder.uiinputStates[0].buttonActions & bit) != 0 && (holder.uiinputStates[1].buttonActions & bit) == 0;
 }
 
 // Holders a race uses: 0-3 as the game's loops, and 4-7 only for a race of more than 4 locals.
