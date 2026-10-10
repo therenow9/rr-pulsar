@@ -61,7 +61,8 @@ static void DetachHeapFromScnMgrs(const EGG::ExpHeap *heap) {
     }
 }
 
-static void DestroyHeap(EGG::ExpHeap *&heap) {
+// SplitScreen8: not static, for Skins.cpp's own preview models (D72).
+void DestroyHeap(EGG::ExpHeap *&heap) {
     if (heap == nullptr) return;
     DetachHeapFromScnMgrs(heap);
     UnlockHeap(heap);
@@ -402,7 +403,7 @@ bool RequestLoadKartArchivesImmediate(ArchiveMgr *archiveMgr, u8 hudSlotId, Char
     const char *oldName = nullptr;
     if (entry != nullptr) oldName = *entry;
     if (entry != nullptr) {
-        const char *postfix = GeneratedCustomPostfix(character, SelectedTable(character));
+        const char *postfix = GeneratedCustomPostfix(character, SplitScreen8::PlayerSkinTable(hudSlotId, character));
         if (postfix != nullptr) {
             char path[0x60];
             const int written = snprintf(path, sizeof(path), "/Scene/Model/Kart/%s-allkart%s.szs", postfix, gamemode == 2 ? "" : "_BT");
@@ -521,6 +522,7 @@ void CleanupReloadedMenuDriverModels() {
 void DestroyMenuModelMgrInstanceHook() {
     MenuModelMgr *mgr = MenuModelMgr::sInstance;
     if (mgr == nullptr) return;
+    SplitScreen8::DestroyPlayerMenuModels();
     CleanupReloadedMenuDriverModels();
     MenuModelMgr::sInstance = nullptr;
 
@@ -790,6 +792,8 @@ bool pendingMenuDriverModelReloads[LOCAL_PLAYER_COUNT];
 CharacterId pendingMenuDriverModelCharacters[LOCAL_PLAYER_COUNT];
 
 void ReinitMenuDriverModelMgr(u8 hud, CharacterId character) {
+    // SplitScreen8: in offline multiplayer each hud's preview is its own (D72).
+    if (SplitScreen8::ReinitPlayerMenuModel(hud, character)) return;
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
     if (modelMgr == nullptr || !modelMgr->isActive || modelMgr->driverModels == nullptr) return;
     if (hud >= LOCAL_PLAYER_COUNT || hud >= modelMgr->playerCount) return;

@@ -235,7 +235,8 @@ static void RandomizeCombo() {
         sectionParams->karts[hudId] = kart;
         sectionParams->combos[hudId].selCharacter = character;
         sectionParams->combos[hudId].selKart = kart;
-        CustomCharacters::RandomizeSelectedCharacterTable(character);
+        // SplitScreen8: each hud's own skin table and preview (D72).
+        CustomCharacters::RandomizeSelectedCharacterTable(hudId, character);
 
         ExpCharacterSelect *charSelect = section->Get<ExpCharacterSelect>();  // guaranteed to exist on this page
         charSelect->randomizedCharIdx[hudId] = character;

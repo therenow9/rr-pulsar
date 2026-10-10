@@ -275,6 +275,7 @@ void CompactOfflineCpuSkinTable(u8 targetPlayerId, u8 sourcePlayerId) {
 
 void ResetAllCharacterTablesToDefault() {
     memset(selectedTable, TABLE_DEFAULT, sizeof(selectedTable));
+    SplitScreen8::ResetPlayerSkinTables();
     ResetOnlineCustomCharacterFlags();
     ResetOfflineCpuSkinTables();
     memset(customSkinExists, 0, sizeof(customSkinExists));
@@ -431,7 +432,8 @@ u8 RaceSkinTable(u8 playerId, CharacterId character) {
         }
     }
 
-    if (IsLocalMultiplayer()) return IsLocalRacePlayer(playerId) ? SelectedTable(character) : TABLE_DEFAULT;
+    // SplitScreen8: each local reads its own hud's table (D72); hud 0's is selectedTable.
+    if (IsLocalMultiplayer()) return SplitScreen8::LocalRaceSkinTable(playerId, character);
     const RKNet::Controller *controller = RKNet::Controller::sInstance;
     if (IsOnlineRoom(controller) && Settings::Mgr::Get().GetSettingValue(Pulsar::Settings::SETTING_DISPLAYCUSTOMSKINS) == DISPLAYCUSTOMSKINS_ENABLED) {
         if (IsLocalRacePlayer(playerId)) return SelectedTable(character);

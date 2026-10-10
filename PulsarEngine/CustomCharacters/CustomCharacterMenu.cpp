@@ -28,7 +28,9 @@ void RestoreVotingMenuDriverModels() {
     }
 }
 
-bool RandomizeSelectedCharacterTable(CharacterId character) {
+// SplitScreen8: the hud's own table and preview (D72); hud 0's is selectedTable, as in 1P. Online
+// rooms keep RR's reload of hud 0 (D75).
+bool RandomizeSelectedCharacterTable(u8 hud, CharacterId character) {
     if (!IsCharacter(StateCharacter(character))) return false;
     u8 valid[TABLE_COUNT];
     u8 count = 0;
@@ -37,17 +39,17 @@ bool RandomizeSelectedCharacterTable(CharacterId character) {
     }
     if (count == 0) return false;
     Random random;
-    const bool changed = SetSelectedTable(character, valid[random.NextLimited<u8>(count)]);
-    if (changed) ReinitMenuDriverModelMgr(0, character);
+    const bool changed = SplitScreen8::SetPlayerSkinTable(hud, character, valid[random.NextLimited<u8>(count)]);
+    if (changed) ReinitMenuDriverModelMgr(IsOnlineRoom(RKNet::Controller::sInstance) ? 0 : hud, character);
     return changed;
 }
 
-static bool CycleSkin(CharacterId character, int step) {
+static bool CycleSkin(u8 hud, CharacterId character, int step) {
     if (!IsCharacter(StateCharacter(character))) return false;
-    u8 table = SelectedTable(character);
+    u8 table = SplitScreen8::PlayerSkinTable(hud, character);
     for (u8 i = 1; i < TABLE_COUNT; ++i) {
         table = step < 0 ? (table == 0 ? TABLE_COUNT - 1 : table - 1) : (table + 1 >= TABLE_COUNT ? TABLE_DEFAULT : table + 1);
-        if (HasSkin(character, table) && SetSelectedTable(character, table)) return true;
+        if (HasSkin(character, table) && SplitScreen8::SetPlayerSkinTable(hud, character, table)) return true;
     }
     return false;
 }
@@ -148,11 +150,11 @@ void MenuSceneSectionUpdateHook(SectionMgr *mgr) {
                 }
 
                 const CharacterId character = PreviewCharacter(hud);
-                if ((pressed & prevButton) != 0 && CycleSkin(character, -1)) {
+                if ((pressed & prevButton) != 0 && CycleSkin(hud, character, -1)) {
                     ReinitMenuDriverModelMgr(hud, character);
                     Audio::RSARPlayer::PlaySoundById(SOUND_ID_LEFT_ARROW_PRESS, 0, 0);
                 }
-                if ((pressed & nextButton) != 0 && CycleSkin(character, 1)) {
+                if ((pressed & nextButton) != 0 && CycleSkin(hud, character, 1)) {
                     ReinitMenuDriverModelMgr(hud, character);
                     Audio::RSARPlayer::PlaySoundById(SOUND_ID_RIGHT_ARROW_PRESS, 0, 0);
                 }

@@ -34,6 +34,7 @@
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
 #include <RetroRewindChannel.hpp>
 #include <UI/UI.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace CustomCharacters {
@@ -141,7 +142,7 @@ void ReinitMenuDriverModelMgr(u8 hud, CharacterId character);
 void RefreshMenuDriverModel(CharacterId character);
 void ApplyVoteRandomMessageBoxKartState();
 void RestoreVotingMenuDriverModels();
-bool RandomizeSelectedCharacterTable(CharacterId character);
+bool RandomizeSelectedCharacterTable(u8 hud, CharacterId character);
 bool IsVotingSection(SectionId section);
 bool IsCharacterSelectActive();
 bool FindLooseSoundEffectPath(u32 fileId, const char *extension, char *path, u32 pathSize, u32 *outFileSize = nullptr);

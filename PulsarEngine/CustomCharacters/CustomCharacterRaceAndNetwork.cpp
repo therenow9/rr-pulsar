@@ -172,7 +172,7 @@ void UpdateCharacterSelectText(u8 hud) {
 
     const CharacterId character = PreviewCharacter(hud);
     CharaName &name = page->names[hud];
-    const u32 nameBmgId = SkinNameBmgId(character, SelectedTable(character));
+    const u32 nameBmgId = SkinNameBmgId(character, SplitScreen8::PlayerSkinTable(hud, character));
     if (characterNameTextControl[hud] != &name || characterNameTextValue[hud] != nameBmgId) {
         if (nameBmgId != 0) {
             SetCustomCharacterNameMessage(name, nameBmgId);
@@ -269,7 +269,8 @@ kmCall(0x807e3a88, CharacterSelectHoverHook);
 u8 ResolveMenuTable(CharacterId character) {
     if (forceDefaultMenuDriverBRRES) return TABLE_DEFAULT;
     if (ShouldForceDefaultVotingMenuTable()) return TABLE_DEFAULT;
-    return SelectedTable(character);
+    // SplitScreen8: the skin of the hud whose preview is loading (D72); hud 0 outside one.
+    return SplitScreen8::PlayerSkinTable(SplitScreen8::menuLoadHud, character);
 }
 
 bool BuildDriverPath(CharacterId character, u8 table, char *path, u32 pathSize) {

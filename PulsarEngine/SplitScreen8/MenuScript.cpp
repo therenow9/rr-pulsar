@@ -6,6 +6,7 @@
 #include <core/egg/mem/ExpHeap.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
+#include <CustomCharacters/CustomCharacters.hpp>
 
 #ifdef SS8_DEBUG_BOOT
 #error "a menu script and the debug boot both hook Input::Manager::CopyPADStatus's call (0x80520220)"
@@ -93,7 +94,8 @@ struct MenuPick {
 static const MenuPick menuPicks[] = {SS8_MENU_PICKS};
 #endif
 
-// The race scenario's first 8 players, once per race at its first frame (InitRace has run by then).
+// The race scenario's first 8 players, once per race at its first frame (InitRace has run by then),
+// with the skin table RR's race readers get for each.
 static bool racePlayersReported;
 
 static void ReportRacePlayers() {
@@ -101,8 +103,8 @@ static void ReportRacePlayers() {
     racePlayersReported = true;
     for (u32 i = 0; i < kMaxLocal; ++i) {
         const RacedataPlayer &player = Racedata::sInstance->racesScenario.players[i];
-        OS::Report("ss8 race player %u: type %d character %#x kart %#x\n", i, player.playerType, player.characterId,
-                   player.kartId);
+        OS::Report("ss8 race player %u: type %d character %#x kart %#x skin %u\n", i, player.playerType, player.characterId,
+                   player.kartId, Pulsar::CustomCharacters::RaceSkinTable(i, player.characterId));
     }
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).
