@@ -249,7 +249,7 @@ static bool CharacterHasOnlyBaseVoiceGroup(CharacterId character) {
     return character == DRY_BONES || character == KOOPA_TROOPA || character == KING_BOO;
 }
 
-static bool VoiceBaseGroupForTable(CharacterId character, u8 table, u32 &groupId) {
+bool VoiceBaseGroupForTable(CharacterId character, u8 table, u32 &groupId) {
     CharacterId voiceCharacter = character;
     if (table != TABLE_DEFAULT) {
         const LooseVoiceInfo &info = GetLooseVoiceInfo(character, table);
@@ -287,6 +287,8 @@ static bool VoiceBaseGroupForActor(const Audio::CharacterActor *actor, Character
         groupCharacter = CHARACTER_NONE;
         return true;
     }
+    // SplitScreen8: a second local on this group with other voices borrows a lent group (D77).
+    groupId = SplitScreen8::LocalVoiceGroup(actor->playerId, groupId);
 
     for (u32 i = 0; i < ARRAY_COUNT(voiceGroupBases); ++i) {
         if (voiceGroupBases[i].groupId == groupId) {
@@ -454,7 +456,9 @@ const char *GetLooseVoicePostfixForGroup(u32 groupId, const char *&groupSuffix, 
         const CharacterId character = player.characterId;
         const u8 table = RaceSkinTable(playerId, character);
         u32 playerGroupBaseId = 0;
-        if (!VoiceBaseGroupForTable(character, table, playerGroupBaseId) || playerGroupBaseId != groupBaseId) continue;
+        if (!VoiceBaseGroupForTable(character, table, playerGroupBaseId)) continue;
+        // SplitScreen8: the group this local's voices sit in, its own or a lent one (D77).
+        if (SplitScreen8::LocalVoiceGroup(playerId, playerGroupBaseId) != groupBaseId) continue;
 
         const LooseVoiceInfo &info = GetLooseVoiceInfo(character, table);
         bool hasSuffix = false;
@@ -467,6 +471,11 @@ const char *GetLooseVoicePostfixForGroup(u32 groupId, const char *&groupSuffix, 
             }
         }
         if (!hasSuffix) continue;
+        // SplitScreen8: in a lent group, the files are named after the player's own voice character.
+        for (u32 i = 0; playerGroupBaseId != groupBaseId && i < ARRAY_COUNT(voiceGroupBases); ++i) {
+            if (voiceGroupBases[i].groupId == playerGroupBaseId) groupCharacter = voiceGroupBases[i].character;
+        }
+        if (playerGroupBaseId != groupBaseId) voiceName = VoiceNameForCharacter(groupCharacter);
 
         const char *postfix = GeneratedCustomPostfix(character, table);
         if (postfix != nullptr) {
