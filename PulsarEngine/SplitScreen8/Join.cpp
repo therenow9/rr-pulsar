@@ -80,10 +80,6 @@ static ExtPad extPads[kMaxLocal - kGameLocal];
 
 static Input::RealControllerHolder &SlotHolder(u32 slot) { return Holder(*Input::Manager::sInstance, slot); }
 
-static bool BackPressed(const Input::RealControllerHolder &holder) {
-    return (holder.uiinputStates[0].buttonActions & 2) != 0 && (holder.uiinputStates[1].buttonActions & 2) == 0;
-}
-
 static bool IsColourTrack(const nw4r::lyt::AnimationLink &link) {
     const nw4r::lyt::res::AnimationBlock *res = link.animTrans->resource;
     const u32 animOffsets = nw4r::ut::ConvertOffsToPtr<u32>(res, res->animOffsetToAnimOffsetsArray)[link.idx];
@@ -354,9 +350,8 @@ void JoinPage::AfterControlUpdate() {
     }
     for (u32 slot = 1; slot < count; ++slot) {
         if (!this->Joined(slot)) continue;
-        const Input::RealControllerHolder *holder =
-            slot < kGameLocal ? SectionMgr::sInstance->pad.padInfos[slot].controllerHolder : &SlotHolder(slot);
-        if (holder != nullptr && BackPressed(*holder)) {
+        const Input::RealControllerHolder *holder = PlayerHolder(slot);
+        if (holder != nullptr && UIPressed(*holder, BACK_PRESS)) {
             this->Release(slot);
             if (static_cast<s32>(slot) == this->requested) this->requested = -1;
         }

@@ -23,6 +23,10 @@ extern u8 raceScreenCount;
 extern u8 raceLocalCount;
 // Real controller holder of controller id 0..kMaxLocal-1, ids 4+ past the manager (D26, Input.cpp).
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id);
+// Local player 0..kMaxLocal-1's holder in the menus (Input.cpp), and whether an Action
+// (Manipulator.hpp) is newly pressed on a holder this frame.
+Input::RealControllerHolder *PlayerHolder(u32 player);
+bool UIPressed(const Input::RealControllerHolder &holder, u32 action);
 // Local players of the 5-8 player game the menus are setting up, 0 outside one; SectionParams' own
 // count stays 4 in it (D60, Entry.cpp).
 extern u8 menuLocalCount;
@@ -38,6 +42,10 @@ extern ExtPick extPicks[kMaxLocal - kGameLocal];
 Page *NewJoinPage();
 // P5-8's join state cleared and holders 4-7 put back on the dummy controller (Join.cpp).
 void ClearExtPads();
+#ifdef SS8_PAGES
+// The character, kart or drift page of a 5-8 player game (D67, Select.cpp), by its PulPageId.
+Page *NewSelectPage(u32 id);
+#endif
 // The colours of a local's hud slot 4..raceLocalCount-1 in a widened race; false for any other slot,
 // which keeps RR's own (Colours.cpp, called from RR's UIColor.cpp).
 bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary);
