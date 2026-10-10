@@ -94,8 +94,17 @@ struct MenuPick {
 static const MenuPick menuPicks[] = {SS8_MENU_PICKS};
 #endif
 
+}  // namespace SplitScreen8
+namespace Pulsar {
+namespace CustomCharacters {
+bool VoiceBaseGroupForTable(CharacterId character, u8 table, u32 &groupId);
+}  // namespace CustomCharacters
+}  // namespace Pulsar
+namespace SplitScreen8 {
+
 // The race scenario's first 8 players, once per race at its first frame (InitRace has run by then),
-// with the skin table RR's race readers get for each.
+// with the skin table RR's race readers get for each, and the PC voice group RR's base is and the one
+// the player takes (D77).
 static bool racePlayersReported;
 
 static void ReportRacePlayers() {
@@ -103,8 +112,11 @@ static void ReportRacePlayers() {
     racePlayersReported = true;
     for (u32 i = 0; i < kMaxLocal; ++i) {
         const RacedataPlayer &player = Racedata::sInstance->racesScenario.players[i];
-        OS::Report("ss8 race player %u: type %d character %#x kart %#x skin %u\n", i, player.playerType, player.characterId,
-                   player.kartId, Pulsar::CustomCharacters::RaceSkinTable(i, player.characterId));
+        const u8 table = Pulsar::CustomCharacters::RaceSkinTable(i, player.characterId);
+        u32 voice = 0xffffffff;
+        if (!Pulsar::CustomCharacters::VoiceBaseGroupForTable(player.characterId, table, voice)) voice = 0xffffffff;
+        OS::Report("ss8 race player %u: type %d character %#x kart %#x skin %u voice %u -> %u\n", i, player.playerType,
+                   player.characterId, player.kartId, table, voice, LocalVoiceGroup(i, voice));
     }
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).

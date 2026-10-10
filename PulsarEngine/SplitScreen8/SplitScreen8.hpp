@@ -57,6 +57,9 @@ extern u8 menuLoadHud;
 // RR's path to run.
 bool ReinitPlayerMenuModel(u8 hud, CharacterId character);
 void DestroyPlayerMenuModels();
+// The voice group local race player playerId takes in offline multiplayer, D77 (Voices.cpp): baseGroup
+// (RR's for its skin), or a lent group when an earlier local holds baseGroup with other voices.
+u32 LocalVoiceGroup(u8 playerId, u32 baseGroup);
 
 #ifdef SS8_DEBUG_BOOT
 // Called from Pulsar's BootIntoSection with its section; returns the section the game boots into.
