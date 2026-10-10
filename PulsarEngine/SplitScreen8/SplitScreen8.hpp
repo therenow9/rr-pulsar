@@ -3,6 +3,13 @@
 #include <MarioKartWii/System/Identifiers.hpp>
 
 class Page;
+class GameScene;
+namespace EGG {
+class Heap;
+}  // namespace EGG
+namespace GX {
+struct TexObj;
+}  // namespace GX
 namespace Input {
 class Manager;
 class RealControllerHolder;
@@ -40,6 +47,18 @@ struct ExtPick {
 extern ExtPick extPicks[kMaxLocal - kGameLocal];
 // Player 5..kMaxLocal's character: their pick, else D62's default, character id = player (Entry.cpp).
 CharacterId ExtCharacter(u32 player);
+// Hud 4..kMaxLocal-1's custom-character slot for a character, 0 for any other hud; kept for the session as
+// RR keeps huds 1-3's (D74). RR's Get/SetLocalPlayerSlot ask these for huds 4-7 and validate (Entry.cpp).
+u32 ExtLocalPlayerSlot(u32 hud, u32 character);
+void SetExtLocalPlayerSlot(u32 hud, u32 character, u32 slot);
+// P5-8's preview models out of the ScnMgr before RR's ResetScnMgr resets it; nothing outside --ss8-pages
+// builds (Entry.cpp, Previews.cpp).
+void ResetExtPreviews();
+// The heap a menu skin model is built on, given the one RR uses, and its load reserve beyond the BRRES
+// file, given RR's 0xE1000: unchanged outside a 5-8 player game, else whichever of the scene's MEM1 and
+// MEM2 structs heaps has the larger free block, and a reserve sized to what a model keeps (D99, Entry.cpp).
+// RR's previews and shared models and P5-8's ask it.
+EGG::Heap *SkinModelHeap(GameScene &scene, EGG::Heap *heap, u32 &reserve);
 // The join page of a 5-8 player game (D64, Join.cpp), built by Pulsar's ExpSection in that game's section 0x54.
 Page *NewJoinPage();
 // P5-8's join state cleared and holders 4-7 put back on the dummy controller (Join.cpp).
@@ -51,6 +70,15 @@ Page *NewSelectPage(u32 id);
 Page *NewCharSelectPage();
 // The kart if it is one of the character's 12, else the Standard Kart of the character's weight class (Select.cpp).
 KartId KartForCharacter(CharacterId character, KartId kart);
+// P5-8's preview models and textures (Previews.cpp). Show builds the textures and gives the menus' model
+// pass loop `count` passes until Hide; Load builds a player's model for a character and skin slot, Pose
+// takes it to the confirmed pose or back to idle; a texture is null until Show has built it.
+bool ExtPreviewsShow(u32 count);
+void ExtPreviewsHide();
+bool ExtPreviewLoad(u32 player, CharacterId character, u32 slot);
+void ExtPreviewPose(u32 player, bool confirmed);
+bool ExtPreviewIdle(u32 player);
+GX::TexObj *ExtPreviewTexObj(u32 player);
 #endif
 // The colours of a local's hud slot 4..raceLocalCount-1 in a widened race; false for any other slot,
 // which keeps RR's own (Colours.cpp, called from RR's UIColor.cpp).

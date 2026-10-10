@@ -18,6 +18,7 @@
 #include <core/rvl/PAD.hpp>
 #include <core/rvl/WPAD.hpp>
 #include <core/rvl/dvd/dvd.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace Driver {
@@ -175,10 +176,11 @@ bool LoadDriverBRRES(CharacterId characterId, u32 slot) {
 
     GameScene *scene = const_cast<GameScene *>(GameScene::GetCurrent());
     // GameScene locks its dynamic heaps after setup, so briefly allow this child heap allocation.
-    EGG::Heap *parentHeap = scene->structsHeaps.heaps[scene->id == SCENE_ID_GLOBE ? 1 : 0];
+    u32 reserve = 0xe1000;
+    EGG::Heap *parentHeap = SplitScreen8::SkinModelHeap(*scene, scene->structsHeaps.heaps[scene->id == SCENE_ID_GLOBE ? 1 : 0], reserve);
     const u16 heapFlags = parentHeap->dameFlag;
     parentHeap->dameFlag &= ~1;
-    EGG::ExpHeap *heap = EGG::ExpHeap::Create(fileSize + 0xe1000, parentHeap, 0);
+    EGG::ExpHeap *heap = EGG::ExpHeap::Create(fileSize + reserve, parentHeap, 0);
     parentHeap->dameFlag = heapFlags;
     if (heap == nullptr)
         return false;
@@ -450,6 +452,7 @@ kmBranch(0x805f5704, RequestDriverModel);
 
 static void ResetScnMgr() {
     DestroyLocalPlayerPreviews();
+    SplitScreen8::ResetExtPreviews();
     for (u32 character = 0; character < CHARACTER_COUNT; ++character) UnloadDriverBRRES(character);
     ScnMgr::Reset();
 }

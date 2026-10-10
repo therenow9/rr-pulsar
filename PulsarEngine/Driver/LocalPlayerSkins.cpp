@@ -11,6 +11,7 @@
 #include <core/egg/DVD/DvdRipper.hpp>
 #include <core/egg/mem/ExpHeap.hpp>
 #include <core/rvl/dvd/dvd.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace Driver {
@@ -36,9 +37,7 @@ u32 GetLocalPlayerSlot(u32 hud, CharacterId characterId) {
     // Online rooms send one slot per character (PulSELECT), so every local there shares selectedSlots.
     if (hud == 0 || IsOnline())
         return selectedSlots[character];
-    if (hud >= LOCAL_PLAYER_SKIN_COUNT)
-        return 0;
-    const u32 slot = localPlayerSlots[hud - 1][character];
+    const u32 slot = hud < LOCAL_PLAYER_SKIN_COUNT ? localPlayerSlots[hud - 1][character] : SplitScreen8::ExtLocalPlayerSlot(hud, character);
     return IsValidSlot(character, slot) ? slot : 0;
 }
 
@@ -50,6 +49,8 @@ void SetLocalPlayerSlot(u32 hud, CharacterId characterId, u32 slot) {
         selectedSlots[character] = slot;
     else if (hud < LOCAL_PLAYER_SKIN_COUNT)
         localPlayerSlots[hud - 1][character] = slot;
+    else
+        SplitScreen8::SetExtLocalPlayerSlot(hud, character, slot);
 }
 
 // A player's own preview model, used when the character's shared model (models[character]) already
@@ -197,10 +198,11 @@ static bool LoadPreview(MenuDriverModelMgr &manager, u32 hud, u32 character, u32
     ScnMgr *scnMgr = ScnMgr::sInstance[0];
     if (scene == nullptr || scnMgr == nullptr)
         return false;
-    EGG::Heap *parentHeap = scene->structsHeaps.heaps[0];
+    u32 reserve = 0xe1000;
+    EGG::Heap *parentHeap = SplitScreen8::SkinModelHeap(*scene, scene->structsHeaps.heaps[0], reserve);
     const u16 heapFlags = parentHeap->dameFlag;
     parentHeap->dameFlag &= ~1;
-    EGG::ExpHeap *heap = EGG::ExpHeap::Create(fileSize + 0xe1000, parentHeap, 0);
+    EGG::ExpHeap *heap = EGG::ExpHeap::Create(fileSize + reserve, parentHeap, 0);
     parentHeap->dameFlag = heapFlags;
     if (heap == nullptr)
         return false;

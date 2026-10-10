@@ -1,10 +1,12 @@
 #include <kamek.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
+#include <MarioKartWii/Scene/GameScene.hpp>
 #include <MarioKartWii/UI/Page/Menu/MainMenu.hpp>
 #include <MarioKartWii/UI/Page/Menu/MultiPlayer.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/UI/Section/SectionParams.hpp>
+#include <Driver/CustomCharacters.hpp>
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
@@ -313,12 +315,47 @@ ExtPick extPicks[kMaxLocal - kGameLocal];
 // The menus' pages set every player's type from the game's count, 4 (VSModeSelect::OnActivate,
 // CharacterSelect::OnActivate, MultiPlayer's VS click), so players 5..N are made local where each race
 // takes the menu scenario: InitRace, before RacedataScenario::Init counts its locals. The scenario's
-// character and kart for 5..N are rewritten there too: character select's CPU fill (0x8083EC28) and
-// kart select's (0x8084745C) give every slot from 4 a random one. With no pick, D62's default:
-// character i on the Standard Kart of its weight class, as the debug boot picks it.
+// character and kart for 5..N are rewritten there too: the vanilla character page's CPU fill
+// (0x8083EC28) and kart select's (0x8084745C) give every slot from 4 a random one (the 8-player page
+// runs its fill over 8, CharSelect.cpp). With no pick, D62's default: character i on the Standard Kart
+// of its weight class, as the debug boot picks it.
 CharacterId ExtCharacter(u32 player) {
     const ExtPick &pick = extPicks[player - kGameLocal];
     return pick.picked ? pick.character : static_cast<CharacterId>(player);
+}
+
+// Huds 4-7's rows beside RR's localPlayerSlots, which stop at LOCAL_PLAYER_SKIN_COUNT (Driver/LocalPlayerSkins.cpp).
+static u8 extSlots[kMaxLocal - kGameLocal][Pulsar::Driver::CHARACTER_COUNT];
+
+u32 ExtLocalPlayerSlot(u32 hud, u32 character) {
+    if (hud < kGameLocal || hud >= kMaxLocal || character >= Pulsar::Driver::CHARACTER_COUNT)
+        return 0;
+    return extSlots[hud - kGameLocal][character];
+}
+
+void SetExtLocalPlayerSlot(u32 hud, u32 character, u32 slot) {
+    if (hud >= kGameLocal && hud < kMaxLocal && character < Pulsar::Driver::CHARACTER_COUNT)
+        extSlots[hud - kGameLocal][character] = slot;
+}
+
+#ifndef SS8_PAGES
+void ResetExtPreviews() {
+}
+#endif
+
+// A 5-8 player game's section 0x54 has about 1.2 MB less MEM1 free than a 3-player one, too little for RR's
+// 0xE1000 per load across P1-4's skins, so up to 11 models (RR's 3 previews and 4 shared skins, P5-8's 4)
+// go on whichever of MEM1 and MEM2 has the larger free block. A built model keeps its file plus at most
+// about 245 KB.
+const u32 kSkinLoadReserve = 0x60000;
+
+EGG::Heap *SkinModelHeap(GameScene &scene, EGG::Heap *heap, u32 &reserve) {
+    if (menuLocalCount <= kGameLocal)
+        return heap;
+    reserve = kSkinLoadReserve;
+    EGG::Heap *mem1 = scene.structsHeaps.heaps[0];
+    EGG::Heap *mem2 = scene.structsHeaps.heaps[1];
+    return mem1->getAllocatableSize(4) > mem2->getAllocatableSize(4) ? mem1 : mem2;
 }
 
 static void MenuLocalsLocal(Racedata *racedata) {

@@ -1,9 +1,19 @@
 #ifdef SS8_PAGES
 #include <kamek.hpp>
 #include <core/rvl/OS/OS.hpp>
+#include <core/rvl/PAD.hpp>
+#include <core/rvl/WPAD.hpp>
+#include <core/nw4r/snd/BasicSound.hpp>
+#include <core/nw4r/snd/SoundHandle.hpp>
+#include <MarioKartWii/Audio/RSARPlayer.hpp>
+#include <MarioKartWii/Input/Controller.hpp>
+#include <MarioKartWii/Input/ControllerHolder.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
+#include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
+#include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 #include <MarioKartWii/UI/Page/Page.hpp>
+#include <MarioKartWii/UI/Page/Other/ModelRenderer.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuText.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuCharacterSelect.hpp>
 #include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
@@ -31,18 +41,33 @@ typedef void (*ControlFn)(LayoutUIControl *);
 typedef void (*DummyBackLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32);
 static const PositionFromBaseFn positionFromBase = reinterpret_cast<PositionFromBaseFn>(0x8063d3cc);
 static const CopyMiisFn copyMiisToRacedata = reinterpret_cast<CopyMiisFn>(0x805e39d8);  // SectionParams::CopyMiisToRacedata
-// ButtonDriver::OnButtonClick's confirm voice (0x807E36D0); it returns at once for hud 4+ (0x80868974).
+// ButtonDriver::OnButtonClick's confirm voice (0x807E36D0); it returns at once for hud 4+ (0x80868974),
+// whose driver path (0x80868ABC) keeps one sound handle per hud at DriverSoundManager+0x2430.
 static const ConfirmVoiceFn confirmVoice = reinterpret_cast<ConfirmVoiceFn>(0x80868974);
-static void *const *const confirmVoiceOwner = reinterpret_cast<void *const *>(0x809c4740);
-// Character select's last confirm gives every CPU from the game's count (4, D60) a random character
-// (0x8083EC28); it reads no argument. P5-8 are among them until InitRace makes them local (Entry.cpp).
+static u8 *const *const confirmVoiceOwner = reinterpret_cast<u8 *const *>(0x809c4740);
+typedef void *(*StartVoiceFn)(void *, nw4r::snd::SoundHandle *);
+const u32 kVoiceSetStride = 0xc0;  // one character's voice pickers
+const u32 kVoicePicker = 0x30;  // the confirm voice's picker in its set
+const float kVoiceVolume = 0.85f;  // 0x808B1FC4
+static nw4r::snd::SoundHandle extVoices[kMaxLocal - kGameLocal];
+// Character select's last confirm gives every CPU from GetLocalPlayerCount (read once, 0x8083EC38) a
+// random character no earlier slot has (0x8083EC28); it takes no argument and keeps the slots below the
+// count in a 14-word array (0x8083EC80).
 static const FillCpusFn fillCpuCharacters = reinterpret_cast<FillCpusFn>(0x8083ec28);
 static const ControlFn layoutCtor = reinterpret_cast<ControlFn>(0x8063d798);
 static const DummyBackLoadFn dummyBackLoad = reinterpret_cast<DummyBackLoadFn>(0x807e9620);
+typedef void (*ShowModelFn)(Pages::ModelRenderer *, u32, bool, u32);
+typedef GX::TexObj *(*ModelTexObjFn)(Pages::ModelRenderer *, u32);
+typedef void (*TexMapSetFn)(nw4r::lyt::TexMap *, const GX::TexObj *);
+// DriverModelControl::OnUpdate's per-frame calls (0x805F3618, 0x805F3624): the first ends in
+// MenuDriverModelMgr::TogglePlayerModel, which writes players[hud] (4 wide), so P1-4 only.
+static const ShowModelFn showModel = reinterpret_cast<ShowModelFn>(0x805f59ac);
+static const ModelTexObjFn modelTexObj = reinterpret_cast<ModelTexObjFn>(0x805f5a4c);
+static const TexMapSetFn texMapSet = reinterpret_cast<TexMapSetFn>(0x80082400);
 
 const u32 kTitleBmg = 0xd4a;  // CharacterSelect's titleBmg (0x80626C90)
 const u32 kDummyBackSize = 0x184;
-const u32 kButtons = 24;  // CtrlMenuCharacterSelect::buttonIdToCharacterId; the Mii row is C4b's
+const u32 kButtons = 24;  // CtrlMenuCharacterSelect::buttonIdToCharacterId; the Mii row is C4c's
 // LoadButton names a button's control "CharacterSelect%d_%d" from categoryCount (+0x1A8, 4) and
 // idx / (2 * categoryCount) (0x807E29B8-0x807E29CC), so each control holds Button0-7.
 const u32 kButtonsPerGroup = 8;
@@ -57,11 +82,14 @@ const u8 kNoPlayer = 0xff;
 const s32 kRepeatFrames = 15;
 const float kStickStart = 0.67f;
 const float kStickHold = 0.33f;
-// D67's name plates, four down each side (P1/P3/P5/P7 left). Starting values beside the 4P variants'
-// CharacterSelectName1P4..4P4 (x +-240, y 30 and -140, scale 0.65); the owner places them in C4b (D95).
+// D67's previews and name plates, four down each side (P1/P3/P5/P7 left): each preview small and just
+// above its plate (D100).
 const float kPlateX = 240.0f;
 const float kPlateY[kMaxLocal / 2] = {115.0f, 30.0f, -55.0f, -140.0f};
 const float kPlateScale = 0.5f;
+const float kPreviewX = 240.0f;
+const float kPreviewDY = 40.0f;  // above its plate
+const float kPreviewScale = 0.4f;  // of the 256 x 256 model_set_p
 
 // PushButton's animation names (0x808B7690), so the groups and animations keep PushButton's ids.
 static const char *kButtonAnims[] = {
@@ -79,6 +107,22 @@ enum SelectAnim {
     ANIM_SELECT_TO_FREE
 };
 const u32 kAnimStop = 1;  // SelectIn's SelectStop and OK's OKStop
+
+// 0x80868ABC's driver path for P5-8, on handles of their own: the player's last voice stopped, the
+// character's confirm picker (DriverSoundManager + character * 0xC0 + 0x30) started into the handle
+// through its vtable +0xC, then the volume. A Mii takes another path (0x80868C20), the Mii row's (C4c).
+static void ExtConfirmVoice(u32 player, CharacterId character) {
+    u8 *manager = *confirmVoiceOwner;
+    if (manager == nullptr || player < kGameLocal || player >= kMaxLocal || static_cast<u32>(character) >= Pulsar::Driver::CHARACTER_COUNT)
+        return;
+    nw4r::snd::SoundHandle &handle = extVoices[player - kGameLocal];
+    if (handle.basicSound != nullptr)
+        handle.basicSound->Stop(2);
+    void *picker = manager + character * kVoiceSetStride + kVoicePicker;
+    const StartVoiceFn start = *reinterpret_cast<StartVoiceFn *>(*reinterpret_cast<u8 **>(picker) + 0xc);
+    if (start(picker, &handle) != nullptr && handle.basicSound != nullptr)
+        handle.basicSound->SetVolume(0, kVoiceVolume);
+}
 
 static void PlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary) {
     if (player < kGameLocal)
@@ -114,6 +158,8 @@ public:
     }
     void OnInit() override;
     void OnActivate() override;
+    void OnDeactivate() override;
+    void BeforeControlUpdate() override;
     void AfterControlUpdate() override;
 
 private:
@@ -134,6 +180,15 @@ private:
 
     void LoadButton(u32 idx);
     void LoadPlate(u32 player);
+    void LoadPreview(u32 player);
+    void RequestPreview(u32 player);
+    void PosePreview(u32 player, bool confirmed);
+    void UpdatePreviews();
+    void SetPlateName(u32 player);
+    void SetIcon(Button &button);
+    void CycleSkin(u32 player, s32 direction);
+    void SyncSharedModels();
+    void FillCpus();
     s32 ButtonOf(CharacterId character) const;
     s32 Direction(u32 player, const Input::RealControllerHolder &holder);
     void Move(u32 player, s32 direction);
@@ -149,8 +204,10 @@ private:
     LayoutUIControl *grid;  // CtrlMenuCharacterSelect's own parent, "CharacterSelectNULL"
     Button *buttons;
     LayoutUIControl *plates[kMaxLocal];
+    LayoutUIControl *previews[kMaxLocal];  // CharacterSelectModel, the model's texture on model_set_p
     PageManipulatorManager manager;
     Cursor cursors[kMaxLocal];
+    s8 skinSteps[kMaxLocal];  // this frame's skin toggle per player, -1, 0 or 1
     u8 cols, rows;
     PageId nextPageId;
     u32 frame;
@@ -170,7 +227,10 @@ CharSelectPage::CharSelectPage() {
     *reinterpret_cast<u32 *>(this->backButton) = 0x808d3710;
     this->grid = new LayoutUIControl;
     this->buttons = new Button[kButtons];
-    for (int i = 0; i < kMaxLocal; ++i) this->plates[i] = new LayoutUIControl;
+    for (int i = 0; i < kMaxLocal; ++i) {
+        this->plates[i] = new LayoutUIControl;
+        this->previews[i] = new LayoutUIControl;
+    }
 }
 
 CharSelectPage::~CharSelectPage() {
@@ -178,11 +238,14 @@ CharSelectPage::~CharSelectPage() {
     delete this->backButton;
     delete this->grid;
     delete[] this->buttons;
-    for (int i = 0; i < kMaxLocal; ++i) delete this->plates[i];
+    for (int i = 0; i < kMaxLocal; ++i) {
+        delete this->plates[i];
+        delete this->previews[i];
+    }
 }
 
 void CharSelectPage::OnInit() {
-    this->InitControlGroup(3 + kMaxLocal);
+    this->InitControlGroup(3 + 2 * kMaxLocal);
     this->AddControl(0, *this->titleText, 0);
     this->titleText->Load(false);
     this->titleText->SetMessage(kTitleBmg);
@@ -222,7 +285,10 @@ void CharSelectPage::OnInit() {
         this->buttons[i].row = row;
     }
 
-    for (u32 p = 0; p < kMaxLocal; ++p) this->LoadPlate(p);
+    for (u32 p = 0; p < kMaxLocal; ++p) {
+        this->LoadPreview(p);
+        this->LoadPlate(p);
+    }
 
     // As C3's pages: a PageManipulatorManager with nothing to select, every player's input read from the
     // holders, and SectionPad's reconnect overlay watching P1-4 (P5-8's box is D69's, C6).
@@ -254,17 +320,7 @@ void CharSelectPage::LoadButton(u32 idx) {
         button.markers[p] = control.layout.GetPaneByName(name);
     }
     button.coloured = true;  // so the first UpdateButton resets it
-
-    // LoadButton's five icon panes (0x807E2AE8-0x807E2B38), then the body of RR's SetCharacterSelectIcon
-    // (UI/CustomCharacters.cpp), which reads a PushButton's buttonId and so cannot take this control: the
-    // icon shows P1's skin (D84).
-    const char *icon = GetCharacterIconPaneName(button.character);
-    static const char *const iconPanes[] = {"chara", "chara_shadow", "chara_light_01", "chara_light_02", "chara_c_down"};
-    for (u32 i = 0; i < sizeof(iconPanes) / sizeof(iconPanes[0]); ++i) control.SetPicturePane(iconPanes[i], icon);
-    Pulsar::Race::LoadCustomCharacterIcon(button.character, Pulsar::Driver::selectedSlots[button.character], control.layout.GetPaneByName("chara"), control.layout.GetPaneByName("chara_shadow"),
-      control.layout.GetPaneByName("chara_light_01"));
-    *control.layout.GetPaneByName("chara_light_02")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
-    *control.layout.GetPaneByName("chara_c_down")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
+    this->SetIcon(button);
 
     // P1-4's "OK" carries its colour in its message, 0x9FB + hud (ButtonDriver::OnMultiplayerMiiSelected,
     // 0x807E3BB0); P5-8's copies say "OK" plainly in the slot palette's colour (D80).
@@ -290,13 +346,29 @@ void CharSelectPage::LoadButton(u32 idx) {
     }
 }
 
+// LoadButton's five icon panes (0x807E2AE8-0x807E2B38), then the body of RR's SetCharacterSelectIcon
+// (UI/CustomCharacters.cpp), which reads a PushButton's buttonId and so cannot take this control: the icon
+// shows P1's skin (D84), so P1's skin toggle sets it again.
+void CharSelectPage::SetIcon(Button &button) {
+    LayoutUIControl &control = button.control;
+    const char *icon = GetCharacterIconPaneName(button.character);
+    static const char *const iconPanes[] = {"chara", "chara_shadow", "chara_light_01", "chara_light_02", "chara_c_down"};
+    for (u32 i = 0; i < sizeof(iconPanes) / sizeof(iconPanes[0]); ++i) control.SetPicturePane(iconPanes[i], icon);
+    Pulsar::Race::LoadCustomCharacterIcon(button.character, Pulsar::Driver::selectedSlots[button.character], control.layout.GetPaneByName("chara"), control.layout.GetPaneByName("chara_shadow"),
+      control.layout.GetPaneByName("chara_light_01"));
+    *control.layout.GetPaneByName("chara_light_02")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
+    *control.layout.GetPaneByName("chara_c_down")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
+}
+
 // The 4P name plate (CharacterSelect::CreateControl, 0x8083D9C0) at half size, coloured as
 // CharaName::InitSelf colours it (0x8083F09C): each channel the mean of the player's two colours.
+// RR renames the control the game loads to RharacterSelectName (Extra.cpp), its own layout with the skin
+// toggle's L and R at the plate's ends (D81); a build without RR would load CharacterSelectName.
 void CharSelectPage::LoadPlate(u32 player) {
     LayoutUIControl &plate = *this->plates[player];
     this->AddControl(3 + player, plate, 0);
     ControlLoader loader(&plate);
-    loader.Load("control", "CharacterSelectName", "CharacterSelectName1P4", nullptr);
+    loader.Load("control", "RharacterSelectName", "CharacterSelectName1P4", nullptr);
     plate.drawPriority = -1.0f;  // as CreateControl with 3+ players (0x8083D9F4)
     PositionAndScale &base = plate.positionAndscale[0];
     base.position.x = player % 2 == 0 ? -kPlateX : kPlateX;
@@ -317,6 +389,87 @@ void CharSelectPage::LoadPlate(u32 player) {
     }
 }
 
+// As DriverModelControl::Load loads it (0x805F32DC, from CharacterSelect::CreateControl 0x8083D8E8): its
+// animation names (0x80895DC4; a null table faults in ControlLoader) and its one group started on Player,
+// full opacity. Placed here rather than by ModelRendererValuesHolder, whose variants stop at 4 players.
+void CharSelectPage::LoadPreview(u32 player) {
+    static const char *kModelAnims[] = {"Ghost", "Player", "Ghost", nullptr, nullptr};
+    LayoutUIControl &preview = *this->previews[player];
+    this->AddControl(3 + kMaxLocal + player, preview, 0);
+    ControlLoader loader(&preview);
+    loader.Load("model", "CharacterSelectModel", "1P_4Div", kModelAnims);
+    preview.animator.GetAnimationGroupById(0).PlayAnimationAtFrame(0, 0.0f);
+    preview.drawPriority = -2.0f;  // under the plates
+    PositionAndScale &base = preview.positionAndscale[0];
+    base.position.x = player % 2 == 0 ? -kPreviewX : kPreviewX;
+    base.position.y = kPlateY[player / 2] + kPreviewDY;
+    base.scale.x = kPreviewScale;
+    base.scale.z = kPreviewScale;
+    positionFromBase(&preview);
+}
+
+// The player's model for the character their cursor is on: P1-4 through ModelRenderer, which RR's hooks
+// give each player their own skin and model (Driver/LocalPlayerSkins.cpp), P5-8 through Previews.cpp.
+void CharSelectPage::RequestPreview(u32 player) {
+    const CharacterId character = this->buttons[this->cursors[player].button].character;
+    if (player < kGameLocal) {
+        Pages::ModelRenderer *renderer = SectionMgr::sInstance->curSection->Get<Pages::ModelRenderer>();
+        if (renderer != nullptr)
+            renderer->RequestCharacterModel(player, character);
+    } else if (!ExtPreviewLoad(player, character, Pulsar::Driver::GetLocalPlayerSlot(player, character))) {
+        OS::Report("ss8 select: character player %u preview %#x failed\n", player + 1, character);
+    }
+}
+
+// As OnActivate (0x8083DD58), OnButtonDriverClick (0x8083E140) and OnBackPress (0x8083EA30) switch a P1-4
+// model with its hud; P5-8's pass -1 (Previews.cpp).
+void CharSelectPage::PosePreview(u32 player, bool confirmed) {
+    if (player >= kGameLocal) {
+        ExtPreviewPose(player, confirmed);
+        return;
+    }
+    MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
+    MenuDriverModel *model = modelMgr != nullptr && modelMgr->driverModels != nullptr ? modelMgr->driverModels->players[player].playerModel : static_cast<MenuDriverModel *>(nullptr);
+    if (model != nullptr)
+        model->SwitchState(player, confirmed ? MenuDriverModel::MENUDRIVERMODEL_STATE_ONCHARSELECT : MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
+}
+
+// What DriverModelControl::OnUpdate does each frame (0x805F356C), for 8: the model shown, its texture on
+// model_set_p (TexMap::Set, then no palette, 0x805F36AC-0x805F375C), and a P1-4 model a kart page left in
+// its kart pose set back to idle (0x805F37C0).
+void CharSelectPage::UpdatePreviews() {
+    Pages::ModelRenderer *renderer = SectionMgr::sInstance->curSection->Get<Pages::ModelRenderer>();
+    MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
+    for (u32 p = 0; p < menuLocalCount; ++p) {
+        GX::TexObj *texObj = nullptr;
+        if (p >= kGameLocal) {
+            texObj = ExtPreviewTexObj(p);
+        } else if (renderer != nullptr) {
+            showModel(renderer, p, true, 0);
+            texObj = modelTexObj(renderer, p);
+            MenuDriverModel *model = modelMgr != nullptr && modelMgr->driverModels != nullptr ? modelMgr->driverModels->players[p].playerModel : static_cast<MenuDriverModel *>(nullptr);
+            if (model != nullptr && model->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT)
+                model->SwitchState(p, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
+        }
+        nw4r::lyt::Pane *pane = this->previews[p]->layout.GetPaneByName("model_set_p");
+        nw4r::lyt::Material *material = pane != nullptr ? pane->GetMaterial() : static_cast<nw4r::lyt::Material *>(nullptr);
+        if (texObj == nullptr || material == nullptr)
+            continue;
+        nw4r::lyt::TexMap texMap;
+        texMapSet(&texMap, texObj);
+        texMap.palette = nullptr;
+        texMap.paletteEntryNum = 0;
+        texMap.bits.paletteFormat = 0;
+        *material->GetTexMapAry() = texMap;
+    }
+}
+
+// The plate names the character the cursor is on in that player's skin (RR's names[hud], Driver/CustomCharacters.cpp).
+void CharSelectPage::SetPlateName(u32 player) {
+    const CharacterId character = this->buttons[this->cursors[player].button].character;
+    this->plates[player]->SetMessage(Pulsar::UI::GetCharacterSlotNameBMGId(character, Pulsar::Driver::GetLocalPlayerSlot(player, character), false));
+}
+
 s32 CharSelectPage::ButtonOf(CharacterId character) const {
     for (u32 i = 0; i < kButtons; ++i)
         if (this->buttons[i].character == character)
@@ -325,7 +478,7 @@ s32 CharSelectPage::ButtonOf(CharacterId character) const {
 }
 
 // P1-4 start on SectionParams' last picks, as CtrlMenuCharacterSelect::InitSelf (0x807E2F34); P5-8 on
-// theirs or D62's default. A last pick that is a Mii (the Mii row is C4b's) starts on D62's default.
+// theirs or D62's default. A last pick that is a Mii (the Mii row is C4c's) starts on D62's default.
 void CharSelectPage::OnActivate() {
     this->nextPageId = PAGE_NONE;
     this->leaving = false;
@@ -341,7 +494,14 @@ void CharSelectPage::OnActivate() {
         cursor.confirmed = false;
         for (int d = 0; d < 4; ++d) cursor.held[d] = -1;
         this->plates[p]->isHidden = p >= menuLocalCount;
-        this->plates[p]->SetMessage(GetCharacterBMGId(this->buttons[button].character, false));
+        this->previews[p]->isHidden = p >= menuLocalCount;
+    }
+    if (!ExtPreviewsShow(menuLocalCount))
+        OS::Report("ss8 select: P5-8 preview textures failed\n");
+    for (u32 p = 0; p < menuLocalCount; ++p) {
+        this->RequestPreview(p);
+        this->PosePreview(p, false);
+        this->SetPlateName(p);
     }
     // Every group starts as PushButton::Init (0x805BDBE0) starts it; a loaded group has no animation yet.
     for (u32 i = 0; i < kButtons; ++i) {
@@ -358,7 +518,111 @@ void CharSelectPage::OnActivate() {
     for (u32 p = 0; p < menuLocalCount; ++p) OS::Report("ss8 select: character player %u on %#x\n", p + 1, this->buttons[this->cursors[p].button].character);
 }
 
+void CharSelectPage::OnDeactivate() {
+    ExtPreviewsHide();
+}
+
+// RR's skin toggle input (PageBeforeControlUpdate, Driver/CustomCharacters.cpp), which runs only on the
+// vanilla page, for all 8 (D81): L and R on GameCube and Classic, C and Z on a Nunchuk, B and A on a
+// sideways Wii Remote, whose 2 and 1 then become its A and B so that A toggles rather than confirms.
+void CharSelectPage::BeforeControlUpdate() {
+    for (u32 p = 0; p < kMaxLocal; ++p) this->skinSteps[p] = 0;
+    for (u32 p = 0; p < menuLocalCount; ++p) {
+        Input::RealControllerHolder *holder = PlayerHolder(p);
+        if (holder == nullptr || holder->curController == nullptr)
+            continue;
+        Input::UIState &state = holder->uiinputStates[0];
+        const u16 raw = state.rawButtons;
+        const u16 pressed = raw & ~holder->uiinputStates[1].rawButtons;
+        u16 previousButton, nextButton;
+        switch (holder->curController->GetType()) {
+            case GCN:
+                previousButton = PAD::PAD_BUTTON_L;
+                nextButton = PAD::PAD_BUTTON_R;
+                break;
+            case CLASSIC:
+                previousButton = WPAD::WPAD_CL_TRIGGER_L;
+                nextButton = WPAD::WPAD_CL_TRIGGER_R;
+                break;
+            case NUNCHUCK:
+                previousButton = WPAD::WPAD_BUTTON_C;
+                nextButton = WPAD::WPAD_BUTTON_Z;
+                if (raw & WPAD::WPAD_BUTTON_C)
+                    state.buttonActions &= ~0x100;
+                break;
+            default:
+                previousButton = WPAD::WPAD_BUTTON_B;
+                nextButton = WPAD::WPAD_BUTTON_A;
+                state.buttonActions &= ~0x3;
+                if (raw & WPAD::WPAD_BUTTON_2)
+                    state.buttonActions |= 0x1;
+                if (raw & WPAD::WPAD_BUTTON_1)
+                    state.buttonActions |= 0x2;
+                break;
+        }
+        const u16 step = pressed & (previousButton | nextButton);
+        if (step == previousButton)
+            this->skinSteps[p] = -1;
+        else if (step == nextButton)
+            this->skinSteps[p] = 1;
+    }
+}
+
+// RR's skin cycle (PageAfterControlUpdate) for one player: the next or previous slot the character has,
+// only while the preview stands idle, reloaded where that player's model is (LoadLocalPlayerModel for
+// P1-4, Previews.cpp for P5-8) and back to slot 0 if the load fails.
+void CharSelectPage::CycleSkin(u32 player, s32 direction) {
+    Button &button = this->buttons[this->cursors[player].button];
+    const CharacterId character = button.character;
+    if (player < kGameLocal) {
+        MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
+        MenuDriverModel *model = modelMgr != nullptr && modelMgr->driverModels != nullptr ? modelMgr->driverModels->players[player].playerModel : static_cast<MenuDriverModel *>(nullptr);
+        if (model == nullptr || model->state != MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE)
+            return;
+    } else if (!ExtPreviewIdle(player)) {
+        return;
+    }
+    const u32 previousSlot = Pulsar::Driver::GetLocalPlayerSlot(player, character);
+    u32 slot = previousSlot;
+    for (u32 tries = 0; tries <= Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS; ++tries) {
+        if (direction < 0)
+            slot = slot == 0 ? Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS : slot - 1;
+        else
+            slot = slot == Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS ? 0 : slot + 1;
+        if (Pulsar::Driver::characterTables[character][slot])
+            break;
+    }
+    if (slot == previousSlot)
+        return;
+    Pulsar::Driver::SetLocalPlayerSlot(player, character, slot);
+    const bool loaded = player < kGameLocal ? Pulsar::Driver::LoadLocalPlayerModel(player, character, slot) : ExtPreviewLoad(player, character, slot);
+    if (!loaded)
+        Pulsar::Driver::SetLocalPlayerSlot(player, character, 0);
+    else
+        Audio::RSARPlayer::PlaySoundById(direction < 0 ? SOUND_ID_LEFT_ARROW_PRESS : SOUND_ID_RIGHT_ARROW_PRESS, 0, 0);
+    if (player == 0)
+        this->SetIcon(button);
+    this->SetPlateName(player);
+    OS::Report("ss8 select: character player %u skin %#x slot %u%s\n", player + 1, character, Pulsar::Driver::GetLocalPlayerSlot(player, character), loaded ? "" : " failed");
+}
+
+// RR's shared-model pass (PageAfterControlUpdate): each character's shared model holds the skin of the
+// P1-4 player standing on it. LoadDriverBRRES returns at once when that slot is already loaded.
+void CharSelectPage::SyncSharedModels() {
+    const u32 count = menuLocalCount < kGameLocal ? menuLocalCount : kGameLocal;
+    for (u32 c = 0; c < Pulsar::Driver::CHARACTER_COUNT; ++c) {
+        const CharacterId character = static_cast<CharacterId>(c);
+        bool focused = false;
+        for (u32 p = 0; p < count; ++p) focused |= this->buttons[this->cursors[p].button].character == character;
+        u32 standingHud;
+        const u32 slot = Pulsar::Driver::GetSharedModelSlot(character, focused, standingHud);
+        if (!Pulsar::Driver::LoadDriverBRRES(character, slot))
+            Pulsar::Driver::SetLocalPlayerSlot(standingHud, character, 0);
+    }
+}
+
 void CharSelectPage::AfterControlUpdate() {
+    this->UpdatePreviews();
     if (this->currentState != STATE_ACTIVE || this->leaving)
         return;
     ++this->frame;
@@ -368,6 +632,8 @@ void CharSelectPage::AfterControlUpdate() {
         if (holder == nullptr)
             continue;
         Cursor &cursor = this->cursors[p];
+        if (!cursor.confirmed && this->skinSteps[p] != 0)
+            this->CycleSkin(p, this->skinSteps[p]);
         if (UIPressed(*holder, BACK_PRESS)) {
             if (cursor.confirmed) {
                 this->Unconfirm(p);
@@ -383,6 +649,7 @@ void CharSelectPage::AfterControlUpdate() {
                 this->Move(p, direction);
         }
     }
+    this->SyncSharedModels();
     for (u32 i = 0; i < kButtons; ++i) this->UpdateButton(i);
 
     u32 confirmed = 0;
@@ -396,10 +663,23 @@ void CharSelectPage::AfterControlUpdate() {
     if (this->leaveFrames < 0) {
         const AnimationGroup &ok = this->buttons[this->cursors[0].button].control.animator.GetAnimationGroupById(GROUP_OK);
         this->leaveFrames = static_cast<s32>(ok.animations[0].transform->GetFrameSize() / ok.animations[0].speed / ok.unknown_0x40);
-        fillCpuCharacters();
+        this->FillCpus();
     }
     if (this->leaveFrames-- == 0)
         this->Leave(Pulsar::UI::PULPAGE_SS8KARTSELECT, 0);
+}
+
+// D98: no CPU takes a local's pick. For the fill's one call SectionParams' count is the true one and P5-8's
+// picks sit in their scenario slots, so the fill keeps all 8 and gives CPUs only the slots from 8 up.
+// InitRace makes slots 4-7 local with the same picks (Entry.cpp).
+void CharSelectPage::FillCpus() {
+    SectionParams *params = SectionMgr::sInstance->sectionParams;
+    RacedataScenario &scenario = Racedata::sInstance->menusScenario;
+    for (u32 p = kGameLocal; p < menuLocalCount; ++p) scenario.players[p].characterId = ExtCharacter(p);
+    const u32 gameCount = params->localPlayerCount;
+    params->localPlayerCount = menuLocalCount;
+    fillCpuCharacters();
+    params->localPlayerCount = gameCount;
 }
 
 // The direction this frame's input moves the player's cursor in, -1 for none, as the menus read it:
@@ -472,7 +752,8 @@ void CharSelectPage::Hover(u32 player, u32 to) {
     control.animator.GetAnimationGroupById(GROUP_SELECT_IN).PlayAnimationAtFrame(0, 0.0f);
     control.PlaySound(SOUND_ID_BUTTON_SELECT, player);
     const CharacterId character = this->buttons[to].character;
-    this->plates[player]->SetMessage(GetCharacterBMGId(character, false));
+    this->SetPlateName(player);
+    this->RequestPreview(player);
     OS::Report("ss8 select: character player %u on %#x\n", player + 1, character);
 }
 
@@ -488,7 +769,7 @@ void CharSelectPage::Confirm(u32 player) {
     control.PlaySound(SOUND_ID_BUTTON_PRESS, player);
     SectionParams *params = SectionMgr::sInstance->sectionParams;
     copyMiisToRacedata(params);
-    this->plates[player]->SetMessage(GetCharacterBMGId(character, true));
+    this->PosePreview(player, true);
     if (player < kGameLocal) {
         params->characters[player] = character;
         RacedataPlayer &racer = Racedata::sInstance->menusScenario.players[player];
@@ -503,7 +784,10 @@ void CharSelectPage::Confirm(u32 player) {
         pick.kart = KartForCharacter(character, last);
         pick.picked = true;
     }
-    confirmVoice(*confirmVoiceOwner, player, character);
+    if (player < kGameLocal)
+        confirmVoice(*confirmVoiceOwner, player, character);
+    else
+        ExtConfirmVoice(player, character);
     OS::Report("ss8 select: character player %u confirm %#x\n", player + 1, character);
 }
 
@@ -512,7 +796,7 @@ void CharSelectPage::Confirm(u32 player) {
 void CharSelectPage::Unconfirm(u32 player) {
     Cursor &cursor = this->cursors[player];
     cursor.confirmed = false;
-    this->plates[player]->SetMessage(GetCharacterBMGId(this->buttons[cursor.button].character, false));
+    this->PosePreview(player, false);
     this->PlaySound(SOUND_ID_BACK_PRESS, -1);
     OS::Report("ss8 select: character player %u unconfirm\n", player + 1);
 }

@@ -126,17 +126,18 @@ struct MenuPick {
 static const MenuPick menuPicks[] = {SS8_MENU_PICKS};
 #endif
 
-// The race scenario's first 8 players, once per race at its first frame (InitRace has run by then),
-// with the skin slot RR's race readers get for each and the character whose voice groups RR lends
-// that player (-1 for none).
+// The race scenario's players, CPUs included (D98), once per race at its first frame (InitRace has run
+// by then), with the skin slot RR's race readers get for each and the character whose voice groups RR
+// lends that player (-1 for none).
 static bool racePlayersReported;
 
 static void ReportRacePlayers() {
     if (racePlayersReported || Racedata::sInstance == nullptr)
         return;
     racePlayersReported = true;
-    for (u32 i = 0; i < kMaxLocal; ++i) {
-        const RacedataPlayer &player = Racedata::sInstance->racesScenario.players[i];
+    const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
+    for (u32 i = 0; i < sizeof(scenario.players) / sizeof(scenario.players[0]); ++i) {
+        const RacedataPlayer &player = scenario.players[i];
         const u32 slot = Pulsar::Race::GetPlayerCustomCharacterSlot(i, player.characterId);
         OS::Report("ss8 race player %u: type %d character %#x kart %#x skin %u voice %d\n", i, player.playerType, player.characterId, player.kartId, slot, Pulsar::Race::GetPlayerVoiceAlias(i));
     }
