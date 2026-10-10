@@ -81,9 +81,10 @@ static u32 PlayerConfirmed(u32 player) {
 }
 
 // CtrlMenuCharacterSelect::OnUpdate+0x70, "cmpwi r0, 1": r0 is player r27's preview model state, 1 once
-// it is confirmed. The model is one per driver, shared, so in multiplayer (r28 players) one player's
-// confirm would show the OK marker of every player on that driver; the player's own holder must also
-// be off. The beq after reads CR0; volatile registers are reloaded after it and OnUpdate saved LR.
+// it is confirmed. Two players can still share a driver's model (online 2P, or a failed load of a
+// player's own model in Skins.cpp), so in multiplayer (r28 players) the player's own holder must also be
+// off, or one player's confirm would show every OK marker on that driver. The beq after reads CR0;
+// volatile registers are reloaded after it and OnUpdate saved LR.
 asmFunc OwnConfirmForMarker() {
     ASM(
         nofralloc;
