@@ -196,6 +196,20 @@ static asmFunc LinkAwardAnimations() {
 }
 kmCall(0x807897e0, LinkAwardAnimations);
 
+// AwardsMgr::LoadPlayers+0x304, "li r27, 1": r27 makes the award model a Mii head. A driver that two
+// players share takes the duplicate path, which keeps its player's Mii in r17 whatever the character.
+// Only Mii ids (from 0x18, as the first-player path decides) get the head; r17 stays for the skin lookup above.
+static asmFunc AwardsMiiHeadOnlyForMiis() {
+    ASM(
+        nofralloc;
+        lwz r0, 0(r23);
+        cmplwi r0, 0x18;
+        bltlr;
+        li r27, 1;
+        blr;)
+}
+kmCall(0x80789644, AwardsMiiHeadOnlyForMiis);
+
 void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *pane, nw4r::lyt::Pane *shadow0, nw4r::lyt::Pane *shadow1, bool minimap) {
     if (static_cast<u32>(character) >= Driver::CHARACTER_COUNT || slot == 0)
         return;

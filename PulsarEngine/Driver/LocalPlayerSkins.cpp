@@ -5,6 +5,7 @@
 #include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 #include <MarioKartWii/3D/Scn/ScnMgr.hpp>
 #include <MarioKartWii/Driver/Toadette.hpp>
+#include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/RKNet/RKNetController.hpp>
 #include <MarioKartWii/Scene/GameScene.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
@@ -21,7 +22,11 @@ namespace Driver {
 // picked alone carries into multiplayer and back. Players 2-4 each have their own row here.
 static u8 localPlayerSlots[LOCAL_PLAYER_SKIN_COUNT - 1][CHARACTER_COUNT];
 
+// An online character select is built before any room exists, so an online section counts as online.
 static bool IsOnline() {
+    const SectionMgr *sectionMgr = SectionMgr::sInstance;
+    if (sectionMgr != nullptr && sectionMgr->curSection != nullptr && IsOnlineSection(sectionMgr->curSection->sectionId))
+        return true;
     const RKNet::Controller *controller = RKNet::Controller::sInstance;
     return controller != nullptr && controller->roomType != RKNet::ROOMTYPE_NONE;
 }
