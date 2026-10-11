@@ -10,6 +10,7 @@
 #include <MarioKartWii/Input/ControllerHolder.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
+#include <MarioKartWii/RKSYS/RKSYSMgr.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 #include <MarioKartWii/UI/Page/Page.hpp>
@@ -21,6 +22,8 @@
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/UI/Section/SectionParams.hpp>
 #include <Driver/CustomCharacters.hpp>
+#include <Network/Rating/PlayerRating.hpp>
+#include <Network/Settings/SelectionRestrictions.hpp>
 #include <Race/CustomCharacters.hpp>
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -67,10 +70,15 @@ static const TexMapSetFn texMapSet = reinterpret_cast<TexMapSetFn>(0x80082400);
 
 const u32 kTitleBmg = 0xd4a;  // CharacterSelect's titleBmg (0x80626C90)
 const u32 kDummyBackSize = 0x184;
-const u32 kButtons = 24;  // CtrlMenuCharacterSelect::buttonIdToCharacterId; the Mii row is C4c's
+const u32 kDriverButtons = 24;  // CtrlMenuCharacterSelect::buttonIdToCharacterId
+// Then Mii A, B and C, as RR builds the vanilla page (li r30, 27 at 0x807E2714). Their button ids are
+// GetCorrectButtonDriverId's 0x1E + 2 * outfit (0x807E3DBC); the character a player gets is their Mii's.
+const u32 kButtons = kDriverButtons + 3;
 // LoadButton names a button's control "CharacterSelect%d_%d" from categoryCount (+0x1A8, 4) and
-// idx / (2 * categoryCount) (0x807E29B8-0x807E29CC), so each control holds Button0-7.
+// idx / (2 * categoryCount) (0x807E29B8-0x807E29CC), so each control holds Button0-7, and the Mii row is
+// the fourth control's Button0-2.
 const u32 kButtonsPerGroup = 8;
+const u32 kMiiOutfits = 3;  // A, B and C, two ids apart (MII_S_A_MALE ... MII_S_C_FEMALE)
 const float kGridShift = 80.0f;  // ButtonDriver::SetPositionAnim takes InitSelf's 80 off every button's x (0x807E2E38)
 const u32 kCursorFrames = 30;  // D79: each player on a button shows for 30 frames in turn
 const u32 kOkBmg = 0x9fb;  // P1's coloured "OK", then P2-4's
@@ -108,9 +116,80 @@ enum SelectAnim {
 };
 const u32 kAnimStop = 1;  // SelectIn's SelectStop and OK's OKStop
 
+// A player's Mii is SectionParams.playerMiis' entry for them, a group of 12 (Init at 0x805E2F9C), which
+// CopyMiisToRacedata copies to the race's players. P5-8's index among the console's and the default Miis
+// is kept here, as P1-4's at SectionParams+0x154 (4 wide). Vanilla zeroes P1-4's at every license click
+// (ResetLicenseParams, 0x805E4118); P5-8's go back to 0 only when the page is built under another license.
+static u32 extMiiIdx[kMaxLocal - kGameLocal];
+static s32 extMiiLicense = -1;
+// The player 5-8 MiiSelect is open for, else 0xFF; read by MiiPickPlayer.
+static u8 extMiiPlayer = kNoPlayer;
+const u32 kMiiSelectClicked = 0xd94;  // MiiSelect::clickedButtonId, -1 for none
+const u32 kMiiSelectHud = 0xda0;  // MiiSelect::activeHudSlotId
+static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710);  // MiiManager::sInstance
+const u32 kOfficialMiiCount = 0x2d4;  // its count of the console's Miis, read as a byte (0x8083D6DC)
+
+typedef void (*LoadMiiFn)(MiiGroup *, u8, u32);
+typedef void (*MiiVoiceFn)(void *, Mii *, u32);
+typedef void (*MiiConfirmVoiceFn)(void *, u32);
+typedef void (*MiiModelsFn)(MenuDriverModelMgr *, u32, Mii *);
+static const LoadMiiFn loadOfficialMii = reinterpret_cast<LoadMiiFn>(0x805fa678);
+static const LoadMiiFn loadDefaultMii = reinterpret_cast<LoadMiiFn>(0x805fa748);
+// OnButtonDriverClick's Mii voice (0x8083E094, 0x8083E0A0): the Mii's voice set for the hud, then its
+// confirm line through 0x80868C20; both keep per-hud records 4 wide (DriverSoundManager+0x4260, +0x2430).
+static const MiiVoiceFn miiVoice = reinterpret_cast<MiiVoiceFn>(0x80869118);
+static const MiiConfirmVoiceFn miiConfirmVoice = reinterpret_cast<MiiConfirmVoiceFn>(0x80868d3c);
+static const MiiModelsFn rebuildMiiModels = reinterpret_cast<MiiModelsFn>(0x80831534);
+
+// MiiSelect::OnButtonClick's section 0x54 branch, "lwz r3, 0x44(r28)" (0x80848A44): r30 is the clicking
+// slot, which indexes playerMiis in the copy and flag that follow (0x80848A60, 0x80848A78, 0x80848A98).
+// P5-8 drive MiiSelect through slot 4, so slot 4 becomes the player it was opened for. r12 and CR0 are free
+// (the bl at 0x80848A50 is next to read either); OnButtonClick saved LR.
+asmFunc MiiPickPlayer() {
+    ASM(
+        nofralloc;
+        cmpwi r30, 4;
+        bne done;
+        lis r12, extMiiPlayer @ha;
+        lbz r12, extMiiPlayer @l(r12);
+        cmplwi r12, 8;
+        bge done;
+        mr r30, r12;
+        done :;
+        lwz r3, 0x44(r28);
+        blr;)
+}
+kmCall(0x80848a44, MiiPickPlayer);
+
+// The same branch's "bl 0x80831534" (0x80848ABC) rebuilds the hud's Mii models, MiiSelect's hud, in
+// MenuDriverModelMgr's 4-wide arrays: P5-8 come in as hud 4 and skip it (their preview is Previews.cpp's).
+static void RebuildMiiModels(MenuDriverModelMgr *models, u32 hud, Mii *mii) {
+    if ((hud & 0xff) < kGameLocal)
+        rebuildMiiModels(models, hud, mii);
+}
+kmCall(0x80848abc, RebuildMiiModels);
+
+// SectionPad::Update's "stw r0, 0x58(r26)" (0x8061AF60) gives the reconnect check (GetFirstDeactivatedPad, its
+// only reader) the top page's player mask, MiiSelect's 0x10 while a player 5-8 drives it through slot 4, whose
+// pad record is the dummy's: slot 4 leaves the mask then. r12 and CR0 are written before they are next read;
+// Update saved LR.
+asmFunc MiiSelectReconnectMask() {
+    ASM(
+        nofralloc;
+        lis r12, extMiiPlayer @ha;
+        lbz r12, extMiiPlayer @l(r12);
+        cmplwi r12, 8;
+        bge store;
+        rlwinm r0, r0, 0, 28, 26;
+        store :;
+        stw r0, 0x58(r26);
+        blr;)
+}
+kmCall(0x8061af60, MiiSelectReconnectMask);
+
 // 0x80868ABC's driver path for P5-8, on handles of their own: the player's last voice stopped, the
 // character's confirm picker (DriverSoundManager + character * 0xC0 + 0x30) started into the handle
-// through its vtable +0xC, then the volume. A Mii takes another path (0x80868C20), the Mii row's (C4c).
+// through its vtable +0xC, then the volume. A Mii takes another path (0x80868C20, ExtMiiConfirmVoice).
 static void ExtConfirmVoice(u32 player, CharacterId character) {
     u8 *manager = *confirmVoiceOwner;
     if (manager == nullptr || player < kGameLocal || player >= kMaxLocal || static_cast<u32>(character) >= Pulsar::Driver::CHARACTER_COUNT)
@@ -122,6 +201,52 @@ static void ExtConfirmVoice(u32 player, CharacterId character) {
     const StartVoiceFn start = *reinterpret_cast<StartVoiceFn *>(*reinterpret_cast<u8 **>(picker) + 0xc);
     if (start(picker, &handle) != nullptr && handle.basicSound != nullptr)
         handle.basicSound->SetVolume(0, kVoiceVolume);
+}
+
+// A Mii's voice record, as 0x80869344 fills DriverSoundManager+0x4260 + hud * 0x10 from the Mii: its voice type,
+// size and gender, which pick one of the shared pickers at +0x42A8 (0x8086622C), and its pitch.
+struct MiiVoice {
+    s32 type;
+    s32 size;
+    s32 gender;
+    float pitch;
+};
+static MiiVoice extMiiVoices[kMaxLocal - kGameLocal];
+typedef void (*MiiVoiceRecordFn)(void *, Mii *, MiiVoice *, u32);
+typedef void (*MiiVoicePickerFn)(s32 *, const MiiVoice *);
+static const MiiVoiceRecordFn miiVoiceRecord = reinterpret_cast<MiiVoiceRecordFn>(0x80869344);
+static const MiiVoicePickerFn miiVoicePicker = reinterpret_cast<MiiVoicePickerFn>(0x8086622c);
+const u32 kMiiVoicePickers = 0x42a8;
+const u32 kMiiVoicePickerStride = 0x30;
+const float kMiiVoiceVolume = 0.6f;  // 0x808B1FC8
+const float kMiiVoicePan = 0.0f;  // 0x808B1FCC
+typedef void (*SetPanFn)(nw4r::snd::detail::BasicSound *, float);
+static const SetPanFn setPan = reinterpret_cast<SetPanFn>(0x8008f620);  // BasicSound::SetPan, not in Kamek's externals
+
+// A Mii's confirm voice for P5-8 on their own records and handles, as 0x80869118 then 0x80868C20 play P1-4's: the
+// record, the old voice stopped, the picker started into the handle, then volume, pan and pitch. 0x80869118's
+// 3-4 player step (0x808693B8), which gives each local Mii a voice id the others lack in shared 4-player sets, is
+// left out, so a P5-8 Mii can repeat another's voice.
+static void ExtMiiConfirmVoice(u32 player, Mii *mii) {
+    u8 *manager = *confirmVoiceOwner;
+    if (manager == nullptr || mii == nullptr || player < kGameLocal || player >= kMaxLocal)
+        return;
+    MiiVoice &record = extMiiVoices[player - kGameLocal];
+    miiVoiceRecord(manager, mii, &record, 1);
+    s32 picker = -1;
+    miiVoicePicker(&picker, &record);
+    if (picker < 0)
+        return;
+    nw4r::snd::SoundHandle &handle = extVoices[player - kGameLocal];
+    if (handle.basicSound != nullptr)
+        handle.basicSound->Stop(2);
+    void *pickerObj = manager + kMiiVoicePickers + picker * kMiiVoicePickerStride;
+    const StartVoiceFn start = *reinterpret_cast<StartVoiceFn *>(*reinterpret_cast<u8 **>(pickerObj) + 0xc);
+    if (start(pickerObj, &handle) == nullptr || handle.basicSound == nullptr)
+        return;
+    handle.basicSound->SetVolume(0, kMiiVoiceVolume);
+    setPan(handle.basicSound, kMiiVoicePan);
+    handle.basicSound->SetPitch(record.pitch);
 }
 
 static void PlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary) {
@@ -161,6 +286,7 @@ public:
     void OnDeactivate() override;
     void BeforeControlUpdate() override;
     void AfterControlUpdate() override;
+    void OnResume() override;
 
 private:
     struct Cursor {
@@ -176,9 +302,15 @@ private:
         nw4r::lyt::Pane *base;  // black_base
         nw4r::lyt::Pane *markers[kMaxLocal];  // ok_null_1p..8p
         bool coloured;
+        s8 outfit;  // the Mii row's 0, 1 and 2 for A, B and C, -1 for a driver
+        bool locked;  // Mii C below RR's 300 VR, its icon a "?" and no cursor stopping on it
     };
 
     void LoadButton(u32 idx);
+    void LoadExtMiis();
+    Mii *PlayerMii(u32 player) const;
+    CharacterId CharacterOn(u32 player, u32 idx) const;
+    void OpenMiiSelect(u32 player);
     void LoadPlate(u32 player);
     void LoadPreview(u32 player);
     void RequestPreview(u32 player);
@@ -213,6 +345,9 @@ private:
     u32 frame;
     s32 leaveFrames;  // counts down once everyone has confirmed, -1 before
     bool leaving;
+    u8 miiPlayer;  // the player MiiSelect is open over the page for, else kNoPlayer
+    bool miiResumed;  // MiiSelect closed this frame, so its last press reads as no input here
+    u32 savedDrift;  // SectionParams' driftType[0] while MiiSelect borrows it for a player 5-8
 };
 
 Page *NewCharSelectPage() {
@@ -221,6 +356,8 @@ Page *NewCharSelectPage() {
 
 CharSelectPage::CharSelectPage() {
     this->nextPageId = PAGE_NONE;
+    this->miiPlayer = kNoPlayer;
+    this->miiResumed = false;
     this->titleText = new CtrlMenuPageTitleText;
     this->backButton = static_cast<LayoutUIControl *>(::operator new(kDummyBackSize));
     layoutCtor(this->backButton);
@@ -289,6 +426,7 @@ void CharSelectPage::OnInit() {
         this->LoadPreview(p);
         this->LoadPlate(p);
     }
+    this->LoadExtMiis();
 
     // As C3's pages: a PageManipulatorManager with nothing to select, every player's input read from the
     // holders, and SectionPad's reconnect overlay watching P1-4 (P5-8's box is D69's, C6).
@@ -311,7 +449,9 @@ void CharSelectPage::LoadButton(u32 idx) {
     snprintf(variant, sizeof(variant), "Button%u", idx % kButtonsPerGroup);
     ControlLoader loader(&control);
     loader.Load(Pulsar::UI::buttonFolder, ctrName, variant, kButtonAnims);
-    button.character = CtrlMenuCharacterSelect::buttonIdToCharacterId[idx];
+    button.outfit = idx < kDriverButtons ? -1 : static_cast<s8>(idx - kDriverButtons);
+    button.locked = false;
+    button.character = button.outfit < 0 ? CtrlMenuCharacterSelect::buttonIdToCharacterId[idx] : static_cast<CharacterId>(MII_M_A_MALE + 2 * button.outfit);
     button.frame = control.layout.GetPaneByName("fuchi_pattern");
     button.base = control.layout.GetPaneByName("black_base");
     for (u32 p = 0; p < kMaxLocal; ++p) {
@@ -348,12 +488,15 @@ void CharSelectPage::LoadButton(u32 idx) {
 
 // LoadButton's five icon panes (0x807E2AE8-0x807E2B38), then the body of RR's SetCharacterSelectIcon
 // (UI/CustomCharacters.cpp), which reads a PushButton's buttonId and so cannot take this control: the icon
-// shows P1's skin (D84), so P1's skin toggle sets it again.
+// shows P1's skin (D84), so P1's skin toggle sets it again. A Mii button has no skin; a locked Mii C shows
+// RR's "?" (UI/ChangeCombo/ChangeCombo.cpp, ExpCharacterSelect::OnActivate).
 void CharSelectPage::SetIcon(Button &button) {
     LayoutUIControl &control = button.control;
-    const char *icon = GetCharacterIconPaneName(button.character);
+    const char *icon = button.locked ? "cha_26_hatena" : GetCharacterIconPaneName(button.character);
     static const char *const iconPanes[] = {"chara", "chara_shadow", "chara_light_01", "chara_light_02", "chara_c_down"};
     for (u32 i = 0; i < sizeof(iconPanes) / sizeof(iconPanes[0]); ++i) control.SetPicturePane(iconPanes[i], icon);
+    if (button.outfit >= 0)
+        return;
     Pulsar::Race::LoadCustomCharacterIcon(button.character, Pulsar::Driver::selectedSlots[button.character], control.layout.GetPaneByName("chara"), control.layout.GetPaneByName("chara_shadow"),
       control.layout.GetPaneByName("chara_light_01"));
     *control.layout.GetPaneByName("chara_light_02")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
@@ -411,7 +554,7 @@ void CharSelectPage::LoadPreview(u32 player) {
 // The player's model for the character their cursor is on: P1-4 through ModelRenderer, which RR's hooks
 // give each player their own skin and model (Driver/LocalPlayerSkins.cpp), P5-8 through Previews.cpp.
 void CharSelectPage::RequestPreview(u32 player) {
-    const CharacterId character = this->buttons[this->cursors[player].button].character;
+    const CharacterId character = this->CharacterOn(player, this->cursors[player].button);
     if (player < kGameLocal) {
         Pages::ModelRenderer *renderer = SectionMgr::sInstance->curSection->Get<Pages::ModelRenderer>();
         if (renderer != nullptr)
@@ -464,13 +607,114 @@ void CharSelectPage::UpdatePreviews() {
     }
 }
 
-// The plate names the character the cursor is on in that player's skin (RR's names[hud], Driver/CustomCharacters.cpp).
+// The plate names the character the cursor is on in that player's skin (RR's names[hud], Driver/CustomCharacters.cpp),
+// or on the Mii row the player's Mii, as OnButtonDriverSelect names it (0x8083E69C-0x8083E6D0) with outfit A's id,
+// since GetCharacterBMGId has no name for C's (RR remaps only its own calls, Extra/MiiOutfitC.cpp).
 void CharSelectPage::SetPlateName(u32 player) {
-    const CharacterId character = this->buttons[this->cursors[player].button].character;
+    const Button &button = this->buttons[this->cursors[player].button];
+    if (button.outfit >= 0) {
+        Text::Info info;
+        info.miis[0] = this->PlayerMii(player);
+        const CharacterId outfitA = static_cast<CharacterId>(this->CharacterOn(player, this->cursors[player].button) - 2 * button.outfit);
+        this->plates[player]->SetMessage(GetCharacterBMGId(outfitA, info.miis[0] != nullptr), &info);
+        return;
+    }
+    const CharacterId character = button.character;
     this->plates[player]->SetMessage(Pulsar::UI::GetCharacterSlotNameBMGId(character, Pulsar::Driver::GetLocalPlayerSlot(player, character), false));
 }
 
+Mii *CharSelectPage::PlayerMii(u32 player) const {
+    MiiGroup &miis = SectionMgr::sInstance->sectionParams->playerMiis;
+    return player < miis.miiCount ? miis.GetMii(player) : static_cast<Mii *>(nullptr);
+}
+
+// The character a player confirms on a button: a driver's own, or on the Mii row their Mii's size and gender in
+// that outfit, as OnButtonDriverSelect (0x8083E62C-0x8083E668) and RR's MiiOutfitC2 (0x8083E64C) work it out.
+CharacterId CharSelectPage::CharacterOn(u32 player, u32 idx) const {
+    const Button &button = this->buttons[idx];
+    const Mii *mii = button.outfit >= 0 ? this->PlayerMii(player) : static_cast<Mii *>(nullptr);
+    if (mii == nullptr)
+        return button.character;
+    const s32 outfitA = static_cast<s32>(GetMiiCharacterId(*mii));
+    return outfitA < 0 ? button.character : static_cast<CharacterId>(outfitA + 2 * button.outfit);
+}
+
+// P5-8's Miis as CharacterSelect::OnInit loads P1-4's from SectionParams+0x154 (0x8083D6D0-0x8083D710): an index
+// below the console's Mii count is one of its Miis, any other one of the default Miis.
+void CharSelectPage::LoadExtMiis() {
+    MiiGroup &miis = SectionMgr::sInstance->sectionParams->playerMiis;
+    if (*miiManager == nullptr)
+        return;
+    const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
+    const s32 license = rksys != nullptr ? static_cast<s32>(rksys->curLicenseId) : -1;
+    if (license != extMiiLicense) {
+        memset(extMiiIdx, 0, sizeof(extMiiIdx));
+        extMiiLicense = license;
+    }
+    const u32 official = (*miiManager)[kOfficialMiiCount];
+    for (u32 p = kGameLocal; p < menuLocalCount && p < miis.miiCount; ++p) {
+        const u32 idx = extMiiIdx[p - kGameLocal];
+        if (idx < official)
+            loadOfficialMii(&miis, p, idx);
+        else
+            loadDefaultMii(&miis, p, idx - official);
+    }
+}
+
+// As OnMiiButtonClick opens MiiSelect for a player (0x807E394C-0x807E3978). P5-8 drive it through slot 4, as
+// a pause by them does (Pause.cpp): its masks are 1 << hud (0x808485F4), and its player index, SectionParams+0x154
+// read at 0x8084862C and written at 0x808488E8, lands for hud 4 on driftType[0], which holds that player's
+// index until OnResume puts both back. Nothing reads driftType before the drift page.
+void CharSelectPage::OpenMiiSelect(u32 player) {
+    Page *miiSelect = SectionMgr::sInstance->curSection->pages[PAGE_MII_SELECT];
+    if (miiSelect == nullptr)
+        return;
+    SectionParams *params = SectionMgr::sInstance->sectionParams;
+    u8 *fields = reinterpret_cast<u8 *>(miiSelect);
+    *reinterpret_cast<u32 *>(fields + kMiiSelectHud) = player < kGameLocal ? player : kGameLocal;
+    if (player >= kGameLocal) {
+        this->savedDrift = params->driftType[0];
+        params->driftType[0] = extMiiIdx[player - kGameLocal];
+        extMiiPlayer = player;
+        SetMenuSlotProxy(PlayerHolder(player));
+    }
+    this->miiPlayer = player;
+    this->AddPageLayer(PAGE_MII_SELECT, 0);
+    OS::Report("ss8 select: character player %u mii select\n", player + 1);
+}
+
+// MiiSelect closed. A pick is already in playerMiis[player] (its section 0x54 click, 0x80848A70, through
+// MiiPickPlayer for P5-8), and the vanilla page confirms right after one (OnMultiplayerMiiSelected, 0x807E3BD0).
+void CharSelectPage::OnResume() {
+    if (this->miiPlayer == kNoPlayer)
+        return;
+    const u32 player = this->miiPlayer;
+    this->miiPlayer = kNoPlayer;
+    this->miiResumed = true;
+    if (player >= kGameLocal) {
+        SectionParams *params = SectionMgr::sInstance->sectionParams;
+        extMiiIdx[player - kGameLocal] = params->driftType[0];
+        params->driftType[0] = this->savedDrift;
+        extMiiPlayer = kNoPlayer;
+        SetMenuSlotProxy(nullptr);
+    }
+    const Page *miiSelect = SectionMgr::sInstance->curSection->pages[PAGE_MII_SELECT];
+    const s32 clicked = miiSelect != nullptr ? *reinterpret_cast<const s32 *>(reinterpret_cast<const u8 *>(miiSelect) + kMiiSelectClicked) : -1;
+    OS::Report("ss8 select: character player %u mii %s\n", player + 1, clicked < 0 ? "back" : "picked");
+    if (clicked < 0)
+        return;
+    this->SetPlateName(player);
+    if (player >= kGameLocal)
+        ExtPreviewDrop(player);  // P1-4's models were rebuilt by the click (RebuildMiiModels)
+    this->RequestPreview(player);
+    this->Confirm(player);
+}
+
 s32 CharSelectPage::ButtonOf(CharacterId character) const {
+    if (character >= MII_S_A_MALE && character <= MII_L_C_FEMALE) {
+        const u32 idx = kDriverButtons + (character - MII_S_A_MALE) % (2 * kMiiOutfits) / 2;
+        return this->buttons[idx].locked ? -1 : static_cast<s32>(idx);
+    }
     for (u32 i = 0; i < kButtons; ++i)
         if (this->buttons[i].character == character)
             return i;
@@ -478,13 +722,27 @@ s32 CharSelectPage::ButtonOf(CharacterId character) const {
 }
 
 // P1-4 start on SectionParams' last picks, as CtrlMenuCharacterSelect::InitSelf (0x807E2F34); P5-8 on
-// theirs or D62's default. A last pick that is a Mii (the Mii row is C4c's) starts on D62's default.
+// theirs or D62's default; a Mii on its outfit's button. Mii C is open as RR opens it on the vanilla page
+// without character restrictions (ExpCharacterSelect::OnActivate); a last pick on a locked C starts on
+// D62's default.
 void CharSelectPage::OnActivate() {
     this->nextPageId = PAGE_NONE;
     this->leaving = false;
     this->leaveFrames = -1;
     this->frame = 0;
+    this->miiPlayer = kNoPlayer;
+    this->miiResumed = false;
     const SectionParams *params = SectionMgr::sInstance->sectionParams;
+    bool miiCOpen = Pulsar::Restrictions::IsOnlyMiiOutfitCEnabled();
+    const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
+    if (!miiCOpen && rksys != nullptr)
+        miiCOpen = Pulsar::PointRating::GetUserVR(rksys->curLicenseId) >= 300.0f;
+#ifdef SS8_MENU_SCRIPT
+    miiCOpen = miiCOpen || menuOpenMiiC;
+#endif
+    Button &miiC = this->buttons[kButtons - 1];
+    miiC.locked = !miiCOpen;
+    this->SetIcon(miiC);
     for (u32 p = 0; p < kMaxLocal; ++p) {
         Cursor &cursor = this->cursors[p];
         s32 button = this->ButtonOf(p < kGameLocal ? params->characters[p] : ExtCharacter(p));
@@ -514,8 +772,8 @@ void CharSelectPage::OnActivate() {
         animator.GetAnimationGroupById(GROUP_OK).PlayAnimationAtFrame(kAnimStop, 0.0f);
         this->UpdateButton(i);
     }
-    OS::Report("ss8 select: character page, %u players\n", menuLocalCount);
-    for (u32 p = 0; p < menuLocalCount; ++p) OS::Report("ss8 select: character player %u on %#x\n", p + 1, this->buttons[this->cursors[p].button].character);
+    OS::Report("ss8 select: character page, %u players, mii C %s\n", menuLocalCount, miiC.locked ? "locked" : "open");
+    for (u32 p = 0; p < menuLocalCount; ++p) OS::Report("ss8 select: character player %u on %#x\n", p + 1, this->CharacterOn(p, this->cursors[p].button));
 }
 
 void CharSelectPage::OnDeactivate() {
@@ -527,6 +785,8 @@ void CharSelectPage::OnDeactivate() {
 // sideways Wii Remote, whose 2 and 1 then become its A and B so that A toggles rather than confirms.
 void CharSelectPage::BeforeControlUpdate() {
     for (u32 p = 0; p < kMaxLocal; ++p) this->skinSteps[p] = 0;
+    if (this->miiPlayer != kNoPlayer)
+        return;  // a page under a layer still updates (0x80622610); a sideways Wii Remote's swap would reach MiiSelect
     for (u32 p = 0; p < menuLocalCount; ++p) {
         Input::RealControllerHolder *holder = PlayerHolder(p);
         if (holder == nullptr || holder->curController == nullptr)
@@ -574,6 +834,8 @@ void CharSelectPage::BeforeControlUpdate() {
 void CharSelectPage::CycleSkin(u32 player, s32 direction) {
     Button &button = this->buttons[this->cursors[player].button];
     const CharacterId character = button.character;
+    if (button.outfit >= 0)
+        return;
     if (player < kGameLocal) {
         MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
         MenuDriverModel *model = modelMgr != nullptr && modelMgr->driverModels != nullptr ? modelMgr->driverModels->players[player].playerModel : static_cast<MenuDriverModel *>(nullptr);
@@ -627,7 +889,9 @@ void CharSelectPage::AfterControlUpdate() {
         return;
     ++this->frame;
     const u32 count = menuLocalCount;
-    for (u32 p = 0; p < count; ++p) {
+    const bool input = this->miiPlayer == kNoPlayer && !this->miiResumed;
+    this->miiResumed = false;
+    for (u32 p = 0; input && p < count; ++p) {
         const Input::RealControllerHolder *holder = PlayerHolder(p);
         if (holder == nullptr)
             continue;
@@ -642,6 +906,10 @@ void CharSelectPage::AfterControlUpdate() {
                 return;
             }
         } else if (!cursor.confirmed && UIPressed(*holder, FORWARD_PRESS)) {
+            if (this->buttons[cursor.button].outfit >= 0) {
+                this->OpenMiiSelect(p);
+                break;  // everyone else waits (D106)
+            }
             this->Confirm(p);
         } else if (!cursor.confirmed) {
             const s32 direction = this->Direction(p, *holder);
@@ -706,7 +974,7 @@ s32 CharSelectPage::Direction(u32 player, const Input::RealControllerHolder &hol
 }
 
 // One step up, down, left or right, wrapping on both axes as 0x6B's SetDistanceFunc(0) does, past any
-// place with no button.
+// place with no button or a locked one.
 void CharSelectPage::Move(u32 player, s32 direction) {
     static const s8 dCol[4] = {0, 0, -1, 1};
     static const s8 dRow[4] = {-1, 1, 0, 0};
@@ -716,7 +984,7 @@ void CharSelectPage::Move(u32 player, s32 direction) {
         col = (col + dCol[direction] + this->cols) % this->cols;
         row = (row + dRow[direction] + this->rows) % this->rows;
         for (u32 i = 0; i < kButtons; ++i) {
-            if (this->buttons[i].col == col && this->buttons[i].row == row) {
+            if (this->buttons[i].col == col && this->buttons[i].row == row && !this->buttons[i].locked) {
                 this->Hover(player, i);
                 return;
             }
@@ -751,7 +1019,7 @@ void CharSelectPage::Hover(u32 player, u32 to) {
         select.PlayAnimationAtPercent(ANIM_FREE_TO_SELECT, Remaining(select));
     control.animator.GetAnimationGroupById(GROUP_SELECT_IN).PlayAnimationAtFrame(0, 0.0f);
     control.PlaySound(SOUND_ID_BUTTON_SELECT, player);
-    const CharacterId character = this->buttons[to].character;
+    const CharacterId character = this->CharacterOn(player, to);
     this->SetPlateName(player);
     this->RequestPreview(player);
     OS::Report("ss8 select: character player %u on %#x\n", player + 1, character);
@@ -763,7 +1031,7 @@ void CharSelectPage::Confirm(u32 player) {
     Cursor &cursor = this->cursors[player];
     cursor.confirmed = true;
     LayoutUIControl &control = this->buttons[cursor.button].control;
-    const CharacterId character = this->buttons[cursor.button].character;
+    const CharacterId character = this->CharacterOn(player, cursor.button);
     control.animator.GetAnimationGroupById(GROUP_SELECT_IN).PlayAnimationAtFrame(0, 0.0f);
     control.animator.GetAnimationGroupById(GROUP_OK).PlayAnimationAtFrame(0, 0.0f);
     control.PlaySound(SOUND_ID_BUTTON_PRESS, player);
@@ -784,10 +1052,16 @@ void CharSelectPage::Confirm(u32 player) {
         pick.kart = KartForCharacter(character, last);
         pick.picked = true;
     }
-    if (player < kGameLocal)
+    if (player < kGameLocal && this->buttons[cursor.button].outfit >= 0) {
+        miiVoice(*confirmVoiceOwner, this->PlayerMii(player), player);
+        miiConfirmVoice(*confirmVoiceOwner, player);
+    } else if (player < kGameLocal) {
         confirmVoice(*confirmVoiceOwner, player, character);
-    else
+    } else if (this->buttons[cursor.button].outfit >= 0) {
+        ExtMiiConfirmVoice(player, this->PlayerMii(player));
+    } else {
         ExtConfirmVoice(player, character);
+    }
     OS::Report("ss8 select: character player %u confirm %#x\n", player + 1, character);
 }
 

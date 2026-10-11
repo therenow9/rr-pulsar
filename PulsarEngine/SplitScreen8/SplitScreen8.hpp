@@ -76,9 +76,16 @@ KartId KartForCharacter(CharacterId character, KartId kart);
 bool ExtPreviewsShow(u32 count);
 void ExtPreviewsHide();
 bool ExtPreviewLoad(u32 player, CharacterId character, u32 slot);
+void ExtPreviewDrop(u32 player);
 void ExtPreviewPose(u32 player, bool confirmed);
 bool ExtPreviewIdle(u32 player);
 GX::TexObj *ExtPreviewTexObj(u32 player);
+// The holder input slot 4 answers in the menus, null for none (Pause.cpp's proxy, cleared at every section load).
+void SetMenuSlotProxy(Input::RealControllerHolder *holder);
+#endif
+#ifdef SS8_MENU_SCRIPT
+// A menu script's "open-mii-c" line: Mii C open on the 8-player page whatever the license's VR (MenuScript.cpp).
+extern bool menuOpenMiiC;
 #endif
 // The colours of a local's hud slot 4..raceLocalCount-1 in a widened race; false for any other slot,
 // which keeps RR's own (Colours.cpp, called from RR's UIColor.cpp).

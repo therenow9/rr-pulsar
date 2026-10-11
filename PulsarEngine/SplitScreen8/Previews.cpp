@@ -10,7 +10,10 @@
 #include <MarioKartWii/3D/TextureHolder.hpp>
 #include <MarioKartWii/Archive/ArchiveMgr.hpp>
 #include <MarioKartWii/Driver/Toadette.hpp>
+#include <MarioKartWii/Mii/MiiHeadsModel.hpp>
 #include <MarioKartWii/Scene/GameScene.hpp>
+#include <MarioKartWii/UI/Section/SectionMgr.hpp>
+#include <MarioKartWii/UI/Section/SectionParams.hpp>
 #include <Driver/CustomCharacters.hpp>
 #include <IO/LooseArchiveOverrides.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -18,7 +21,13 @@
 // P5-8's character previews on the 8-player page (D67). Every per-player structure of the game's preview
 // path is 4 wide (ModelRenderer::params, MenuModelMgr's heaps and textures, MenuDriverModelMgr::players),
 // so P5-8 have their own models and textures here and RendererMenu::DrawModels' per-player pass runs four
-// more times for them. docs/plans/m4-menu-flow.md, phase C, C4b.
+// more times for them. docs/plans/m4-menu-flow.md, phase C, C4b and C4c.
+
+namespace Pulsar {
+// RR's menu Mii body loader (Extra/MiiOutfitC.cpp): outfit C's BRRES from the SD card or the disc onto
+// ScnMgr's current heap, any other character through BindDriverBRRES.
+u32 LoadMiiOutfitCBRRES(void *holder, CharacterId character);
+}  // namespace Pulsar
 
 namespace SplitScreen8 {
 
@@ -44,6 +53,22 @@ static const KartModelsUpdateFn kartModelsUpdate = reinterpret_cast<KartModelsUp
 static const SwitchStateFn switchState = reinterpret_cast<SwitchStateFn>(0x8082fb78);
 static const ToggleTransparentFn toggleTransparent = reinterpret_cast<ToggleTransparentFn>(0x8055f34c);
 static const ToggleHairLockFn toggleHairLock = reinterpret_cast<ToggleHairLockFn>(0x807db028);
+// A menu Mii head as MenuDriverModelMgr keeps one per player for the section: built once (0x80830474-0x80830540:
+// layer 5, on a body, the body's id less 0x18, the Mii, 0), then on every character change put on the new body
+// (0x807DC2D8), given the Mii again (UpdateParams) and its expression, as SetPlayerCharacter does
+// (0x80830FA0-0x80830FDC); neither of those builds a model. Building one allocates outside its own heap and only
+// a section's end frees it, so a head is never rebuilt. None of these is in Kamek's externals.
+typedef MiiHeadsModel *(*HeadCtorFn)(void *, u32, ModelDirector *, u32, Mii *, u32);
+typedef void (*HeadParamsFn)(MiiHeadsModel *, u32, ModelDirector *, u32, Mii *);
+typedef void (*HeadExpressionFn)(MiiHeadsModel *, u32);
+static const HeadCtorFn headCtor = reinterpret_cast<HeadCtorFn>(0x807dbd80);
+static const HeadParamsFn headAttach = reinterpret_cast<HeadParamsFn>(0x807dc2d8);
+static const HeadParamsFn headParams = reinterpret_cast<HeadParamsFn>(0x807dc2c0);
+static const HeadExpressionFn headExpression = reinterpret_cast<HeadExpressionFn>(0x807dc3e8);
+const u32 kHeadSize = 0x70;
+const u32 kHeadLayer = 5;
+const float kMiiBodyScale = 1.6f;  // the Mii body loader's SetScale (0x8083129C, 0x808AC980)
+static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710);  // MiiManager::sInstance
 
 // As RR's PreviewModel (Driver/LocalPlayerSkins.cpp): MenuDriverModel's constructor is not linkable, so the
 // object is raw storage given the shared models' vtable word.
@@ -51,9 +76,12 @@ struct ExtPreview {
     u32 storage[sizeof(MenuDriverModel) / sizeof(u32)];
     EGG::ExpHeap *heap;
     ToadetteHair *hair;
+    MiiHeadsModel *head;  // the player's head while it sits on this model, a Mii body; not owned
     u8 slot;
 };
 static ExtPreview previews[kExtPlayers];
+static MiiHeadsModel *heads[kExtPlayers];
+static EGG::ExpHeap *headHeaps[kExtPlayers];
 static u32 textureStorage[kExtPlayers][sizeof(TextureHolder) / sizeof(u32)];
 static TextureHolder *textures[kExtPlayers];
 static const GameScene *previewScene;
@@ -74,8 +102,11 @@ static void RemoveModel(ModelDirector *model) {
     }
 }
 
+// A head on the body leaves the scene before the body's heap goes, and waits for the next Mii body.
 static void DropPreview(ExtPreview &preview, bool destroy) {
     if (destroy && Own(preview)->model != nullptr) {
+        if (preview.head != nullptr)
+            preview.head->ToggleVisible(false);
         RemoveModel(preview.hair);
         RemoveModel(Own(preview)->model);
         preview.heap->destroy();
@@ -90,6 +121,12 @@ void ResetExtPreviews() {
     const bool destroy = previewScene == GameScene::GetCurrent();
     for (u32 i = 0; i < kExtPlayers; ++i) {
         DropPreview(previews[i], destroy);
+        if (destroy && heads[i] != nullptr) {
+            RemoveModel(heads[i]);
+            headHeaps[i]->destroy();
+        }
+        heads[i] = nullptr;
+        headHeaps[i] = nullptr;
         textures[i] = nullptr;
     }
     previewScene = nullptr;
@@ -152,13 +189,76 @@ static void Pose(ModelDirector *model, ToadetteHair *hair) {
         hair->Update(curRootIdx);
 }
 
+static u32 TotalFree(EGG::Heap *heap) {
+    return static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize();
+}
+
+// The player's head on a Mii body: built the first time on a heap of its own beside the previews' (as the scene's
+// current one, so the head's models land there), then only moved. SetPlayerCharacter raises MiiManager's byte at
+// +0x265 around its head work (0x80830E24, 0x80831028).
+static MiiHeadsModel *PutHead(u32 i, ModelDirector *body, u32 miiId, Mii *mii, EGG::Heap *parentHeap, u32 reserve, ScnMgr *scnMgr) {
+    u8 &miiBusy = (*miiManager)[0x265];
+    const u8 oldBusy = miiBusy;
+    miiBusy = 1;
+    MiiHeadsModel *head = heads[i];
+    if (head != nullptr) {
+        // The attach reads the head's Mii (+0x4C) for the body's colours (0x807DC1F8), and a pick replaces the
+        // player's Mii object (CopyMiiToOtherGroup), so the head takes the current one first.
+        head->mii = mii;
+        headAttach(head, kHeadLayer, body, miiId, mii);
+    } else {
+        const u16 heapFlags = parentHeap->dameFlag;
+        parentHeap->dameFlag &= ~1;
+        EGG::ExpHeap *heap = EGG::ExpHeap::Create(reserve, parentHeap, 0);
+        parentHeap->dameFlag = heapFlags;
+        if (heap != nullptr) {
+            EGG::Allocator *allocator = new (heap) EGG::Allocator(heap, 0x20);
+            EGG::Heap *oldHeap = scnMgr->curHeap;
+            EGG::Allocator *oldAllocator = scnMgr->curAllocator;
+            EGG::Allocator *oldMenuAllocator = menuAllocator;
+            scnMgr->curHeap = heap;
+            scnMgr->curAllocator = allocator;
+            menuAllocator = allocator;
+            EGG::Heap *oldCurrentHeap = heap->BecomeCurrentHeap();
+            void *storage = EGG::Heap::alloc(kHeadSize, 4, heap);
+            if (storage != nullptr)
+                head = headCtor(storage, kHeadLayer, body, miiId, mii, 0);
+            oldCurrentHeap->BecomeCurrentHeap();
+            scnMgr->curHeap = oldHeap;
+            scnMgr->curAllocator = oldAllocator;
+            menuAllocator = oldMenuAllocator;
+            if (head == nullptr) {
+                heap->destroy();
+            } else {
+                const u32 kept = heap->adjust();
+                heads[i] = head;
+                headHeaps[i] = heap;
+                OS::Report("ss8 preview: player %u head kept %u\n", kGameLocal + i + 1, kept);
+            }
+        }
+    }
+    if (head != nullptr) {
+        headParams(head, kHeadLayer, body, miiId, mii);
+        headExpression(head, 0);
+    }
+    miiBusy = oldBusy;
+    return head;
+}
+
 // As RR's LoadPreview builds a player's own model: a heap of its own on SkinModelHeap's, the skin's BRRES or,
-// for slot 0, the menu archive's stock one, trimmed after.
-bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slot) {
+// for slot 0, the menu archive's stock one, trimmed after. A Mii is its outfit's body as the Mii body loader
+// builds it (0x80831100, RR's outfit C loader in place of BindDriverBRRES) with the player's Mii head on it.
+bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
     const u32 i = player - kGameLocal;
     const u32 character = static_cast<u32>(characterId);
+    const bool isMii = character >= MII_S_A_MALE && character <= MII_L_C_FEMALE;
+    const u32 slot = isMii ? 0 : slotArg;
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
-    if (i >= kExtPlayers || character >= Pulsar::Driver::CHARACTER_COUNT || modelMgr == nullptr || modelMgr->driverModels == nullptr)
+    if (i >= kExtPlayers || (character >= Pulsar::Driver::CHARACTER_COUNT && !isMii) || modelMgr == nullptr || modelMgr->driverModels == nullptr)
+        return false;
+    MiiGroup &miis = SectionMgr::sInstance->sectionParams->playerMiis;
+    Mii *mii = isMii && player < miis.miiCount ? miis.GetMii(player) : static_cast<Mii *>(nullptr);
+    if (isMii && mii == nullptr)
         return false;
     ExtPreview &preview = previews[i];
     if (Own(preview)->model != nullptr && Own(preview)->id == character && preview.slot == slot)
@@ -203,7 +303,9 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slot) {
     ModelDirector *model = new (heap) ModelDirector(2, 0);
     MenuModelBRRESHandle brresHandle;
     bool bound;
-    if (slot != 0) {
+    if (isMii) {
+        bound = Pulsar::LoadMiiOutfitCBRRES(&brresHandle, characterId) != 0;
+    } else if (slot != 0) {
         g3d::ResFile brres;
         brres.data = static_cast<g3d::ResFileData *>(EGG::DvdRipper::LoadToMainRAM(path, nullptr, heap, EGG::DvdRipper::ALLOC_FROM_HEAD, 0, nullptr, nullptr));
         if (brres.data != nullptr)
@@ -220,18 +322,22 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slot) {
         hair = new (heap) ToadetteHair(brresHandle.menuModelBRRES, model, 1);
         oldCurrentHeap->BecomeCurrentHeap();
     }
+    if (loaded && isMii)
+        model->SetScale(kMiiBodyScale);
 
     scnMgr->curHeap = oldHeap;
     scnMgr->curAllocator = oldAllocator;
     menuAllocator = oldMenuAllocator;
 
-    if (!loaded) {
+    MiiHeadsModel *head = loaded && isMii ? PutHead(i, model, character - MII_S_A_MALE, mii, parentHeap, reserve, scnMgr) : static_cast<MiiHeadsModel *>(nullptr);
+    if (!loaded || (isMii && head == nullptr)) {
         RemoveModel(model);
         heap->destroy();
         return false;
     }
     const u32 kept = heap->adjust();
-    OS::Report("ss8 preview: player %u %#x slot %u file %u kept %u, largest before %u\n", player + 1, character, slot, fileSize, kept, largest);
+    OS::Report("ss8 preview: player %u %#x slot %u file %u kept %u, largest before %u, free MEM1 %u MEM2 %u\n", player + 1, character, slot, fileSize, kept, largest,
+      TotalFree(scene->structsHeaps.heaps[0]), TotalFree(scene->structsHeaps.heaps[1]));
 
     DropPreview(preview, true);
     preview.storage[0] = *reinterpret_cast<const u32 *>(modelMgr->driverModels->models);
@@ -243,9 +349,17 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slot) {
     own->Init();
     preview.heap = heap;
     preview.hair = hair;
+    preview.head = head;
     preview.slot = slot;
     Pose(model, hair);
     return true;
+}
+
+// A new Mii in the player's playerMiis entry keeps its object and its character id, so the next load rebuilds.
+void ExtPreviewDrop(u32 player) {
+    const u32 i = player - kGameLocal;
+    if (i < kExtPlayers)
+        DropPreview(previews[i], previewScene == GameScene::GetCurrent());
 }
 
 void ExtPreviewPose(u32 player, bool confirmed) {
@@ -281,6 +395,8 @@ static void SetPreviewShown(ExtPreview &preview, bool shown) {
     own->ToggleTransparent(shown);
     if (preview.hair != nullptr)
         toggleTransparent(preview.hair, shown);
+    if (preview.head != nullptr)
+        toggleTransparent(preview.head, shown);  // as MenuDriverModelMgr::Draw shows a player's Mii head (0x80830BA8)
 }
 
 // DrawModels' "bl MenuModelMgr::Draw" (0x8059F1A0, r4 = the pass): P1-4's passes draw as before with P5-8
@@ -338,6 +454,8 @@ static void UpdateModels(MenuKartModelMgr *kartModels) {
         const bool shown = extPassCount > kGameLocal + i;
         own->Update();
         own->ToggleVisible(shown);
+        if (preview.head != nullptr)
+            preview.head->ToggleVisible(shown);  // MenuDriverModelMgr::Update toggles each head (0x808307DC, 0x80830934)
         if (preview.hair == nullptr)
             continue;
         if (shown)

@@ -31,6 +31,11 @@ struct MenuStep {
 };
 static const MenuStep menuSteps[] = {SS8_MENU_STEPS};
 static u32 menuFrames;
+#ifdef SS8_MENU_OPEN_MII_C
+bool menuOpenMiiC = true;
+#else
+bool menuOpenMiiC = false;
+#endif
 static void ReportHeaps(const char *when);
 static void ReportSkins();
 

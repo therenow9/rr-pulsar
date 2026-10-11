@@ -97,6 +97,14 @@ kmPatchExitPoint(ControllerHolderProxy, 0x8061b39c);
 static void ClearPauseProxy() {
     pauseProxy = nullptr;
 }
+
+#ifdef SS8_PAGES
+// The 8-player character page opens MiiSelect for a player 5-8 on slot 4 the same way (CharSelect.cpp), and
+// clears the proxy when MiiSelect closes; a section load clears it as well.
+void SetMenuSlotProxy(Input::RealControllerHolder *holder) {
+    pauseProxy = holder;
+}
+#endif
 static RaceLoadHook clearPauseProxyOnRace(ClearPauseProxy);
 static SectionLoadHook clearPauseProxyOnSection(ClearPauseProxy);
 
