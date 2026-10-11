@@ -255,6 +255,7 @@ bool LoadDriverBRRES(CharacterId characterId, u32 slot) {
         }
         hair->Update(scnMgr->curScnRootIdx);
     }
+    SplitScreen8::TrimSkinHeap(heap);
     return true;
 }
 

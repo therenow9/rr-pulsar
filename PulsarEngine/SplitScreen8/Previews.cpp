@@ -1,5 +1,6 @@
 #ifdef SS8_PAGES
 #include <kamek.hpp>
+#include <core/egg/3D/Scn.hpp>
 #include <core/egg/DVD/DvdRipper.hpp>
 #include <core/egg/mem/ExpHeap.hpp>
 #include <core/rvl/OS/OS.hpp>
@@ -10,6 +11,7 @@
 #include <MarioKartWii/3D/TextureHolder.hpp>
 #include <MarioKartWii/Archive/ArchiveMgr.hpp>
 #include <MarioKartWii/Driver/Toadette.hpp>
+#include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Mii/MiiHeadsModel.hpp>
 #include <MarioKartWii/Scene/GameScene.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
@@ -80,8 +82,20 @@ struct ExtPreview {
     u8 slot;
 };
 static ExtPreview previews[kExtPlayers];
+// Each P5-8 player's model is built on a heap of its own inside a fixed arena made at the page's build, and the
+// old model goes before the new one is built, so roll after roll a load always finds its block (D118). The size
+// covers the heaviest of RR's 124 skins, Rosalina's 6th (479,828 bytes with its model), and a margin.
+const u32 kArenaSize = 0x78000;
+// A model that runs out of room while it is built writes through null inside the game's code, so a skin whose file
+// and this much model will not fit the arena gets the stock model before anything is built (D123). It covers every
+// RR model's need beyond its file but Rosalina's 6th (51,628 at most) and leaves Daisy's 6th, the largest file, room.
+const u32 kModelAllowance = 0x26000;
+static EGG::ExpHeap *arenas[kExtPlayers];
 static MiiHeadsModel *heads[kExtPlayers];
 static EGG::ExpHeap *headHeaps[kExtPlayers];
+// A head keeps about 0x200 bytes on its own heap; its models' 132,672-byte block comes straight from the scene's
+// MEM2 structs heap, which is why heads are built as the page opens (D119).
+const u32 kHeadHeapSize = 0x1000;
 static u32 textureStorage[kExtPlayers][sizeof(TextureHolder) / sizeof(u32)];
 static TextureHolder *textures[kExtPlayers];
 static const GameScene *previewScene;
@@ -125,6 +139,9 @@ void ResetExtPreviews() {
             RemoveModel(heads[i]);
             headHeaps[i]->destroy();
         }
+        if (destroy && arenas[i] != nullptr)
+            arenas[i]->destroy();
+        arenas[i] = nullptr;
         heads[i] = nullptr;
         headHeaps[i] = nullptr;
         textures[i] = nullptr;
@@ -133,9 +150,10 @@ void ResetExtPreviews() {
     extPassCount = 0;
 }
 
-// Built as the page shows: the textures as MenuModelMgr::Init builds its own (0x8059E460), but on the
-// scene's MEM2 structs heap, where SkinModelHeap puts the models (D99): MEM1, which TextureHolder takes,
-// has about 1.9 MB free at a 5-8 player section 0x54, and four textures cost 512 KB.
+// Built as the page first shows, for the section, on the scene's MEM2 structs heap (MEM1, which TextureHolder
+// takes, has about 1.8 MB free at a 5-8 player section 0x54): the textures as MenuModelMgr::Init builds its own
+// (0x8059E460, 512 KB for four), then each player's arena, then each player's Mii head on a Mii body, before
+// any load has fragmented the heap (D118, D119).
 bool ExtPreviewsShow(u32 count) {
     GameScene *scene = const_cast<GameScene *>(GameScene::GetCurrent());
     if (scene == nullptr)
@@ -144,17 +162,32 @@ bool ExtPreviewsShow(u32 count) {
         ResetExtPreviews();
     previewScene = scene;
     EGG::Heap *parentHeap = scene->structsHeaps.heaps[1];
-    for (u32 i = 0; i < kExtPlayers; ++i) {
+    const u16 heapFlags = parentHeap->dameFlag;
+    parentHeap->dameFlag &= ~1;
+    bool built = true;
+    for (u32 i = 0; i < kExtPlayers && built; ++i) {
         if (textures[i] != nullptr)
             continue;
-        const u16 heapFlags = parentHeap->dameFlag;
-        parentHeap->dameFlag &= ~1;
         TextureHolder *texture = reinterpret_cast<TextureHolder *>(textureStorage[i]);
         textureCtor(texture, kTextureSize, kTextureSize, kTextureFormat, parentHeap);
-        parentHeap->dameFlag = heapFlags;
-        if (texture->texture == nullptr)
-            return false;
-        textures[i] = texture;
+        built = texture->texture != nullptr;
+        if (built)
+            textures[i] = texture;
+    }
+    for (u32 i = 0; i + kGameLocal < count && built; ++i) {
+        if (arenas[i] == nullptr)
+            arenas[i] = EGG::ExpHeap::Create(kArenaSize, parentHeap, 0);
+        built = arenas[i] != nullptr;
+    }
+    parentHeap->dameFlag = heapFlags;
+    if (!built)
+        return false;
+    MiiGroup &miis = SectionMgr::sInstance->sectionParams->playerMiis;
+    for (u32 player = kGameLocal; player < count && player < miis.miiCount; ++player) {
+        const Mii *mii = miis.GetMii(player);
+        const s32 miiCharacter = mii != nullptr ? static_cast<s32>(GetMiiCharacterId(*mii)) : -1;
+        if (heads[player - kGameLocal] == nullptr && miiCharacter >= 0)
+            ExtPreviewLoad(player, static_cast<CharacterId>(miiCharacter), 0);
     }
     extPassCount = count;
     return true;
@@ -193,10 +226,26 @@ static u32 TotalFree(EGG::Heap *heap) {
     return static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize();
 }
 
-// The player's head on a Mii body: built the first time on a heap of its own beside the previews' (as the scene's
-// current one, so the head's models land there), then only moved. SetPlayerCharacter raises MiiManager's byte at
-// +0x265 around its head work (0x80830E24, 0x80831028).
-static MiiHeadsModel *PutHead(u32 i, ModelDirector *body, u32 miiId, Mii *mii, EGG::Heap *parentHeap, u32 reserve, ScnMgr *scnMgr) {
+// A head's models take one block of about 132,672 bytes from the scene's MEM2 structs heap, outside the heap it
+// is built on (D119). Without it InitModel writes through a null ScnRfl (first in ScnRfl::SetFogIdx, 0x802443DC), a
+// fault on a console, so a head is built only when the block is there. HeadBuilt is a backstop for Dolphin only: a
+// refused head has already written through null, and any ScnRfl it did build stays allocated for the section.
+const u32 kHeadModelsBlock = 0x21000;
+const u32 kScnRflType = 4;  // ScnMdlEx::type InitModel tests (0x8055C648)
+
+static bool HeadBuilt(const MiiHeadsModel *head) {
+    for (u32 s = 0; s < 2; ++s) {
+        const EGG::ScnMdlEx *ex = head->scnMdlEx[s];
+        if (ex == nullptr || ex->type != kScnRflType || ex->scnObj == nullptr)
+            return false;
+    }
+    return true;
+}
+
+// The player's head on a Mii body: built once on a small heap of its own (as the scene's current one, so the
+// head's own objects land there), then only moved. SetPlayerCharacter raises MiiManager's byte at +0x265 around
+// its head work (0x80830E24, 0x80831028).
+static MiiHeadsModel *PutHead(u32 i, ModelDirector *body, u32 miiId, Mii *mii, EGG::Heap *parentHeap, ScnMgr *scnMgr) {
     u8 &miiBusy = (*miiManager)[0x265];
     const u8 oldBusy = miiBusy;
     miiBusy = 1;
@@ -206,10 +255,12 @@ static MiiHeadsModel *PutHead(u32 i, ModelDirector *body, u32 miiId, Mii *mii, E
         // player's Mii object (CopyMiiToOtherGroup), so the head takes the current one first.
         head->mii = mii;
         headAttach(head, kHeadLayer, body, miiId, mii);
+    } else if (parentHeap->getAllocatableSize(4) < kHeadHeapSize + kHeadModelsBlock) {
+        OS::Report("ss8 preview: player %u head not built, largest %u\n", kGameLocal + i + 1, parentHeap->getAllocatableSize(4));
     } else {
         const u16 heapFlags = parentHeap->dameFlag;
         parentHeap->dameFlag &= ~1;
-        EGG::ExpHeap *heap = EGG::ExpHeap::Create(reserve, parentHeap, 0);
+        EGG::ExpHeap *heap = EGG::ExpHeap::Create(kHeadHeapSize, parentHeap, 0);
         parentHeap->dameFlag = heapFlags;
         if (heap != nullptr) {
             EGG::Allocator *allocator = new (heap) EGG::Allocator(heap, 0x20);
@@ -227,6 +278,11 @@ static MiiHeadsModel *PutHead(u32 i, ModelDirector *body, u32 miiId, Mii *mii, E
             scnMgr->curHeap = oldHeap;
             scnMgr->curAllocator = oldAllocator;
             menuAllocator = oldMenuAllocator;
+            if (head != nullptr && !HeadBuilt(head)) {
+                OS::Report("ss8 preview: player %u head refused\n", kGameLocal + i + 1);
+                RemoveModel(head);
+                head = nullptr;
+            }
             if (head == nullptr) {
                 heap->destroy();
             } else {
@@ -245,9 +301,10 @@ static MiiHeadsModel *PutHead(u32 i, ModelDirector *body, u32 miiId, Mii *mii, E
     return head;
 }
 
-// As RR's LoadPreview builds a player's own model: a heap of its own on SkinModelHeap's, the skin's BRRES or,
-// for slot 0, the menu archive's stock one, trimmed after. A Mii is its outfit's body as the Mii body loader
-// builds it (0x80831100, RR's outfit C loader in place of BindDriverBRRES) with the player's Mii head on it.
+// As RR's LoadPreview builds a player's own model, from the skin's BRRES or, for slot 0, the menu archive's stock
+// one, but on a heap filling the player's arena, after the old model has left it (D118). A Mii is its outfit's body
+// as the Mii body loader builds it (0x80831100, RR's outfit C loader in place of BindDriverBRRES) with the player's
+// Mii head on it. A skin that fails leaves the stock model and returns false, and the caller puts the slot back to 0.
 bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
     const u32 i = player - kGameLocal;
     const u32 character = static_cast<u32>(characterId);
@@ -270,27 +327,28 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
         snprintf(path, sizeof(path), "/Scene/Model/Driver/%s-%u.brres", ArchiveMgr::GetKartArchivePostfix(characterId), slot);
         const s32 entryNum = Pulsar::IOOverrides::ConvertPathToEntryNumWithLooseOverride(path);
         DVD::FileInfo fileInfo = {};
-        if (entryNum < 0 || !DVD::FastOpen(entryNum, &fileInfo))
+        if (entryNum < 0 || !DVD::FastOpen(entryNum, &fileInfo)) {
+            ExtPreviewLoad(player, characterId, 0);
             return false;
+        }
         fileSize = fileInfo.length;
         DVD::Close(&fileInfo);
     }
 
     GameScene *scene = const_cast<GameScene *>(GameScene::GetCurrent());
     ScnMgr *scnMgr = ScnMgr::sInstance[0];
-    if (scene == nullptr || scnMgr == nullptr || scene != previewScene)
+    EGG::ExpHeap *arena = arenas[i];
+    if (scene == nullptr || scnMgr == nullptr || scene != previewScene || arena == nullptr)
         return false;
-    u32 reserve = 0xe1000;
-    EGG::Heap *parentHeap = SkinModelHeap(*scene, scene->structsHeaps.heaps[0], reserve);
-    const u16 heapFlags = parentHeap->dameFlag;
-    parentHeap->dameFlag &= ~1;
-    const u32 largest = parentHeap->getAllocatableSize(4);
-    EGG::ExpHeap *heap = EGG::ExpHeap::Create(fileSize + reserve, parentHeap, 0);
-    parentHeap->dameFlag = heapFlags;
-    if (heap == nullptr) {
-        OS::Report("ss8 preview: player %u %#x slot %u file %u no heap, largest %u\n", player + 1, character, slot, fileSize, largest);
+    DropPreview(preview, true);
+    if (slot != 0 && fileSize + kModelAllowance > arena->getAllocatableSize(4)) {
+        OS::Report("ss8 preview: player %u %#x slot %u file %u too heavy, arena %u\n", player + 1, character, slot, fileSize, arena->getAllocatableSize(4));
+        ExtPreviewLoad(player, characterId, 0);
         return false;
     }
+    EGG::ExpHeap *heap = EGG::ExpHeap::Create(arena->getAllocatableSize(4), arena, 0);
+    if (heap == nullptr)
+        return false;
 
     EGG::Allocator *allocator = new (heap) EGG::Allocator(heap, 0x20);
     EGG::Heap *oldHeap = scnMgr->curHeap;
@@ -329,17 +387,19 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
     scnMgr->curAllocator = oldAllocator;
     menuAllocator = oldMenuAllocator;
 
-    MiiHeadsModel *head = loaded && isMii ? PutHead(i, model, character - MII_S_A_MALE, mii, parentHeap, reserve, scnMgr) : static_cast<MiiHeadsModel *>(nullptr);
+    MiiHeadsModel *head = loaded && isMii ? PutHead(i, model, character - MII_S_A_MALE, mii, scene->structsHeaps.heaps[1], scnMgr) : static_cast<MiiHeadsModel *>(nullptr);
     if (!loaded || (isMii && head == nullptr)) {
+        OS::Report("ss8 preview: player %u %#x slot %u file %u failed, arena %u\n", player + 1, character, slot, fileSize, heap->getAllocatableSize(4));
+        RemoveModel(hair);
         RemoveModel(model);
         heap->destroy();
+        if (slot != 0)
+            ExtPreviewLoad(player, characterId, 0);
         return false;
     }
-    const u32 kept = heap->adjust();
-    OS::Report("ss8 preview: player %u %#x slot %u file %u kept %u, largest before %u, free MEM1 %u MEM2 %u\n", player + 1, character, slot, fileSize, kept, largest,
-      TotalFree(scene->structsHeaps.heaps[0]), TotalFree(scene->structsHeaps.heaps[1]));
+    OS::Report("ss8 preview: player %u %#x slot %u file %u arena free %u, free MEM1 %u MEM2 %u\n", player + 1, character, slot, fileSize, TotalFree(heap), TotalFree(scene->structsHeaps.heaps[0]),
+      TotalFree(scene->structsHeaps.heaps[1]));
 
-    DropPreview(preview, true);
     preview.storage[0] = *reinterpret_cast<const u32 *>(modelMgr->driverModels->models);
     MenuDriverModel *own = Own(preview);
     own->model = model;
@@ -371,6 +431,11 @@ void ExtPreviewPose(u32 player, bool confirmed) {
 bool ExtPreviewIdle(u32 player) {
     const u32 i = player - kGameLocal;
     return i < kExtPlayers && Own(previews[i])->model != nullptr && Own(previews[i])->state == MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE;
+}
+
+bool ExtPreviewStock(u32 player, CharacterId character) {
+    const u32 i = player - kGameLocal;
+    return i < kExtPlayers && Own(previews[i])->model != nullptr && Own(previews[i])->id == character && previews[i].slot == 0;
 }
 
 // DrawModels' pass loop bound, "lbz r0, 0x21(r3)" at 0x8059F220 (MenuModelMgr's player count, 4 in a 5-8

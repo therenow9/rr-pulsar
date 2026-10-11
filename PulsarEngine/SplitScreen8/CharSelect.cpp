@@ -330,6 +330,7 @@ private:
     CharacterId RollCharacter(Random &random, u32 player, CharacterId avoid) const;
     bool Roll();
     void Roulette();
+    void FlushSkinModels();
     s32 ButtonOf(CharacterId character) const;
     s32 Direction(u32 player, const Input::RealControllerHolder &holder);
     void Move(u32 player, s32 direction);
@@ -564,7 +565,8 @@ void CharSelectPage::LoadPreview(u32 player) {
 }
 
 // The player's model for the character their cursor is on: P1-4 through ModelRenderer, which RR's hooks
-// give each player their own skin and model (Driver/LocalPlayerSkins.cpp), P5-8 through Previews.cpp.
+// give each player their own skin and model (Driver/LocalPlayerSkins.cpp), P5-8 through Previews.cpp. A P5-8
+// skin that could not be built leaves the stock model, and the slot goes back to 0 as CycleSkin puts it.
 void CharSelectPage::RequestPreview(u32 player) {
     const CharacterId character = this->CharacterOn(player, this->cursors[player].button);
     if (player < kGameLocal) {
@@ -572,6 +574,8 @@ void CharSelectPage::RequestPreview(u32 player) {
         if (renderer != nullptr)
             renderer->RequestCharacterModel(player, character);
     } else if (!ExtPreviewLoad(player, character, Pulsar::Driver::GetLocalPlayerSlot(player, character))) {
+        if (ExtPreviewStock(player, character))
+            Pulsar::Driver::SetLocalPlayerSlot(player, character, 0);
         OS::Report("ss8 select: character player %u preview %#x failed\n", player + 1, character);
     }
 }
@@ -1044,6 +1048,8 @@ void CharSelectPage::Roulette() {
     }
     if (roulette % kRollHop != 1)
         return;
+    if (roulette == 1)
+        this->FlushSkinModels();
     Random random;
     for (u32 p = 0; p < menuLocalCount; ++p) {
         const CharacterId character = roulette == 1 ? this->rolled[p] : this->RollCharacter(random, p, this->CharacterOn(p, this->cursors[p].button));
@@ -1051,6 +1057,24 @@ void CharSelectPage::Roulette() {
         if (button >= 0)
             this->Hover(p, button, roulette == 1);
     }
+}
+
+// Before a roll's last hop loads every player's model, P1-4's skin models leave the structs heaps, so those loads
+// start from the heap the page opened with, not one every earlier roll fragmented (D122). A player on one of RR's
+// previews goes back on its character's shared model, as SetPlayerCharacter puts it, before RR drops the previews.
+void CharSelectPage::FlushSkinModels() {
+    MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
+    MenuDriverModelMgr *mgr = modelMgr != nullptr ? modelMgr->driverModels : static_cast<MenuDriverModelMgr *>(nullptr);
+    if (mgr == nullptr)
+        return;
+    for (u32 hud = 0; hud < mgr->playerCount && hud < kGameLocal; ++hud) {
+        MenuDriverModelMgr::Player &player = mgr->players[hud];
+        const bool own = player.playerModel < mgr->models || player.playerModel >= mgr->models + mgr->modelCount;
+        if (own && static_cast<u32>(player.id) < Pulsar::Driver::CHARACTER_COUNT)
+            player.playerModel = &mgr->models[player.id];
+    }
+    Pulsar::Driver::DestroyLocalPlayerPreviews();
+    for (u32 c = 0; c < Pulsar::Driver::CHARACTER_COUNT; ++c) Pulsar::Driver::LoadDriverBRRES(static_cast<CharacterId>(c), 0);
 }
 
 // The direction this frame's input moves the player's cursor in, -1 for none, as the menus read it:

@@ -85,8 +85,8 @@ static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *stat
 kmCall(0x8051fe6c, UpdateStatesClassicMenuScript);
 
 // Every EGG heap's free bytes, in EGG's own list (0x80384320), at each section load and every 300 frames:
-// a menu page's allocations land on the scene heaps (D57's method). An ExpHeap reports its total free
-// bytes, any other heap its largest block.
+// a menu page's allocations land on the scene heaps (D57's method). "free" is an ExpHeap's total free bytes or
+// any other heap's largest block; "largest" is every heap's largest block, the one a skin load needs (C4e).
 static nw4r::ut::List *const heapList = reinterpret_cast<nw4r::ut::List *>(0x80384320);
 
 static void ReportHeaps(const char *when) {
@@ -95,7 +95,8 @@ static void ReportHeaps(const char *when) {
         EGG::Heap *heap = static_cast<EGG::Heap *>(node);
         const u32 kind = heap->getHeapKind();
         const u32 free = kind == EGG::HEAP_TYPE_EXP ? static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize() : heap->getAllocatableSize(4);
-        OS::Report("ss8 heap: %s frame %u #%u %08x kind %u free %u name %s\n", when, menuFrames, index++, heap, kind, free, heap->name != nullptr ? heap->name : "-");
+        OS::Report(
+          "ss8 heap: %s frame %u #%u %08x kind %u free %u largest %u name %s\n", when, menuFrames, index++, heap, kind, free, heap->getAllocatableSize(4), heap->name != nullptr ? heap->name : "-");
     }
 }
 

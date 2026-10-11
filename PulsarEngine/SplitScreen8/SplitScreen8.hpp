@@ -6,6 +6,7 @@ class Page;
 class GameScene;
 namespace EGG {
 class Heap;
+class ExpHeap;
 }  // namespace EGG
 namespace GX {
 struct TexObj;
@@ -57,8 +58,10 @@ void ResetExtPreviews();
 // The heap a menu skin model is built on, given the one RR uses, and its load reserve beyond the BRRES
 // file, given RR's 0xE1000: unchanged outside a 5-8 player game, else whichever of the scene's MEM1 and
 // MEM2 structs heaps has the larger free block, and a reserve sized to what a model keeps (D99, Entry.cpp).
-// RR's previews and shared models and P5-8's ask it.
+// RR's previews and shared models ask it.
 EGG::Heap *SkinModelHeap(GameScene &scene, EGG::Heap *heap, u32 &reserve);
+// A shared skin model's heap trimmed after its load in a 5-8 player game; nothing in 1-4 (D121, Entry.cpp).
+void TrimSkinHeap(EGG::ExpHeap *heap);
 // The join page of a 5-8 player game (D64, Join.cpp), built by Pulsar's ExpSection in that game's section 0x54.
 Page *NewJoinPage();
 // P5-8's join state cleared and holders 4-7 put back on the dummy controller (Join.cpp).
@@ -72,13 +75,15 @@ Page *NewCharSelectPage();
 KartId KartForCharacter(CharacterId character, KartId kart);
 // P5-8's preview models and textures (Previews.cpp). Show builds the textures and gives the menus' model
 // pass loop `count` passes until Hide; Load builds a player's model for a character and skin slot, Pose
-// takes it to the confirmed pose or back to idle; a texture is null until Show has built it.
+// takes it to the confirmed pose or back to idle; Stock says the player's model is that character's stock one
+// (after a failed skin, D123); a texture is null until Show has built it.
 bool ExtPreviewsShow(u32 count);
 void ExtPreviewsHide();
 bool ExtPreviewLoad(u32 player, CharacterId character, u32 slot);
 void ExtPreviewDrop(u32 player);
 void ExtPreviewPose(u32 player, bool confirmed);
 bool ExtPreviewIdle(u32 player);
+bool ExtPreviewStock(u32 player, CharacterId character);
 GX::TexObj *ExtPreviewTexObj(u32 player);
 // The holder input slot 4 answers in the menus, null for none (Pause.cpp's proxy, cleared at every section load).
 void SetMenuSlotProxy(Input::RealControllerHolder *holder);

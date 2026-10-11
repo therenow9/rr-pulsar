@@ -1,4 +1,5 @@
 #include <kamek.hpp>
+#include <core/egg/mem/ExpHeap.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/Scene/GameScene.hpp>
@@ -344,9 +345,9 @@ void ResetExtPreviews() {
 #endif
 
 // A 5-8 player game's section 0x54 has about 1.2 MB less MEM1 free than a 3-player one, too little for RR's
-// 0xE1000 per load across P1-4's skins, so up to 11 models (RR's 3 previews and 4 shared skins, P5-8's 4)
-// go on whichever of MEM1 and MEM2 has the larger free block. A built model keeps its file plus at most
-// about 245 KB.
+// 0xE1000 per load across P1-4's skins, so their models (RR's previews and shared skins) go on whichever of
+// MEM1 and MEM2 has the larger free block. A load peaks at what its model keeps, the file plus at most 51,628 bytes
+// for RR's skins but Rosalina's 6th (244,948); a model that outgrows the reserve faults inside the game's code.
 const u32 kSkinLoadReserve = 0x60000;
 
 EGG::Heap *SkinModelHeap(GameScene &scene, EGG::Heap *heap, u32 &reserve) {
@@ -356,6 +357,14 @@ EGG::Heap *SkinModelHeap(GameScene &scene, EGG::Heap *heap, u32 &reserve) {
     EGG::Heap *mem1 = scene.structsHeaps.heaps[0];
     EGG::Heap *mem2 = scene.structsHeaps.heaps[1];
     return mem1->getAllocatableSize(4) > mem2->getAllocatableSize(4) ? mem1 : mem2;
+}
+
+// RR's shared skin models keep their whole load heap (Driver/CustomCharacters.cpp); in a 5-8 player game that
+// heap is trimmed to what the model keeps, as RR trims its previews, or each loaded skin would hold the reserve
+// for as long as it stays (D121).
+void TrimSkinHeap(EGG::ExpHeap *heap) {
+    if (menuLocalCount > kGameLocal)
+        heap->adjust();
 }
 
 static void MenuLocalsLocal(Racedata *racedata) {
