@@ -11,9 +11,11 @@
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/RKSYS/RKSYSMgr.hpp>
+#include <MarioKartWii/System/Random.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 #include <MarioKartWii/UI/Page/Page.hpp>
+#include <MarioKartWii/UI/Page/Menu/KartSelect.hpp>
 #include <MarioKartWii/UI/Page/Other/ModelRenderer.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuText.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuCharacterSelect.hpp>
@@ -98,6 +100,10 @@ const float kPlateScale = 0.5f;
 const float kPreviewX = 240.0f;
 const float kPreviewDY = 40.0f;  // above its plate
 const float kPreviewScale = 0.4f;  // of the 256 x 256 model_set_p
+// RR's Randomize Combo roulette (ExpVR::randomDuration, ExpCharacterSelect::BeforeControlUpdate): 60 frames, a
+// hop on each frame whose count left is 1 modulo 4 (the last onto the roll), every player confirming at 0.
+const s32 kRollFrames = 60;
+const s32 kRollHop = 4;
 
 // PushButton's animation names (0x808B7690), so the groups and animations keep PushButton's ids.
 static const char *kButtonAnims[] = {
@@ -321,10 +327,13 @@ private:
     void CycleSkin(u32 player, s32 direction);
     void SyncSharedModels();
     void FillCpus();
+    CharacterId RollCharacter(Random &random, u32 player, CharacterId avoid) const;
+    bool Roll();
+    void Roulette();
     s32 ButtonOf(CharacterId character) const;
     s32 Direction(u32 player, const Input::RealControllerHolder &holder);
     void Move(u32 player, s32 direction);
-    void Hover(u32 player, u32 to);
+    void Hover(u32 player, u32 to, bool preview = true);
     void Confirm(u32 player);
     void Unconfirm(u32 player);
     bool PlayerOn(u32 player, u32 button) const;
@@ -348,6 +357,8 @@ private:
     u8 miiPlayer;  // the player MiiSelect is open over the page for, else kNoPlayer
     bool miiResumed;  // MiiSelect closed this frame, so its last press reads as no input here
     u32 savedDrift;  // SectionParams' driftType[0] while MiiSelect borrows it for a player 5-8
+    s32 rolling;  // the roulette's frames left, -1 when none runs
+    CharacterId rolled[kMaxLocal];
 };
 
 Page *NewCharSelectPage() {
@@ -358,6 +369,7 @@ CharSelectPage::CharSelectPage() {
     this->nextPageId = PAGE_NONE;
     this->miiPlayer = kNoPlayer;
     this->miiResumed = false;
+    this->rolling = -1;
     this->titleText = new CtrlMenuPageTitleText;
     this->backButton = static_cast<LayoutUIControl *>(::operator new(kDummyBackSize));
     layoutCtor(this->backButton);
@@ -732,6 +744,7 @@ void CharSelectPage::OnActivate() {
     this->frame = 0;
     this->miiPlayer = kNoPlayer;
     this->miiResumed = false;
+    this->rolling = -1;
     const SectionParams *params = SectionMgr::sInstance->sectionParams;
     bool miiCOpen = Pulsar::Restrictions::IsOnlyMiiOutfitCEnabled();
     const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
@@ -889,12 +902,18 @@ void CharSelectPage::AfterControlUpdate() {
         return;
     ++this->frame;
     const u32 count = menuLocalCount;
-    const bool input = this->miiPlayer == kNoPlayer && !this->miiResumed;
+    const bool roulette = this->rolling >= 0;
+    if (roulette)
+        this->Roulette();
+    const bool input = this->miiPlayer == kNoPlayer && !this->miiResumed && !roulette;
     this->miiResumed = false;
     for (u32 p = 0; input && p < count; ++p) {
         const Input::RealControllerHolder *holder = PlayerHolder(p);
         if (holder == nullptr)
             continue;
+        // ExpCharacterSelect::OnStartPress: P1's START, until everyone has confirmed (D108).
+        if (p == 0 && this->leaveFrames < 0 && UIPressed(*holder, START_PRESS) && this->Roll())
+            break;
         Cursor &cursor = this->cursors[p];
         if (!cursor.confirmed && this->skinSteps[p] != 0)
             this->CycleSkin(p, this->skinSteps[p]);
@@ -950,6 +969,90 @@ void CharSelectPage::FillCpus() {
     params->localPlayerCount = gameCount;
 }
 
+// RR's GetRandomEnabledCharacter (UI/ChangeCombo/ChangeCombo.cpp), which is file-static and finds a Mii in
+// localPlayerMiis by hud, so is copied over this page's buttons: the drivers and Mii A and B in the character
+// mask (its bits are the buttons, Restrictions::GetCharacterSlot), a Mii button giving the player's own Mii.
+CharacterId CharSelectPage::RollCharacter(Random &random, u32 player, CharacterId avoid) const {
+    CharacterId choices[kButtons];
+    u32 count = 0;
+    const u32 mask = Pulsar::Restrictions::GetCharacterMask();
+    for (u32 i = 0; i < kButtons - 1; ++i) {  // never Mii C, as RR (BUTTON_MII_C)
+        if (((mask >> i) & 1) == 0)
+            continue;
+        const CharacterId character = this->CharacterOn(player, i);
+        if (character != avoid)
+            choices[count++] = character;
+    }
+    return count == 0 ? avoid : choices[random.NextLimited(count)];
+}
+
+// RR's RandomizeCombo for every player (D108), nothing while a selection restriction is on: a character, a skin
+// among its slots and a kart of its weight class, drawn as RR draws them. The kart is where the kart page
+// and InitRace take it (D110). combos[] is not written: 2 wide, and read only by online code.
+bool CharSelectPage::Roll() {
+    if (Pulsar::Restrictions::IsCharacterRestrictionEnabled() || Pulsar::Restrictions::IsVehicleRestrictionEnabled())
+        return false;
+    Random random;
+    SectionParams *params = SectionMgr::sInstance->sectionParams;
+    for (u32 p = 0; p < menuLocalCount; ++p) {
+        if (this->cursors[p].confirmed) {
+            this->cursors[p].confirmed = false;
+            this->PosePreview(p, false);
+        }
+        const CharacterId character = this->RollCharacter(random, p, CHARACTER_NONE);
+        u32 slot = 0;
+        if (static_cast<u32>(character) < Pulsar::Driver::CHARACTER_COUNT) {  // RR's loop would read past the table for a Mii
+            u32 slots = 0;
+            for (u32 s = 0; s <= Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS; ++s)
+                if (Pulsar::Driver::characterTables[character][s] && random.NextLimited(++slots) == 0)
+                    slot = s;
+            Pulsar::Driver::SetLocalPlayerSlot(p, character, slot);
+            if (p == 0)
+                this->SetIcon(this->buttons[this->ButtonOf(character)]);  // P1's skin on the icon (D84)
+        }
+        const u32 weight = GetCharacterWeightClass(character);
+        const u16 vehicles = Pulsar::Restrictions::GetVehicleMask(weight);
+        u8 positions[Pulsar::Restrictions::VEHICLES_PER_WEIGHT];
+        u32 enabled = 0;
+        for (u32 v = 0; v < Pulsar::Restrictions::VEHICLES_PER_WEIGHT; ++v)
+            if ((vehicles >> v) & 1)
+                positions[enabled++] = v;
+        const u32 position = enabled == 0 ? Pulsar::Restrictions::GetFirstEnabledVehiclePosition(weight) : positions[random.NextLimited(enabled)];
+        const KartId kart = kartsSortedByWeight[weight][position];
+        if (p < kGameLocal) {
+            params->karts[p] = kart;
+        } else {
+            ExtPick &pick = extPicks[p - kGameLocal];
+            pick.kart = kart;  // kept by Confirm's KartForCharacter: one of the character's 12
+            pick.picked = true;
+        }
+        this->rolled[p] = character;
+        OS::Report("ss8 select: character player %u roll %#x slot %u kart %#x\n", p + 1, character, slot, kart);
+    }
+    this->rolling = kRollFrames;
+    return true;
+}
+
+// RR's roulette (ExpCharacterSelect::BeforeControlUpdate): each cursor hops to another character, the last hop onto
+// the roll, with nobody's input read. Only that hop loads a preview (D115): a load per hop fragments the skin heaps.
+// All confirm on one frame (D112), on the Mii row with the plate's Mii and no MiiSelect (D111).
+void CharSelectPage::Roulette() {
+    const s32 roulette = this->rolling--;
+    if (roulette == 0) {
+        for (u32 p = 0; p < menuLocalCount; ++p) this->Confirm(p);
+        return;
+    }
+    if (roulette % kRollHop != 1)
+        return;
+    Random random;
+    for (u32 p = 0; p < menuLocalCount; ++p) {
+        const CharacterId character = roulette == 1 ? this->rolled[p] : this->RollCharacter(random, p, this->CharacterOn(p, this->cursors[p].button));
+        const s32 button = this->ButtonOf(character);
+        if (button >= 0)
+            this->Hover(p, button, roulette == 1);
+    }
+}
+
 // The direction this frame's input moves the player's cursor in, -1 for none, as the menus read it:
 // the D-pad's direction actions first, else the stick, each repeating while held.
 s32 CharSelectPage::Direction(u32 player, const Input::RealControllerHolder &holder) {
@@ -999,7 +1102,7 @@ bool CharSelectPage::PlayerOn(u32 player, u32 button) const {
 // PushButton::HandleDeselect (0x805BE130) on the button left, if nobody else is on it, and HandleSelect
 // (0x805BDFFC) on the one reached, with its sound; the plate names the hovered character
 // (CharacterSelect::OnButtonDriverSelect, 0x8083E6E0).
-void CharSelectPage::Hover(u32 player, u32 to) {
+void CharSelectPage::Hover(u32 player, u32 to, bool preview) {
     const u32 from = this->cursors[player].button;
     this->cursors[player].button = to;
     bool shared = false;
@@ -1021,7 +1124,8 @@ void CharSelectPage::Hover(u32 player, u32 to) {
     control.PlaySound(SOUND_ID_BUTTON_SELECT, player);
     const CharacterId character = this->CharacterOn(player, to);
     this->SetPlateName(player);
-    this->RequestPreview(player);
+    if (preview)
+        this->RequestPreview(player);
     OS::Report("ss8 select: character player %u on %#x\n", player + 1, character);
 }
 
