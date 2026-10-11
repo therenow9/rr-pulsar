@@ -85,6 +85,10 @@ void ExtPreviewPose(u32 player, bool confirmed);
 bool ExtPreviewIdle(u32 player);
 bool ExtPreviewStock(u32 player, CharacterId character);
 GX::TexObj *ExtPreviewTexObj(u32 player);
+// P5-8's kart previews on the kart page (D126), each player's driver on the kart wanted for them (Previews.cpp).
+bool ExtKartsShow(u32 count);
+void ExtKartsHide();
+void ExtKartRequest(u32 player, CharacterId character, u32 slot, KartId kart);
 // The holder input slot 4 answers in the menus, null for none (Pause.cpp's proxy, cleared at every section load).
 void SetMenuSlotProxy(Input::RealControllerHolder *holder);
 #endif

@@ -2,10 +2,12 @@
 #include <kamek.hpp>
 #include <core/egg/3D/Scn.hpp>
 #include <core/egg/DVD/DvdRipper.hpp>
+#include <core/egg/Thread.hpp>
 #include <core/egg/mem/ExpHeap.hpp>
 #include <core/rvl/OS/OS.hpp>
 #include <core/rvl/dvd/dvd.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
+#include <MarioKartWii/3D/Model/Menu/MenuKartModel.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 #include <MarioKartWii/3D/Scn/ScnMgr.hpp>
 #include <MarioKartWii/3D/TextureHolder.hpp>
@@ -106,6 +108,9 @@ static MenuDriverModel *Own(ExtPreview &preview) {
     return reinterpret_cast<MenuDriverModel *>(preview.storage);
 }
 
+static void ResetExtKarts(bool destroy);
+static void ForgetKartDriver(u32 i);
+
 static void RemoveModel(ModelDirector *model) {
     if (model == nullptr)
         return;
@@ -116,7 +121,8 @@ static void RemoveModel(ModelDirector *model) {
     }
 }
 
-// A head on the body leaves the scene before the body's heap goes, and waits for the next Mii body.
+// A head on the body leaves the scene before the body's heap goes, and waits for the next Mii body. The kart
+// forgets its driver: a rebuilt one lands at the same address in the emptied arena, without on-kart animations.
 static void DropPreview(ExtPreview &preview, bool destroy) {
     if (destroy && Own(preview)->model != nullptr) {
         if (preview.head != nullptr)
@@ -125,6 +131,7 @@ static void DropPreview(ExtPreview &preview, bool destroy) {
         RemoveModel(Own(preview)->model);
         preview.heap->destroy();
     }
+    ForgetKartDriver(static_cast<u32>(&preview - previews));
     memset(&preview, 0, sizeof(preview));
 }
 
@@ -146,6 +153,7 @@ void ResetExtPreviews() {
         headHeaps[i] = nullptr;
         textures[i] = nullptr;
     }
+    ResetExtKarts(destroy);
     previewScene = nullptr;
     extPassCount = 0;
 }
@@ -438,6 +446,361 @@ bool ExtPreviewStock(u32 player, CharacterId character) {
     return i < kExtPlayers && Own(previews[i])->model != nullptr && Own(previews[i])->id == character && previews[i].slot == 0;
 }
 
+// P5-8's kart previews (D126). A game player's holds its whole unpacked kart archive, 12 karts bound in place
+// (MenuKartModelMgr::Load, 0x80832D00, on InitAllkartArchivesLoaders' 0xE1000 heap), and four more do not fit, so
+// each P5-8 player keeps only the kart on screen: archives are unpacked one at a time into an area of the course
+// prefetch heap, idle in section 0x54 (C3), and the kart's BRRES and driver_anim.brres are copied out and built.
+const u32 kPrefetchHeap = 0x59c;  // AsyncCourseArchiveLoader::heap in ArchiveMgr (0x80541A70)
+const u32 kUnpackSize = 0xe1000;  // a game player's kart heap (0x80542324); RR's largest archive unpacks to 891,680
+// The largest kart BRRES of the 156 VS archives (114,944), driver_anim.brres (21,376 at most), a kart's models and
+// the driver's on-kart animations (all 12 karts' models and the animations take 27,056).
+const u32 kKartHeapSize = 0x30000;
+const u32 kUnpackHolder = kGameLocal;  // ArchiveMgr keeps a race's 12 kart archives; the menus load only 0-3
+// LinkDriverAnim (0x8081EAC4) takes driver_anim.brres from this holder's archive, and when it has none (in the
+// menus) links the BRRES already in its handle (0x8081EB0C skips the store), which is the player's copy.
+const u32 kNoArchiveHolder = kGameLocal + 1;
+// MenuKartModel as MenuKartModelMgr::Load allocates it (12 * 0x2C, 0x80832E08); its constructor is not linkable,
+// so the object is raw storage with its vtable word. Offsets as MenuKartModel::Load writes them (0x80831FF0-0x80832084).
+const u32 kKartModelSize = 0x2c;
+const u32 kKartModelVtable = 0x808d8c8c;
+const u32 kKartId = 0x8, kKartCharacter = 0xc, kKartAllocator = 0x10, kKartDriver = 0x14, kKartDisplay = 0x1c;
+const u32 kDriverKart = 0x14;  // MenuDriverModel's kart, as VehicleModelControl::OnUpdate sets it (0x805F3F30)
+
+typedef void (*LoadArchivesFn)(ArchivesHolder *, const char *, EGG::Heap *, EGG::Heap *, u32 *);
+typedef void (*UnmountArchivesFn)(ArchivesHolder *);
+typedef void (*FreeAllFn)(EGG::ExpHeap *);
+typedef ModelTransformator *(*CreateTransformatorFn)(ModelDirector *);
+typedef void (*ChangeTransformatorFn)(ModelDirector *, ModelTransformator *, bool);
+typedef bool (*LoadKartModelFn)(MenuModelBRRESHandle *, ModelDirector *, Team);
+typedef bool (*LinkDriverAnimFn)(MenuModelBRRESHandle *, u8, ModelDirector *, CharacterId);
+typedef void (*SleepTicksFn)(s64);
+static const LoadArchivesFn loadArchives = reinterpret_cast<LoadArchivesFn>(0x8052a954);
+static const UnmountArchivesFn unmountArchives = reinterpret_cast<UnmountArchivesFn>(0x8052aa88);
+static const FreeAllFn freeAll = reinterpret_cast<FreeAllFn>(0x80226ebc);
+static const CreateTransformatorFn createTransformator = reinterpret_cast<CreateTransformatorFn>(0x8055d9f0);
+static const ChangeTransformatorFn changeTransformator = reinterpret_cast<ChangeTransformatorFn>(0x8055f7d8);
+static const LoadKartModelFn loadKartModel = reinterpret_cast<LoadKartModelFn>(0x8081edc0);
+static const LinkDriverAnimFn linkDriverAnim = reinterpret_cast<LinkDriverAnimFn>(0x8081eac4);
+static const SleepTicksFn sleepTicks = reinterpret_cast<SleepTicksFn>(0x801aaca8);
+// ArchiveMgr::RequestTask (0x80541CBC): nothing while the manager is shutting down (isFree), else the task queued on
+// the load thread, which runs its tasks in order; ProcessRequestsAndShutdown (GameScene::Reset+0x30) waits until
+// that thread has none left.
+typedef bool (*RequestTaskFn)(ArchiveMgr *, EGG::TaskThread::TaskFunction, void *, u32);
+static const RequestTaskFn requestTask = reinterpret_cast<RequestTaskFn>(0x80541cbc);
+typedef const char *(*KartPrefixFn)(KartId);
+static const KartPrefixFn kartPrefix = reinterpret_cast<KartPrefixFn>(0x805419ec);  // ArchiveMgr::GetKartArchivePrefix
+
+struct ExtKart {
+    u32 storage[kKartModelSize / sizeof(u32)];
+    EGG::ExpHeap *heap;
+    ModelDirector *driverModel;  // the driver model whose on-kart animations are on heap
+    CharacterId character;  // what is built, while the kart model is
+    u32 slot;
+    KartId kart;
+    CharacterId wantCharacter;
+    u32 wantSlot;
+    KartId wantKart;
+    bool wanted;
+    bool failed;  // the wanted kart could not be built; tried again once the want changes
+    bool shown;
+};
+static ExtKart karts[kExtPlayers];
+static EGG::ExpHeap *unpackHeap;
+static EGG::ExpHeap *orphanHeap;  // an area whose unpack outlived its section, freed at the next reset
+enum UnpackState {
+    UNPACK_IDLE,
+    UNPACK_BUSY,  // the load thread owns the area
+    UNPACK_DONE
+};
+static volatile u32 unpackState;
+static CharacterId unpackCharacter;
+static u32 unpackSlot;
+static char unpackPath[0x80];
+
+static MenuModel *KartModel(ExtKart &kart) {
+    return reinterpret_cast<MenuModel *>(kart.storage);
+}
+
+template <typename T>
+static T &KartField(ExtKart &kart, u32 offset) {
+    return *reinterpret_cast<T *>(reinterpret_cast<u8 *>(kart.storage) + offset);
+}
+
+static EGG::ExpHeap *PrefetchHeap() {
+    const u8 *archives = reinterpret_cast<const u8 *>(ArchiveMgr::sInstance);
+    return archives != nullptr ? *reinterpret_cast<EGG::ExpHeap *const *>(archives + kPrefetchHeap) : static_cast<EGG::ExpHeap *>(nullptr);
+}
+
+// The built kart is the wanted one, for the driver model now in the player's preview.
+static bool KartCurrent(ExtKart &kart, u32 i) {
+    return KartModel(kart)->model != nullptr && kart.driverModel == Own(previews[i])->model && kart.character == kart.wantCharacter && kart.slot == kart.wantSlot && kart.kart == kart.wantKart;
+}
+
+// The driver leaves its on-kart animations, which are on the kart's heap, before that heap is freed.
+static void DropKart(u32 i) {
+    ExtKart &kart = karts[i];
+    MenuDriverModel *driver = Own(previews[i]);
+    if (driver->model != nullptr && driver->model == kart.driverModel && driver->onKartTransformator != nullptr) {
+        if (driver->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT)
+            switchState(driver, -1, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
+        driver->onKartTransformator = nullptr;
+    }
+    RemoveModel(KartModel(kart)->model);
+    memset(kart.storage, 0, sizeof(kart.storage));
+    kart.driverModel = nullptr;
+    if (kart.heap != nullptr)
+        freeAll(kart.heap);
+}
+
+static void ForgetKartDriver(u32 i) {
+    karts[i].driverModel = nullptr;
+}
+
+// Made as the kart page opens, on the prefetch heap, for the section: the unpacking area and each P5-8 player's heap.
+bool ExtKartsShow(u32 count) {
+    EGG::ExpHeap *prefetch = PrefetchHeap();
+    if (prefetch == nullptr)
+        return false;
+    const u16 heapFlags = prefetch->dameFlag;
+    prefetch->dameFlag &= ~1;
+    if (unpackHeap == nullptr)
+        unpackHeap = EGG::ExpHeap::Create(kUnpackSize, prefetch, 0);
+    bool built = unpackHeap != nullptr;
+    for (u32 i = 0; i + kGameLocal < count && built; ++i) {
+        if (karts[i].heap == nullptr)
+            karts[i].heap = EGG::ExpHeap::Create(kKartHeapSize, prefetch, 0);
+        built = karts[i].heap != nullptr;
+        karts[i].shown = true;
+    }
+    prefetch->dameFlag = heapFlags;
+    if (!built)
+        OS::Report("ss8 preview: kart heaps failed, prefetch largest %u\n", prefetch->getAllocatableSize(4));
+    return built;
+}
+
+void ExtKartsHide() {
+    for (u32 i = 0; i < kExtPlayers; ++i) {
+        karts[i].shown = false;
+        MenuDriverModel *driver = Own(previews[i]);
+        if (driver->model != nullptr && driver->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT)
+            switchState(driver, -1, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
+    }
+}
+
+void ExtKartRequest(u32 player, CharacterId character, u32 slot, KartId kartId) {
+    const u32 i = player - kGameLocal;
+    if (i >= kExtPlayers)
+        return;
+    ExtKart &kart = karts[i];
+    if (kart.wanted && kart.wantCharacter == character && kart.wantSlot == slot && kart.wantKart == kartId)
+        return;
+    kart.wantCharacter = character;
+    kart.wantSlot = slot;
+    kart.wantKart = kartId;
+    kart.wanted = true;
+    kart.failed = false;
+}
+
+// On the game's load thread, as LoadKartArchiveAsync (0x80541E44) loads a game player's: the old archive out, then
+// the new one through the game's kart dump heap, which that thread's loads use one at a time.
+static void UnpackKartArchive(void *area) {
+    EGG::ExpHeap *heap = static_cast<EGG::ExpHeap *>(area);
+    ArchiveMgr *archives = ArchiveMgr::sInstance;
+    ArchivesHolder *holder = &archives->kartModelsHolders[kUnpackHolder];
+    if (holder->HasArchives())
+        unmountArchives(holder);
+    freeAll(heap);
+    loadArchives(holder, unpackPath, heap, archives->allkartModelDumpHeap, nullptr);
+    unpackState = UNPACK_DONE;
+}
+
+// Queued behind an unpack its section did not outlive, so the race's LoadKartArchive, which skips a holder that
+// has archives (0x80540E88), loads player 5's own.
+static void ReleaseUnpackHolder(void *) {
+    ArchivesHolder *holder = &ArchiveMgr::sInstance->kartModelsHolders[kUnpackHolder];
+    if (holder->HasArchives())
+        unmountArchives(holder);
+}
+
+// The path as RR's LoadKartArchiveForPlayer makes a player's (Driver/CustomCharacters.cpp): a skin's own archive when
+// it has one, else the character's, VS's (0x80890C3C; a 5-8 player game has no Battle, D65).
+static bool RequestUnpack(CharacterId character, u32 slot) {
+    ArchiveMgr *archives = ArchiveMgr::sInstance;
+    if (archives == nullptr || archives->allkartModelDumpHeap == nullptr)
+        return false;
+    const char *name = ArchiveMgr::GetKartArchivePostfix(character);
+    char skinPath[0x80];
+    snprintf(skinPath, sizeof(skinPath), "/Scene/Model/Kart/%s-%u-allkart.szs", name, slot);
+    if (slot != 0 && Pulsar::IOOverrides::ConvertPathToEntryNumWithLooseOverride(skinPath) >= 0)
+        snprintf(unpackPath, sizeof(unpackPath), "Scene/Model/Kart/%s-%u-allkart", name, slot);
+    else
+        snprintf(unpackPath, sizeof(unpackPath), "Scene/Model/Kart/%s-allkart", name);
+    unpackCharacter = character;
+    unpackSlot = slot;
+    unpackState = UNPACK_BUSY;
+    if (!requestTask(archives, UnpackKartArchive, unpackHeap, 0x10000003)) {  // RequestLoadKartArchives' value (0x805422B0)
+        unpackState = UNPACK_IDLE;
+        return false;
+    }
+    OS::Report("ss8 preview: kart archive %s\n", unpackPath);
+    return true;
+}
+
+// The shown kart from the unpacked archive, copied to the player's heap and built as MenuKartModel::Load builds a
+// multiplayer kart (0x80831FC4: two ModelDirectors, the display one never loaded), and the driver's on-kart
+// animations as PrepareDriverOnKartAnms links them (0x80830C64), from a copy of driver_anim.brres.
+static bool BuildKart(u32 i) {
+    ExtKart &kart = karts[i];
+    MenuDriverModel *driver = Own(previews[i]);
+    ArchiveMgr *archives = ArchiveMgr::sInstance;
+    ScnMgr *scnMgr = ScnMgr::sInstance[0];
+    MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
+    if (driver->model == nullptr || scnMgr == nullptr || modelMgr == nullptr || modelMgr->kartModels == nullptr)
+        return false;
+    DropKart(i);
+    char name[0x20];
+    snprintf(name, sizeof(name), "%s.brres", kartPrefix(kart.wantKart));
+    const ArchivesHolder &holder = archives->kartModelsHolders[kUnpackHolder];
+    u32 kartSize = 0;
+    u32 animSize = 0;
+    const void *kartFile = holder.GetFile(name, &kartSize);
+    const void *animFile = holder.GetFile("driver_anim.brres", &animSize);
+    EGG::ExpHeap *heap = kart.heap;
+    void *kartCopy = kartFile != nullptr ? EGG::Heap::alloc(kartSize, 0x20, heap) : nullptr;
+    void *animCopy = animFile != nullptr ? EGG::Heap::alloc(animSize, 0x20, heap) : nullptr;
+    if (kartCopy == nullptr || animCopy == nullptr || archives->kartModelsHolders[kNoArchiveHolder].HasArchives()) {
+        OS::Report("ss8 preview: player %u kart %#x %s failed, file %u anim %u\n", kGameLocal + i + 1, kart.wantKart, name, kartSize, animSize);
+        freeAll(heap);
+        return false;
+    }
+    memcpy(kartCopy, kartFile, kartSize);
+    memcpy(animCopy, animFile, animSize);
+
+    EGG::Allocator *allocator = new (heap) EGG::Allocator(heap, 0x20);
+    EGG::Heap *oldHeap = scnMgr->curHeap;
+    EGG::Allocator *oldAllocator = scnMgr->curAllocator;
+    EGG::Allocator *oldMenuAllocator = menuAllocator;
+    scnMgr->curHeap = heap;
+    scnMgr->curAllocator = allocator;
+    menuAllocator = allocator;
+    EGG::Heap *oldCurrentHeap = heap->BecomeCurrentHeap();
+
+    kart.storage[0] = kKartModelVtable;
+    MenuModel *model = KartModel(kart);
+    KartField<KartId>(kart, kKartId) = kart.wantKart;
+    KartField<CharacterId>(kart, kKartCharacter) = kart.wantCharacter;
+    KartField<EGG::Allocator *>(kart, kKartAllocator) = allocator;
+    KartField<MenuDriverModel *>(kart, kKartDriver) = driver;
+    model->model = new (heap) ModelDirector(2, 0);
+    KartField<ModelDirector *>(kart, kKartDisplay) = new (heap) ModelDirector(4, 0);
+    MenuModelBRRESHandle kartHandle;
+    kartHandle.menuModelBRRES.data = static_cast<g3d::ResFileData *>(kartCopy);
+    ModelDirector::BindBRRESImpl(kartHandle.menuModelBRRES, name, nullptr, 0);
+    const bool loaded = loadKartModel(&kartHandle, model->model, modelMgr->kartModels->players[0].team);
+
+    ModelTransformator *onKart = loaded ? createTransformator(driver->model) : static_cast<ModelTransformator *>(nullptr);
+    if (onKart != nullptr) {
+        changeTransformator(driver->model, onKart, false);
+        MenuModelBRRESHandle animHandle;
+        animHandle.menuModelBRRES.data = static_cast<g3d::ResFileData *>(animCopy);
+        animHandle.menuModelBRRES.Init();
+        linkDriverAnim(&animHandle, kNoArchiveHolder, driver->model, static_cast<CharacterId>(driver->id));
+        changeTransformator(driver->model, driver->charSelTransformator, false);
+        driver->onKartTransformator = onKart;
+    }
+
+    oldCurrentHeap->BecomeCurrentHeap();
+    scnMgr->curHeap = oldHeap;
+    scnMgr->curAllocator = oldAllocator;
+    menuAllocator = oldMenuAllocator;
+    if (onKart == nullptr) {
+        OS::Report("ss8 preview: player %u kart %#x %s not built\n", kGameLocal + i + 1, kart.wantKart, name);
+        RemoveModel(model->model);
+        memset(kart.storage, 0, sizeof(kart.storage));
+        freeAll(heap);
+        return false;
+    }
+    model->Init();
+    kart.driverModel = driver->model;
+    kart.character = kart.wantCharacter;
+    kart.slot = kart.wantSlot;
+    kart.kart = kart.wantKart;
+    OS::Report("ss8 preview: player %u kart %#x %s file %u anim %u heap free %u\n", kGameLocal + i + 1, kart.kart, name, kartSize, animSize, TotalFree(heap));
+    return true;
+}
+
+// Each frame while the kart page shows them: build every wanted kart whose archive is unpacked, else unpack the next
+// one wanted. A shown kart puts its driver in the kart pose (VehicleModelControl::OnUpdate, 0x805F3F3C), with -1 for
+// SwitchState's player.
+static void ServiceKarts() {
+    if (unpackHeap == nullptr || unpackState == UNPACK_BUSY)
+        return;
+    for (u32 i = 0; i < kExtPlayers; ++i) {
+        ExtKart &kart = karts[i];
+        if (!kart.shown || !kart.wanted || kart.failed || kart.heap == nullptr || Own(previews[i])->model == nullptr || KartCurrent(kart, i))
+            continue;
+        if (unpackState == UNPACK_DONE && unpackCharacter == kart.wantCharacter && unpackSlot == kart.wantSlot)
+            kart.failed = !BuildKart(i);
+        else if (RequestUnpack(kart.wantCharacter, kart.wantSlot))
+            return;
+    }
+    for (u32 i = 0; i < kExtPlayers; ++i) {
+        ExtKart &kart = karts[i];
+        MenuDriverModel *driver = Own(previews[i]);
+        if (kart.shown && KartCurrent(kart, i) && driver->state != MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT) {
+            *reinterpret_cast<KartId *>(reinterpret_cast<u8 *>(driver) + kDriverKart) = kart.kart;
+            switchState(driver, -1, MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT);
+        }
+    }
+}
+
+// MenuKartModel::Update turns a kart and seats its driver only for a kart a game player has selected (0x808327A0),
+// so it runs with this kart lent player 1's selection, which is put back at once.
+static void UpdateKart(ExtKart &kart, MenuKartModelMgr *kartModels) {
+    MenuKartModelMgr::Player &first = kartModels->players[0];
+    MenuKartModel *const oldModels = first.modelsArray;
+    const u32 oldIdx = first.idx;
+    const bool oldLocked = first.isLocked;
+    first.modelsArray = reinterpret_cast<MenuKartModel *>(kart.storage);
+    first.idx = 0;
+    first.isLocked = true;
+    KartModel(kart)->Update();
+    first.modelsArray = oldModels;
+    first.idx = oldIdx;
+    first.isLocked = oldLocked;
+}
+
+// The area goes once the load thread's last unpack has ended. One still running after two seconds gets the archive's
+// removal queued behind it, and its area is freed at the next reset; models leave the scene only while it is theirs.
+static void ResetExtKarts(bool destroy) {
+    for (u32 wait = 0; unpackState == UNPACK_BUSY && wait < 2000; ++wait) sleepTicks(static_cast<s64>(*reinterpret_cast<const u32 *>(0x800000f8) / 4 / 1000));  // a millisecond (OSMillisecondsToTicks)
+    ArchiveMgr *archives = ArchiveMgr::sInstance;
+    if (unpackState == UNPACK_BUSY && unpackHeap != nullptr) {
+        const bool queued = requestTask(archives, ReleaseUnpackHolder, nullptr, 0x10000003);
+        OS::Report("ss8 preview: kart archive still loading, release %s\n", queued ? "queued" : "not queued");
+        orphanHeap = unpackHeap;
+        unpackHeap = nullptr;
+    } else if (unpackState != UNPACK_BUSY) {
+        if (orphanHeap != nullptr)
+            orphanHeap->destroy();
+        orphanHeap = nullptr;
+        if (unpackHeap != nullptr && archives != nullptr && archives->kartModelsHolders[kUnpackHolder].HasArchives())
+            unmountArchives(&archives->kartModelsHolders[kUnpackHolder]);
+        if (unpackHeap != nullptr)
+            unpackHeap->destroy();
+        unpackHeap = nullptr;
+        unpackState = UNPACK_IDLE;
+    }
+    for (u32 i = 0; i < kExtPlayers; ++i) {
+        ExtKart &kart = karts[i];
+        if (destroy)
+            RemoveModel(KartModel(kart)->model);
+        if (kart.heap != nullptr)
+            kart.heap->destroy();
+        memset(&kart, 0, sizeof(kart));
+    }
+}
+
 // DrawModels' pass loop bound, "lbz r0, 0x21(r3)" at 0x8059F220 (MenuModelMgr's player count, 4 in a 5-8
 // player game): the page's count while it shows P5-8. Only r0 is live there, then cmpw sets CR0 again.
 asmFunc DrawPassCount() {
@@ -464,6 +827,13 @@ static void SetPreviewShown(ExtPreview &preview, bool shown) {
         toggleTransparent(preview.head, shown);  // as MenuDriverModelMgr::Draw shows a player's Mii head (0x80830BA8)
 }
 
+// As MenuKartModelMgr::Draw shows a player's selected kart in their pass only (0x808331C4).
+static void SetKartShown(u32 i, bool shown) {
+    ExtKart &kart = karts[i];
+    if (KartModel(kart)->model != nullptr && kart.driverModel == Own(previews[i])->model)
+        KartModel(kart)->ToggleTransparent(shown && kart.shown);
+}
+
 // DrawModels' "bl MenuModelMgr::Draw" (0x8059F1A0, r4 = the pass): P1-4's passes draw as before with P5-8
 // hidden. P5-8's pass hides every game model by drawing player 1's with its visible byte cleared (the Mii
 // head, Toadette's bangs and RR's preview hair follow that byte), every kart by asking for a player no kart
@@ -473,6 +843,7 @@ static void DrawPass(MenuModelMgr *modelMgr, u32 passArg) {
     if (extPassCount == 0 || pass < kGameLocal || modelMgr->driverModels == nullptr) {
         modelMgrDraw(modelMgr, pass);
         for (u32 i = 0; extPassCount != 0 && i < kExtPlayers; ++i) SetPreviewShown(previews[i], false);
+        for (u32 i = 0; extPassCount != 0 && i < kExtPlayers; ++i) SetKartShown(i, false);
         return;
     }
     MenuDriverModelMgr::Player &first = modelMgr->driverModels->players[0];
@@ -482,6 +853,7 @@ static void DrawPass(MenuModelMgr *modelMgr, u32 passArg) {
     first.isVisible = firstVisible;
     kartModelsDraw(modelMgr->kartModels, kGameLocal);
     for (u32 i = 0; i < kExtPlayers; ++i) SetPreviewShown(previews[i], i == pass - kGameLocal);
+    for (u32 i = 0; i < kExtPlayers; ++i) SetKartShown(i, i == pass - kGameLocal);
 }
 kmCall(0x8059f1a0, DrawPass);
 
@@ -508,9 +880,11 @@ static void UpdateHair(MenuDriverModel *model, ToadetteHair *hair) {
 
 // MenuModelMgr::Update's "bl MenuKartModelMgr::Update" (0x8059E4D4, 8 bytes after RR's driver-model hook;
 // only r31 is live after). Nothing in the game puts P5-8's models among those drawn, so each is shown here
-// while the page shows P5-8 and hidden otherwise. GlobeScene::OnCalc reaches this too.
+// while the page shows P5-8 and hidden otherwise, each kart after its driver, whom its update seats, as the game's
+// drivers before their karts (0x8059E4CC, 0x8059E4D4). GlobeScene::OnCalc reaches this too.
 static void UpdateModels(MenuKartModelMgr *kartModels) {
     kartModelsUpdate(kartModels);
+    ServiceKarts();
     for (u32 i = 0; i < kExtPlayers; ++i) {
         ExtPreview &preview = previews[i];
         MenuDriverModel *own = Own(preview);
@@ -521,6 +895,11 @@ static void UpdateModels(MenuKartModelMgr *kartModels) {
         own->ToggleVisible(shown);
         if (preview.head != nullptr)
             preview.head->ToggleVisible(shown);  // MenuDriverModelMgr::Update toggles each head (0x808307DC, 0x80830934)
+        ExtKart &kart = karts[i];
+        if (KartModel(kart)->model != nullptr && kart.driverModel == own->model) {
+            UpdateKart(kart, kartModels);
+            KartModel(kart)->ToggleVisible(shown && kart.shown);
+        }
         if (preview.hair == nullptr)
             continue;
         if (shown)
