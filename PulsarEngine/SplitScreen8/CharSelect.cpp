@@ -332,7 +332,7 @@ private:
     void SetPlateName(u32 player);
     void SetIcon(Button &button);
     void CycleSkin(u32 player, s32 direction);
-    void SyncSharedModels();
+    void SyncSkinModels();
     void FillCpus();
     CharacterId RollCharacter(Random &random, u32 player, CharacterId avoid) const;
     bool Roll();
@@ -517,7 +517,7 @@ void CharSelectPage::SetIcon(Button &button) {
     for (u32 i = 0; i < sizeof(iconPanes) / sizeof(iconPanes[0]); ++i) control.SetPicturePane(iconPanes[i], icon);
     if (button.outfit >= 0)
         return;
-    Pulsar::Race::LoadCustomCharacterIcon(button.character, Pulsar::Driver::selectedSlots[button.character], control.layout.GetPaneByName("chara"), control.layout.GetPaneByName("chara_shadow"),
+    Pulsar::Race::LoadCustomCharacterIcon(button.character, Pulsar::Driver::selectedSlots[0][button.character], control.layout.GetPaneByName("chara"), control.layout.GetPaneByName("chara_shadow"),
       control.layout.GetPaneByName("chara_light_01"));
     *control.layout.GetPaneByName("chara_light_02")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
     *control.layout.GetPaneByName("chara_c_down")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
@@ -572,7 +572,7 @@ void CharSelectPage::LoadPreview(u32 player) {
 }
 
 // The player's model for the character their cursor is on: P1-4 through ModelRenderer, which RR's hooks
-// give each player their own skin and model (Driver/LocalPlayerSkins.cpp), P5-8 through Previews.cpp. A P5-8
+// give each player their own skin and model (Driver/CustomCharacters.cpp), P5-8 through Previews.cpp. A P5-8
 // skin that could not be built leaves the stock model, and the slot goes back to 0 as CycleSkin puts it.
 void CharSelectPage::RequestPreview(u32 player) {
     const CharacterId character = this->CharacterOn(player, this->cursors[player].button);
@@ -580,9 +580,9 @@ void CharSelectPage::RequestPreview(u32 player) {
         Pages::ModelRenderer *renderer = SectionMgr::sInstance->curSection->Get<Pages::ModelRenderer>();
         if (renderer != nullptr)
             renderer->RequestCharacterModel(player, character);
-    } else if (!ExtPreviewLoad(player, character, Pulsar::Driver::GetLocalPlayerSlot(player, character))) {
+    } else if (!ExtPreviewLoad(player, character, SkinSlot(player, character))) {
         if (ExtPreviewStock(player, character))
-            Pulsar::Driver::SetLocalPlayerSlot(player, character, 0);
+            SetSkinSlot(player, character, 0);
         OS::Report("ss8 select: character player %u preview %#x failed\n", player + 1, character);
     }
 }
@@ -643,7 +643,7 @@ void CharSelectPage::SetPlateName(u32 player) {
         return;
     }
     const CharacterId character = button.character;
-    this->plates[player]->SetMessage(Pulsar::UI::GetCharacterSlotNameBMGId(character, Pulsar::Driver::GetLocalPlayerSlot(player, character), false));
+    this->plates[player]->SetMessage(Pulsar::UI::GetCharacterSlotNameBMGId(character, SkinSlot(player, character), false));
 }
 
 Mii *CharSelectPage::PlayerMii(u32 player) const {
@@ -804,9 +804,21 @@ void CharSelectPage::OnDeactivate() {
     ExtPreviewsHide();
 }
 
-// RR's skin toggle input (PageBeforeControlUpdate, Driver/CustomCharacters.cpp), which runs only on the
-// vanilla page, for all 8 (D81): L and R on GameCube and Classic, C and Z on a Nunchuk, B and A on a
-// sideways Wii Remote, whose 2 and 1 then become its A and B so that A toggles rather than confirms.
+// The plate's skin toggle icons for the player's controller, as RR's PageAfterControlUpdate shows them.
+static void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type) {
+    static const ControllerType types[] = {GCN, CLASSIC, NUNCHUCK, WHEEL};
+    static const char *const panes[][2] = {{"cc_prev_gc", "cc_next_gc"}, {"cc_prev_cls", "cc_next_cls"}, {"cc_prev_nc", "cc_next_nc"}, {"cc_prev_wh", "cc_next_wh"}};
+    for (u32 i = 0; i < sizeof(types) / sizeof(types[0]); ++i) {
+        for (u32 j = 0; j < 2; ++j)
+            if (plate.layout.GetPaneByName(panes[i][j]) != nullptr)  // SetPaneVisibility writes through a missing pane
+                plate.SetPaneVisibility(panes[i][j], type == types[i]);
+    }
+}
+
+// RR's skin toggle input (PageCheckActions, Driver/CustomCharacters.cpp), which runs only on the vanilla
+// page, for all 8 (D81): L and R on GameCube and Classic, 1 and 2 on a Nunchuk, B and A on a sideways Wii
+// Remote. Its confirm and back then come from A and B (Nunchuk) or 2 and 1 (sideways), so a toggle button
+// never also confirms.
 void CharSelectPage::BeforeControlUpdate() {
     for (u32 p = 0; p < kMaxLocal; ++p) this->skinSteps[p] = 0;
     if (this->miiPlayer != kNoPlayer)
@@ -829,10 +841,13 @@ void CharSelectPage::BeforeControlUpdate() {
                 nextButton = WPAD::WPAD_CL_TRIGGER_R;
                 break;
             case NUNCHUCK:
-                previousButton = WPAD::WPAD_BUTTON_C;
-                nextButton = WPAD::WPAD_BUTTON_Z;
-                if (raw & WPAD::WPAD_BUTTON_C)
-                    state.buttonActions &= ~0x100;
+                previousButton = WPAD::WPAD_BUTTON_1;
+                nextButton = WPAD::WPAD_BUTTON_2;
+                state.buttonActions &= ~0x3;
+                if (raw & WPAD::WPAD_BUTTON_A)
+                    state.buttonActions |= 0x1;
+                if (raw & WPAD::WPAD_BUTTON_B)
+                    state.buttonActions |= 0x2;
                 break;
             default:
                 previousButton = WPAD::WPAD_BUTTON_B;
@@ -849,12 +864,13 @@ void CharSelectPage::BeforeControlUpdate() {
             this->skinSteps[p] = -1;
         else if (step == nextButton)
             this->skinSteps[p] = 1;
+        ShowSkinToggleIcons(*this->plates[p], holder->curController->GetType());
     }
 }
 
 // RR's skin cycle (PageAfterControlUpdate) for one player: the next or previous slot the character has,
-// only while the preview stands idle, reloaded where that player's model is (LoadLocalPlayerModel for
-// P1-4, Previews.cpp for P5-8) and back to slot 0 if the load fails.
+// only while the preview stands idle, reloaded where that player's model is (RR's own model for each of
+// P1-4, which SyncSkinModels stands them on; Previews.cpp for P5-8) and back to slot 0 if the load fails.
 void CharSelectPage::CycleSkin(u32 player, s32 direction) {
     Button &button = this->buttons[this->cursors[player].button];
     const CharacterId character = button.character;
@@ -868,7 +884,7 @@ void CharSelectPage::CycleSkin(u32 player, s32 direction) {
     } else if (!ExtPreviewIdle(player)) {
         return;
     }
-    const u32 previousSlot = Pulsar::Driver::GetLocalPlayerSlot(player, character);
+    const u32 previousSlot = SkinSlot(player, character);
     u32 slot = previousSlot;
     for (u32 tries = 0; tries <= Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS; ++tries) {
         if (direction < 0)
@@ -880,30 +896,37 @@ void CharSelectPage::CycleSkin(u32 player, s32 direction) {
     }
     if (slot == previousSlot)
         return;
-    Pulsar::Driver::SetLocalPlayerSlot(player, character, slot);
-    const bool loaded = player < kGameLocal ? Pulsar::Driver::LoadLocalPlayerModel(player, character, slot) : ExtPreviewLoad(player, character, slot);
+    SetSkinSlot(player, character, slot);
+    const bool loaded = player < kGameLocal ? Pulsar::Driver::LoadDriverBRRES(player, character, slot) : ExtPreviewLoad(player, character, slot);
     if (!loaded)
-        Pulsar::Driver::SetLocalPlayerSlot(player, character, 0);
+        SetSkinSlot(player, character, 0);
     else
         Audio::RSARPlayer::PlaySoundById(direction < 0 ? SOUND_ID_LEFT_ARROW_PRESS : SOUND_ID_RIGHT_ARROW_PRESS, 0, 0);
     if (player == 0)
         this->SetIcon(button);
     this->SetPlateName(player);
-    OS::Report("ss8 select: character player %u skin %#x slot %u%s\n", player + 1, character, Pulsar::Driver::GetLocalPlayerSlot(player, character), loaded ? "" : " failed");
+    OS::Report("ss8 select: character player %u skin %#x slot %u%s\n", player + 1, character, SkinSlot(player, character), loaded ? "" : " failed");
 }
 
-// RR's shared-model pass (PageAfterControlUpdate): each character's shared model holds the skin of the
-// P1-4 player standing on it. LoadDriverBRRES returns at once when that slot is already loaded.
-void CharSelectPage::SyncSharedModels() {
-    const u32 count = menuLocalCount < kGameLocal ? menuLocalCount : kGameLocal;
-    for (u32 c = 0; c < Pulsar::Driver::CHARACTER_COUNT; ++c) {
-        const CharacterId character = static_cast<CharacterId>(c);
-        bool focused = false;
-        for (u32 p = 0; p < count; ++p) focused |= this->buttons[this->cursors[p].button].character == character;
-        u32 standingHud;
-        const u32 slot = Pulsar::Driver::GetSharedModelSlot(character, focused, standingHud);
-        if (!Pulsar::Driver::LoadDriverBRRES(character, slot))
-            Pulsar::Driver::SetLocalPlayerSlot(standingHud, character, 0);
+// RR's per-player model pass (PageAfterControlUpdate): each of P1-4 stands on their own model of the character
+// under their cursor, in their skin, back to slot 0 if it cannot be built. LoadDriverBRRES returns at once when
+// that model is already loaded. Not during a roll, whose hops load nothing before the last (D115).
+void CharSelectPage::SyncSkinModels() {
+    MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
+    MenuDriverModelMgr *mgr = modelMgr != nullptr ? modelMgr->driverModels : static_cast<MenuDriverModelMgr *>(nullptr);
+    if (mgr == nullptr || this->rolling >= 0)
+        return;
+    for (u32 p = 0; p < menuLocalCount && p < kGameLocal && p < mgr->playerCount; ++p) {
+        const Button &button = this->buttons[this->cursors[p].button];
+        if (button.outfit >= 0)
+            continue;
+        const CharacterId character = button.character;
+        if (!Pulsar::Driver::LoadDriverBRRES(p, character, SkinSlot(p, character))) {
+            SetSkinSlot(p, character, 0);
+            this->SetPlateName(p);
+        } else if (MenuDriverModel *model = Pulsar::Driver::GetCustomDriverModel(p)) {
+            mgr->players[p].playerModel = model;
+        }
     }
 }
 
@@ -947,7 +970,7 @@ void CharSelectPage::AfterControlUpdate() {
                 this->Move(p, direction);
         }
     }
-    this->SyncSharedModels();
+    this->SyncSkinModels();
     for (u32 i = 0; i < kButtons; ++i) this->UpdateButton(i);
 
     u32 confirmed = 0;
@@ -1017,7 +1040,7 @@ bool CharSelectPage::Roll() {
             for (u32 s = 0; s <= Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS; ++s)
                 if (Pulsar::Driver::characterTables[character][s] && random.NextLimited(++slots) == 0)
                     slot = s;
-            Pulsar::Driver::SetLocalPlayerSlot(p, character, slot);
+            SetSkinSlot(p, character, slot);
             if (p == 0)
                 this->SetIcon(this->buttons[this->ButtonOf(character)]);  // P1's skin on the icon (D84)
         }
@@ -1067,21 +1090,14 @@ void CharSelectPage::Roulette() {
 }
 
 // Before a roll's last hop loads every player's model, P1-4's skin models leave the structs heaps, so those loads
-// start from the heap the page opened with, not one every earlier roll fragmented (D122). A player on one of RR's
-// previews goes back on its character's shared model, as SetPlayerCharacter puts it, before RR drops the previews.
+// start from the heap the page opened with, not one every earlier roll fragmented (D122). RR's unload puts the
+// player back on its character's stock model first.
 void CharSelectPage::FlushSkinModels() {
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
     MenuDriverModelMgr *mgr = modelMgr != nullptr ? modelMgr->driverModels : static_cast<MenuDriverModelMgr *>(nullptr);
     if (mgr == nullptr)
         return;
-    for (u32 hud = 0; hud < mgr->playerCount && hud < kGameLocal; ++hud) {
-        MenuDriverModelMgr::Player &player = mgr->players[hud];
-        const bool own = player.playerModel < mgr->models || player.playerModel >= mgr->models + mgr->modelCount;
-        if (own && static_cast<u32>(player.id) < Pulsar::Driver::CHARACTER_COUNT)
-            player.playerModel = &mgr->models[player.id];
-    }
-    Pulsar::Driver::DestroyLocalPlayerPreviews();
-    for (u32 c = 0; c < Pulsar::Driver::CHARACTER_COUNT; ++c) Pulsar::Driver::LoadDriverBRRES(static_cast<CharacterId>(c), 0);
+    for (u32 hud = 0; hud < mgr->playerCount && hud < kGameLocal; ++hud) Pulsar::Driver::UnloadDriverBRRES(hud);
 }
 
 // The direction this frame's input moves the player's cursor in, -1 for none, as the menus read it:

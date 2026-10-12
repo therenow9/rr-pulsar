@@ -211,7 +211,7 @@ void SelectPage::RequestKart(u32 player) {
     if (player < kGameLocal)
         return;
     const CharacterId character = PlayerCharacter(player);
-    ExtKartRequest(player, character, Pulsar::Driver::GetLocalPlayerSlot(player, character), this->karts[player]);
+    ExtKartRequest(player, character, SkinSlot(player, character), this->karts[player]);
 }
 
 // What VehicleModelControl::OnUpdate does each frame for P1-4 (0x805F3CF8): the model shown, and once its karts

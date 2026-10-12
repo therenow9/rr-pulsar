@@ -5,10 +5,10 @@
 #include <MarioKartWii/UI/Page/Menu/CharacterSelect.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 
-// Same-character select with 2-4 local players offline, ported from mkw-sp PR #452 (LICENSE_mkw-sp).
-// Every multiplayer driver button loads the way the Mii button does: one OK marker per player and
-// not exclusive to one player. The controls come from scripts/gen_charselect_multi.py. Online rooms
-// and 1P keep the game's own buttons.
+// Each player's own OK marker on a shared driver with 2-4 local players offline, ported from mkw-sp
+// PR #452 (LICENSE_mkw-sp). RR already makes driver buttons not exclusive (Driver/CustomCharacters.cpp);
+// here every multiplayer driver button loads the way the Mii button does, one OK marker per player.
+// The controls come from scripts/gen_charselect_multi.py. Online rooms and 1P keep RR's buttons.
 
 namespace Pulsar {
 namespace UI {
@@ -76,24 +76,6 @@ static asmFunc LoadMultiButtonCtrName() {
 }
 kmCall(0x807e29c0, LoadMultiButtonCtrName);
 
-// LoadButton+0xD4, "srwi r8, r0, 5": r8 is PushButton::Load's "player exclusive" argument
-// (r0 = cntlzw isMii). Offline in multiplayer no button is exclusive; 1P (r29 == 1) keeps it.
-// r9 is set after this (0x807E2A04).
-static asmFunc ClearExclusiveIfMulti() {
-    ASM(
-        nofralloc;
-        srwi r8, r0, 5;
-        cmpwi r29, 1;
-        beqlr;
-        lis r9, sameCharacterOffline @ha;
-        lbz r9, sameCharacterOffline @l(r9);
-        cmpwi r9, 0;
-        beqlr;
-        li r8, 0;
-        blr;)
-}
-kmCall(0x807e29fc, ClearExclusiveIfMulti);
-
 // LoadButton+0x110, "stb r28, 0x254(r4)": the byte normally means "this is the Mii button", and the
 // control uses it to pick the per-player OK markers, so offline multiplayer sets it on every button.
 // 1P and online keep isMii. CR0 is not read before LoadButton's next compare; r12 is free.
@@ -124,9 +106,9 @@ static u32 HasConfirmedDriver(u32 player) {
 }
 
 // CtrlMenuCharacterSelect::OnUpdate+0x70, "cmpwi r0, 1": r0 is player r27's preview model state, 1
-// once confirmed. Two players on one driver can share that model, so offline in multiplayer (r28
-// players) the player's own holder must also be off, or one confirm would show every OK marker on
-// the button. The beq after reads CR0; OnUpdate reloads the volatile registers after it and saved LR.
+// once confirmed. Two players on one driver still share the stock model when RR's own model for a
+// player fails to load, so offline in multiplayer (r28 players) the player's own holder must also be
+// off, or one confirm would show both OK markers on the button. The beq after reads CR0; OnUpdate reloads the volatile registers after it and saved LR.
 static asmFunc OwnConfirmForMarker() {
     ASM(
         nofralloc;

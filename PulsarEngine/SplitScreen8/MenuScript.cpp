@@ -101,7 +101,7 @@ static void ReportHeaps(const char *when) {
 }
 
 // Each menu player's character, skin slot and whether they show the character's shared model or a
-// preview of their own (RR's Driver/LocalPlayerSkins.cpp, D72), when any of the three changes.
+// model of their own (RR's Driver/CustomCharacters.cpp, D72), when any of the three changes.
 static u32 reportedSkins[kGameLocal];
 
 static void ReportSkins() {
@@ -112,7 +112,7 @@ static void ReportSkins() {
         if (character >= Pulsar::Driver::CHARACTER_COUNT)
             continue;
         const bool shared = mgr->players[hud].playerModel == &mgr->models[character];
-        const u32 slot = Pulsar::Driver::GetLocalPlayerSlot(hud, mgr->players[hud].id);
+        const u32 slot = SkinSlot(hud, mgr->players[hud].id);
         const u32 key = 0x80000000 | character << 16 | slot << 1 | (shared ? 1 : 0);
         if (reportedSkins[hud] == key)
             continue;

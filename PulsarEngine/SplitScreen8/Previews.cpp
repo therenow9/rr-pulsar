@@ -74,8 +74,8 @@ const u32 kHeadLayer = 5;
 const float kMiiBodyScale = 1.6f;  // the Mii body loader's SetScale (0x8083129C, 0x808AC980)
 static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710);  // MiiManager::sInstance
 
-// As RR's PreviewModel (Driver/LocalPlayerSkins.cpp): MenuDriverModel's constructor is not linkable, so the
-// object is raw storage given the shared models' vtable word.
+// The object is raw storage given the shared models' vtable word, set up field by field below; RR's own models
+// use MenuDriverModel's constructor (0x8082F860), which this predates.
 struct ExtPreview {
     u32 storage[sizeof(MenuDriverModel) / sizeof(u32)];
     EGG::ExpHeap *heap;
@@ -309,7 +309,7 @@ static MiiHeadsModel *PutHead(u32 i, ModelDirector *body, u32 miiId, Mii *mii, E
     return head;
 }
 
-// As RR's LoadPreview builds a player's own model, from the skin's BRRES or, for slot 0, the menu archive's stock
+// As RR's LoadDriverBRRES builds a player's own model, from the skin's BRRES or, for slot 0, the menu archive's stock
 // one, but on a heap filling the player's arena, after the old model has left it (D118). A Mii is its outfit's body
 // as the Mii body loader builds it (0x80831100, RR's outfit C loader in place of BindDriverBRRES) with the player's
 // Mii head on it. A skin that fails leaves the stock model and returns false, and the caller puts the slot back to 0.
@@ -622,7 +622,7 @@ static void ReleaseUnpackHolder(void *) {
         unmountArchives(holder);
 }
 
-// The path as RR's LoadKartArchiveForPlayer makes a player's (Driver/CustomCharacters.cpp): a skin's own archive when
+// The path as RR's LoadKartArchive makes a player's (Driver/CustomCharacters.cpp): a skin's own archive when
 // it has one, else the character's, VS's (0x80890C3C; a 5-8 player game has no Battle, D65).
 static bool RequestUnpack(CharacterId character, u32 slot) {
     ArchiveMgr *archives = ArchiveMgr::sInstance;
@@ -836,7 +836,7 @@ static void SetKartShown(u32 i, bool shown) {
 
 // DrawModels' "bl MenuModelMgr::Draw" (0x8059F1A0, r4 = the pass): P1-4's passes draw as before with P5-8
 // hidden. P5-8's pass hides every game model by drawing player 1's with its visible byte cleared (the Mii
-// head, Toadette's bangs and RR's preview hair follow that byte), every kart by asking for a player no kart
+// head, Toadette's bangs and RR's custom-model hair follow that byte), every kart by asking for a player no kart
 // has (MenuKartModelMgr::Draw compares, never indexes), then shows only that player's own model.
 static void DrawPass(MenuModelMgr *modelMgr, u32 passArg) {
     const u32 pass = passArg & 0xff;

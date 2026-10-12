@@ -48,20 +48,16 @@ struct ExtPick {
 extern ExtPick extPicks[kMaxLocal - kGameLocal];
 // Player 5..kMaxLocal's character: their pick, else D62's default, character id = player (Entry.cpp).
 CharacterId ExtCharacter(u32 player);
-// Hud 4..kMaxLocal-1's custom-character slot for a character, 0 for any other hud; kept for the session as
-// RR keeps huds 1-3's (D74). RR's Get/SetLocalPlayerSlot ask these for huds 4-7 and validate (Entry.cpp).
-u32 ExtLocalPlayerSlot(u32 hud, u32 character);
-void SetExtLocalPlayerSlot(u32 hud, u32 character, u32 slot);
+// Hud 0..kMaxLocal-1's custom-character slot for a character: huds 0-3 RR's selectedSlots, huds 4-7 rows
+// kept for the session as RR keeps its own (D74); 0 for any other hud or an invalid slot (Entry.cpp).
+u32 SkinSlot(u32 hud, u32 character);
+void SetSkinSlot(u32 hud, u32 character, u32 slot);
 // P5-8's preview models out of the ScnMgr before RR's ResetScnMgr resets it; nothing outside --ss8-pages
 // builds (Entry.cpp, Previews.cpp).
 void ResetExtPreviews();
-// The heap a menu skin model is built on, given the one RR uses, and its load reserve beyond the BRRES
-// file, given RR's 0xE1000: unchanged outside a 5-8 player game, else whichever of the scene's MEM1 and
-// MEM2 structs heaps has the larger free block, and a reserve sized to what a model keeps (D99, Entry.cpp).
-// RR's previews and shared models ask it.
-EGG::Heap *SkinModelHeap(GameScene &scene, EGG::Heap *heap, u32 &reserve);
-// A shared skin model's heap trimmed after its load in a 5-8 player game; nothing in 1-4 (D121, Entry.cpp).
-void TrimSkinHeap(EGG::ExpHeap *heap);
+// A menu skin model's load reserve beyond its BRRES file, given RR's 0xE1000: unchanged outside a 5-8 player
+// game, else sized to what a model keeps (D99, Entry.cpp).
+u32 SkinLoadReserve(u32 reserve);
 // The join page of a 5-8 player game (D64, Join.cpp), built by Pulsar's ExpSection in that game's section 0x54.
 Page *NewJoinPage();
 // P5-8's join state cleared and holders 4-7 put back on the dummy controller (Join.cpp).

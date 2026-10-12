@@ -325,17 +325,26 @@ CharacterId ExtCharacter(u32 player) {
     return pick.picked ? pick.character : static_cast<CharacterId>(player);
 }
 
-// Huds 4-7's rows beside RR's localPlayerSlots, which stop at LOCAL_PLAYER_SKIN_COUNT (Driver/LocalPlayerSkins.cpp).
+// Huds 4-7's rows beside RR's selectedSlots, which hold huds 0-3 (Driver/CustomCharacters.cpp).
 static u8 extSlots[kMaxLocal - kGameLocal][Pulsar::Driver::CHARACTER_COUNT];
 
-u32 ExtLocalPlayerSlot(u32 hud, u32 character) {
-    if (hud < kGameLocal || hud >= kMaxLocal || character >= Pulsar::Driver::CHARACTER_COUNT)
-        return 0;
-    return extSlots[hud - kGameLocal][character];
+static bool IsValidSkinSlot(u32 character, u32 slot) {
+    return character < Pulsar::Driver::CHARACTER_COUNT && slot <= Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS && Pulsar::Driver::characterTables[character][slot];
 }
 
-void SetExtLocalPlayerSlot(u32 hud, u32 character, u32 slot) {
-    if (hud >= kGameLocal && hud < kMaxLocal && character < Pulsar::Driver::CHARACTER_COUNT)
+u32 SkinSlot(u32 hud, u32 character) {
+    if (hud >= kMaxLocal || character >= Pulsar::Driver::CHARACTER_COUNT)
+        return 0;
+    const u32 slot = hud < kGameLocal ? Pulsar::Driver::selectedSlots[hud][character] : extSlots[hud - kGameLocal][character];
+    return IsValidSkinSlot(character, slot) ? slot : 0;
+}
+
+void SetSkinSlot(u32 hud, u32 character, u32 slot) {
+    if (hud >= kMaxLocal || !IsValidSkinSlot(character, slot))
+        return;
+    if (hud < kGameLocal)
+        Pulsar::Driver::selectedSlots[hud][character] = slot;
+    else
         extSlots[hud - kGameLocal][character] = slot;
 }
 
@@ -345,26 +354,12 @@ void ResetExtPreviews() {
 #endif
 
 // A 5-8 player game's section 0x54 has about 1.2 MB less MEM1 free than a 3-player one, too little for RR's
-// 0xE1000 per load across P1-4's skins, so their models (RR's previews and shared skins) go on whichever of
-// MEM1 and MEM2 has the larger free block. A load peaks at what its model keeps, the file plus at most 51,628 bytes
+// 0xE1000 per load across P1-4's skins. A load peaks at what its model keeps, the file plus at most 51,628 bytes
 // for RR's skins but Rosalina's 6th (244,948); a model that outgrows the reserve faults inside the game's code.
 const u32 kSkinLoadReserve = 0x60000;
 
-EGG::Heap *SkinModelHeap(GameScene &scene, EGG::Heap *heap, u32 &reserve) {
-    if (menuLocalCount <= kGameLocal)
-        return heap;
-    reserve = kSkinLoadReserve;
-    EGG::Heap *mem1 = scene.structsHeaps.heaps[0];
-    EGG::Heap *mem2 = scene.structsHeaps.heaps[1];
-    return mem1->getAllocatableSize(4) > mem2->getAllocatableSize(4) ? mem1 : mem2;
-}
-
-// RR's shared skin models keep their whole load heap (Driver/CustomCharacters.cpp); in a 5-8 player game that
-// heap is trimmed to what the model keeps, as RR trims its previews, or each loaded skin would hold the reserve
-// for as long as it stays (D121).
-void TrimSkinHeap(EGG::ExpHeap *heap) {
-    if (menuLocalCount > kGameLocal)
-        heap->adjust();
+u32 SkinLoadReserve(u32 reserve) {
+    return menuLocalCount > kGameLocal ? kSkinLoadReserve : reserve;
 }
 
 static void MenuLocalsLocal(Racedata *racedata) {

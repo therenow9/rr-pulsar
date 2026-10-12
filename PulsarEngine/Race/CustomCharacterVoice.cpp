@@ -3,6 +3,7 @@
 #include <Race/CustomCharacters.hpp>
 #include <Race/CustomCharacterVoice.hpp>
 #include <Sound/LooseBRSAROverrides.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 #include <MarioKartWii/Archive/ArchiveMgr.hpp>
 #include <MarioKartWii/Audio/AudioManager.hpp>
 #include <MarioKartWii/Audio/Actors/CharacterActor.hpp>
@@ -842,7 +843,7 @@ s32 GetMenuVoiceCharacter(s32 character, u32 hud, nw4r::snd::SoundHandle &handle
         Audio::Manager::soundArchive = Audio::Manager::sInstance->dvdSoundArchiveptr;
     if (character < 0 || character >= Driver::CHARACTER_COUNT || Audio::Manager::soundArchive == nullptr)
         return character;
-    const u32 slot = Driver::GetLocalPlayerSlot(hud, static_cast<CharacterId>(character));
+    const u32 slot = SplitScreen8::SkinSlot(hud, character);
     if (slot == 0)
         return character;
     s8 source;
