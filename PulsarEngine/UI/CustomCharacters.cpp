@@ -39,11 +39,17 @@ u32 GetCharacterSlotNameBMGId(u32 character, u32 slot, bool useGenericMiiName) {
     return GetCharacterBMGId(static_cast<CharacterId>(character), useGenericMiiName);
 }
 
+// The skin a race player's name and name balloon icon show; private rooms show the base character.
+static u32 GetDisplayedCharacterSlot(u32 character, u32 playerId, bool isAward) {
+    if (character >= Driver::CHARACTER_COUNT)
+        return 0;
+    if (playerId < 12 && Racedata::sInstance->racesScenario.settings.gamemode >= MODE_PRIVATE_VS && Racedata::sInstance->racesScenario.settings.gamemode <= MODE_PRIVATE_BATTLE)
+        return 0;
+    return Race::GetPlayerCustomCharacterSlot(playerId, static_cast<CharacterId>(character), isAward);
+}
+
 u32 GetCharacterNameBMGId(u32 character, bool useGenericMiiName, u32 playerId, bool isAward) {
-    if (character < Driver::CHARACTER_COUNT
-      && (playerId >= 12 || Racedata::sInstance->racesScenario.settings.gamemode < MODE_PRIVATE_VS || Racedata::sInstance->racesScenario.settings.gamemode > MODE_PRIVATE_BATTLE))
-        return GetCharacterSlotNameBMGId(character, Race::GetPlayerCustomCharacterSlot(playerId, static_cast<CharacterId>(character), isAward), useGenericMiiName);
-    return GetCharacterBMGId(static_cast<CharacterId>(character), useGenericMiiName);
+    return GetCharacterSlotNameBMGId(character, GetDisplayedCharacterSlot(character, playerId, isAward), useGenericMiiName);
 }
 
 u32 GetCharacterAuthorBMGId(u32 character, u32 slot) {
@@ -67,6 +73,34 @@ static u32 GetNameBalloonCharacterNameBMGId(u32 character, bool useGenericMiiNam
 }
 kmCall(0x807f056c, GetNameBalloonCharacterNameBMGId);
 kmCall(0x807f0694, GetNameBalloonCharacterNameBMGId);
+
+// A name balloon sets its icon again each time it moves to another player, so each player's portrait
+// is read from disc once per race and kept. The race's heap goes at its end, hence the reset per race.
+static TPLPalettePtr nameBalloonIcons[12];
+static bool nameBalloonIconsRead[12];
+
+static void ResetNameBalloonIcons() {
+    memset(nameBalloonIcons, 0, sizeof(nameBalloonIcons));
+    memset(nameBalloonIconsRead, 0, sizeof(nameBalloonIconsRead));
+}
+static RaceLoadHook resetNameBalloonIcons(ResetNameBalloonIcons);
+
+// CtrlRaceNameBalloon::UpdateInfo+0x51C sets the "chara" pane to the base character's icon; r30 is the player.
+static void SetNameBalloonCharacterIcon(LayoutUIControl *control, const char *paneName, const char *picturePane) {
+    register u32 playerId;
+    asm(mr playerId, r30;);
+    control->SetPicturePane(paneName, picturePane);
+    if (playerId >= 12)
+        return;
+    if (!nameBalloonIconsRead[playerId]) {
+        nameBalloonIconsRead[playerId] = true;
+        const CharacterId character = Racedata::sInstance->racesScenario.players[playerId].characterId;
+        nameBalloonIcons[playerId] = Race::LoadCustomCharacterIconFile(character, GetDisplayedCharacterSlot(character, playerId, false));
+    }
+    if (nameBalloonIcons[playerId] != nullptr)
+        control->layout.GetPaneByName(paneName)->GetMaterial()->GetTexMapAry()->ReplaceImage(nameBalloonIcons[playerId]);
+}
+kmCall(0x807f0560, SetNameBalloonCharacterIcon);
 
 static u32 GetRaceResultCharacterNameBMGId(u32 character, bool useGenericMiiName) {
     register u32 playerId;

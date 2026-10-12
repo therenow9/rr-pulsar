@@ -210,9 +210,9 @@ static asmFunc AwardsMiiHeadOnlyForMiis() {
 }
 kmCall(0x80789644, AwardsMiiHeadOnlyForMiis);
 
-void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *pane, nw4r::lyt::Pane *shadow0, nw4r::lyt::Pane *shadow1, bool minimap) {
+TPLPalettePtr LoadCustomCharacterIconFile(CharacterId character, u32 slot, bool minimap) {
     if (static_cast<u32>(character) >= Driver::CHARACTER_COUNT || slot == 0)
-        return;
+        return nullptr;
 
     char path[0x80];
     if (minimap)
@@ -220,7 +220,7 @@ void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *p
     else
         snprintf(path, sizeof(path), "/Race/Portrait/%s-%u-css.tpl", ArchiveMgr::GetKartArchivePostfix(character), slot);
     if (IOOverrides::ConvertPathToEntryNumWithLooseOverride(path) < 0)
-        return;
+        return nullptr;
 
     // Result controls initialize after GameScene locks its dynamic heaps.
     EGG::Heap *heap = GameScene::GetCurrent()->structsHeaps.heaps[0];
@@ -228,6 +228,11 @@ void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *p
     heap->dameFlag &= ~1;
     TPLPalettePtr icon = static_cast<TPLPalettePtr>(EGG::DvdRipper::LoadToMainRAM(path, nullptr, heap, EGG::DvdRipper::ALLOC_FROM_HEAD, 0, nullptr, nullptr));
     heap->dameFlag = heapFlags;
+    return icon;
+}
+
+void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *pane, nw4r::lyt::Pane *shadow0, nw4r::lyt::Pane *shadow1, bool minimap) {
+    TPLPalettePtr icon = LoadCustomCharacterIconFile(character, slot, minimap);
     if (icon == nullptr)
         return;
 
