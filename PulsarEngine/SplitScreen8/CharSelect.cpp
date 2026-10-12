@@ -27,6 +27,7 @@
 #include <Network/Rating/PlayerRating.hpp>
 #include <Network/Settings/SelectionRestrictions.hpp>
 #include <Race/CustomCharacters.hpp>
+#include <Race/CustomCharacterVoice.hpp>
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
@@ -200,10 +201,16 @@ static void ExtConfirmVoice(u32 player, CharacterId character) {
     u8 *manager = *confirmVoiceOwner;
     if (manager == nullptr || player < kGameLocal || player >= kMaxLocal || static_cast<u32>(character) >= Pulsar::Driver::CHARACTER_COUNT)
         return;
+    // The skin's voice, as the hook in 0x80868ABC gives P1-4 (Race/CustomCharacterVoice.cpp): a skin's own
+    // trick line is already in the handle, and a silent skin returns before the stop, as P1-4's picker does.
     nw4r::snd::SoundHandle &handle = extVoices[player - kGameLocal];
+    const s32 voice = Pulsar::Race::GetMenuVoiceCharacter(character, player, handle);
+    OS::Report("ss8 voice: player %u character %#x plays %d\n", player + 1, character, voice);
+    if (voice < 0)
+        return;
     if (handle.basicSound != nullptr)
         handle.basicSound->Stop(2);
-    void *picker = manager + character * kVoiceSetStride + kVoicePicker;
+    void *picker = manager + voice * kVoiceSetStride + kVoicePicker;
     const StartVoiceFn start = *reinterpret_cast<StartVoiceFn *>(*reinterpret_cast<u8 **>(picker) + 0xc);
     if (start(picker, &handle) != nullptr && handle.basicSound != nullptr)
         handle.basicSound->SetVolume(0, kVoiceVolume);

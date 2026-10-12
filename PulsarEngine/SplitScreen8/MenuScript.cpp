@@ -121,6 +121,41 @@ static void ReportSkins() {
     }
 }
 
+// Each menu voice P1-4's picker (0x80868ABC) plays or skips, after RR's skin hook at 0x80868AD0 chose its
+// character. 0x80868B84 (mulli r3, r28, 0xc0) is the play, with r28 the character and r31 the voice type.
+static u32 LogMenuVoicePlay() {
+    register u32 character, type;
+    asm(mr character, r28;);
+    asm(mr type, r31;);
+    OS::Report("ss8 voice: type %u plays character %#x frame %u\n", type, character, menuFrames);
+    return character * 0xc0;
+}
+kmCall(0x80868b84, LogMenuVoicePlay);
+
+// 0x80868AE4 (li r3, 0): the character is negative, a silent skin or a skin whose own trick line RR's hook
+// already started, and the picker returns with no sound.
+static u32 LogMenuVoiceNone() {
+    register u32 type;
+    asm(mr type, r31;);
+    OS::Report("ss8 voice: type %u no sound frame %u\n", type, menuFrames);
+    return 0;
+}
+kmCall(0x80868ae4, LogMenuVoiceNone);
+
+// 0x800A2D60 (bl WsdFileReader::ReadWaveInfo in WsdCallback::GetWaveSoundData): a note looks its wave up in
+// the wave archive the player resolved for its file id; a skin's trick line reads RR's trimmed archive.
+typedef bool (*ReadWaveInfoFn)(void *reader, int waveIndex, void *info, const void *origin);
+static u32 waveLogs;
+static bool LogReadWaveInfo(void *reader, int waveIndex, void *info, const void *origin) {
+    const bool ok = reinterpret_cast<ReadWaveInfoFn>(0x800adc80)(reader, waveIndex, info, origin);
+    if (waveLogs < 48 && origin != nullptr) {
+        ++waveLogs;
+        OS::Report("ss8 wave: index %d archive %p ok %d frame %u\n", waveIndex, origin, ok, menuFrames);
+    }
+    return ok;
+}
+kmCall(0x800a2d60, LogReadWaveInfo);
+
 // A script's "pick" lines fill P5-8's extPicks in a 5-8 player game, which phase C's select pages will
 // write; the main menu clears them (Entry.cpp), and section 0x54 loads after it.
 #ifdef SS8_MENU_PICKS
