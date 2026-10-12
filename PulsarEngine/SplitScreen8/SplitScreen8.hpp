@@ -4,6 +4,7 @@
 
 class Page;
 class GameScene;
+class LayoutUIControl;
 namespace EGG {
 class Heap;
 class ExpHeap;
@@ -85,6 +86,21 @@ GX::TexObj *ExtPreviewTexObj(u32 player);
 bool ExtKartsShow(u32 count);
 void ExtKartsHide();
 void ExtKartRequest(u32 player, CharacterId character, u32 slot, KartId kart);
+// MenuDriverModel's confirmed kart pose, which MultiKartSelect::OnUpDownClick sets (0x8084A288) and the header
+// does not name: MenuKartModel::Update stops turning the driver's kart in it (0x80832814).
+const u32 kStateKartChosen = 3;
+// A P5-8 driver's kart pose: kStateKartChosen once confirmed, else the turning one (Previews.cpp).
+void ExtKartPose(u32 player, bool confirmed);
+// What the character and kart pages share (CharSelect.cpp): a player's colour pair; RR's name plate in their colour
+// and a model preview, loaded and placed; a model texture on a preview; RR's skin toggle icons for a controller on
+// a plate; this frame's toggle press (-1, 0 or 1; D81); and P5-8's kart confirm voice.
+void MenuPlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary);
+void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale);
+void LoadModelPreview(LayoutUIControl &preview, float x, float y, float scale);
+void SetPreviewTexture(LayoutUIControl &preview, const GX::TexObj *texObj);
+void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type);
+s32 SkinToggleStep(Input::RealControllerHolder &holder);
+void ExtKartVoice(u32 player, CharacterId character);
 // The holder input slot 4 answers in the menus, null for none (Pause.cpp's proxy, cleared at every section load).
 void SetMenuSlotProxy(Input::RealControllerHolder *holder);
 #endif

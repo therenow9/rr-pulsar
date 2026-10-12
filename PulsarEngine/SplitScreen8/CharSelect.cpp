@@ -194,10 +194,29 @@ asmFunc MiiSelectReconnectMask() {
 }
 kmCall(0x8061af60, MiiSelectReconnectMask);
 
-// 0x80868ABC's driver path for P5-8, on handles of their own: the player's last voice stopped, the
-// character's confirm picker (DriverSoundManager + character * 0xC0 + 0x30) started into the handle
-// through its vtable +0xC, then the volume. A Mii takes another path (0x80868C20, ExtMiiConfirmVoice).
-static void ExtConfirmVoice(u32 player, CharacterId character) {
+// A menu line's kart variant, as 0x80868BD0 and 0x80868CEC mark a type-1 (kart select) line: sequence variable 12
+// set to 1 through a SeqSoundHandle on the line's handle. Neither call is in Kamek's externals.
+typedef void (*SeqHandleFn)(void *, nw4r::snd::SoundHandle *);
+typedef void (*SeqWriteFn)(void *, int, s16);
+typedef void (*SeqDetachFn)(void *);
+static const SeqHandleFn seqHandleCtor = reinterpret_cast<SeqHandleFn>(0x8009acb0);
+static const SeqWriteFn seqWriteVariable = reinterpret_cast<SeqWriteFn>(0x8009aa50);
+static const SeqDetachFn seqDetach = reinterpret_cast<SeqDetachFn>(0x8009adc0);
+const u32 kVoiceKart = 1;  // 0x80868ABC's type: 0 character, 1 kart, 2 and 3 team select
+
+static void MarkKartLine(nw4r::snd::SoundHandle &handle) {
+    void *seq[1];
+    seqHandleCtor(seq, &handle);
+    if (seq[0] != nullptr)
+        seqWriteVariable(seq[0], 12, 1);
+    seqDetach(seq);
+}
+
+// 0x80868ABC's driver path for P5-8, on handles of their own: the player's last voice stopped, the character's
+// picker for the type (DriverSoundManager + character * 0xC0 + 0x30 + type * 0x30, or the confirm one when the
+// type's table at 0x808DBE38 gives the character 0x392) started into the handle through its vtable +0xC, then
+// the volume. A Mii takes another path (0x80868C20, ExtMiiConfirmVoice).
+static void ExtConfirmVoice(u32 player, CharacterId character, u32 type = 0) {
     u8 *manager = *confirmVoiceOwner;
     if (manager == nullptr || player < kGameLocal || player >= kMaxLocal || static_cast<u32>(character) >= Pulsar::Driver::CHARACTER_COUNT)
         return;
@@ -205,15 +224,20 @@ static void ExtConfirmVoice(u32 player, CharacterId character) {
     // trick line is already in the handle, and a silent skin returns before the stop, as P1-4's picker does.
     nw4r::snd::SoundHandle &handle = extVoices[player - kGameLocal];
     const s32 voice = Pulsar::Race::GetMenuVoiceCharacter(character, player, handle);
-    OS::Report("ss8 voice: player %u character %#x plays %d\n", player + 1, character, voice);
+    OS::Report("ss8 voice: player %u character %#x type %u plays %d\n", player + 1, character, type, voice);
     if (voice < 0)
         return;
     if (handle.basicSound != nullptr)
         handle.basicSound->Stop(2);
-    void *picker = manager + voice * kVoiceSetStride + kVoicePicker;
+    const u8 *const *types = reinterpret_cast<const u8 *const *>(0x808dbe38);
+    const u32 pickerIdx = type != 0 && *reinterpret_cast<const u16 *>(types[type] + voice * 4) == 0x392 ? 0 : type;
+    void *picker = manager + voice * kVoiceSetStride + kVoicePicker + pickerIdx * kVoicePicker;
     const StartVoiceFn start = *reinterpret_cast<StartVoiceFn *>(*reinterpret_cast<u8 **>(picker) + 0xc);
-    if (start(picker, &handle) != nullptr && handle.basicSound != nullptr)
-        handle.basicSound->SetVolume(0, kVoiceVolume);
+    if (start(picker, &handle) == nullptr || handle.basicSound == nullptr)
+        return;
+    handle.basicSound->SetVolume(0, kVoiceVolume);
+    if (type == kVoiceKart)
+        MarkKartLine(handle);
 }
 
 // A Mii's voice record, as 0x80869344 fills DriverSoundManager+0x4260 + hud * 0x10 from the Mii: its voice type,
@@ -240,12 +264,22 @@ static const SetPanFn setPan = reinterpret_cast<SetPanFn>(0x8008f620);  // Basic
 // record, the old voice stopped, the picker started into the handle, then volume, pan and pitch. 0x80869118's
 // 3-4 player step (0x808693B8), which gives each local Mii a voice id the others lack in shared 4-player sets, is
 // left out, so a P5-8 Mii can repeat another's voice.
+static void StartExtMiiVoice(u32 player, u32 type);
+
 static void ExtMiiConfirmVoice(u32 player, Mii *mii) {
     u8 *manager = *confirmVoiceOwner;
     if (manager == nullptr || mii == nullptr || player < kGameLocal || player >= kMaxLocal)
         return;
-    MiiVoice &record = extMiiVoices[player - kGameLocal];
-    miiVoiceRecord(manager, mii, &record, 1);
+    miiVoiceRecord(manager, mii, &extMiiVoices[player - kGameLocal], 1);
+    StartExtMiiVoice(player, 0);
+}
+
+// 0x80868C20 on the player's record, which their character confirm filled.
+static void StartExtMiiVoice(u32 player, u32 type) {
+    u8 *manager = *confirmVoiceOwner;
+    if (manager == nullptr || player < kGameLocal || player >= kMaxLocal)
+        return;
+    const MiiVoice &record = extMiiVoices[player - kGameLocal];
     s32 picker = -1;
     miiVoicePicker(&picker, &record);
     if (picker < 0)
@@ -260,9 +294,20 @@ static void ExtMiiConfirmVoice(u32 player, Mii *mii) {
     handle.basicSound->SetVolume(0, kMiiVoiceVolume);
     setPan(handle.basicSound, kMiiVoicePan);
     handle.basicSound->SetPitch(record.pitch);
+    if (type == kVoiceKart)
+        MarkKartLine(handle);
 }
 
-static void PlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary) {
+// The kart page's confirm voice for P5-8, as 0x808689DC plays P1-4's: a Mii (0x18-0x29) through 0x80868C20,
+// a driver through 0x80868ABC, each with the kart type.
+void ExtKartVoice(u32 player, CharacterId character) {
+    if (static_cast<u32>(character - MII_S_A_MALE) <= MII_L_C_FEMALE - MII_S_A_MALE)
+        StartExtMiiVoice(player, kVoiceKart);
+    else
+        ExtConfirmVoice(player, character, kVoiceKart);
+}
+
+void MenuPlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary) {
     if (player < kGameLocal)
         ControlManipulator::GetHudSlotIdColor(player, primary, secondary);  // RR's local colours (UIColor.cpp)
     else
@@ -499,7 +544,7 @@ void CharSelectPage::LoadButton(u32 idx) {
         if (material == nullptr)
             continue;
         RGBA16 primary, secondary;
-        PlayerColours(p, &primary, &secondary);
+        MenuPlayerColours(p, &primary, &secondary);
         material->tevColours[1].r = primary.red;
         material->tevColours[1].g = primary.green;
         material->tevColours[1].b = primary.blue;
@@ -527,20 +572,18 @@ void CharSelectPage::SetIcon(Button &button) {
 // CharaName::InitSelf colours it (0x8083F09C): each channel the mean of the player's two colours.
 // RR renames the control the game loads to RharacterSelectName (Extra.cpp), its own layout with the skin
 // toggle's L and R at the plate's ends (D81); a build without RR would load CharacterSelectName.
-void CharSelectPage::LoadPlate(u32 player) {
-    LayoutUIControl &plate = *this->plates[player];
-    this->AddControl(3 + player, plate, 0);
+void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale) {
     ControlLoader loader(&plate);
     loader.Load("control", "RharacterSelectName", "CharacterSelectName1P4", nullptr);
     plate.drawPriority = -1.0f;  // as CreateControl with 3+ players (0x8083D9F4)
     PositionAndScale &base = plate.positionAndscale[0];
-    base.position.x = player % 2 == 0 ? -kPlateX : kPlateX;
-    base.position.y = kPlateY[player / 2];
-    base.scale.x = kPlateScale;
-    base.scale.z = kPlateScale;  // Vec2 names its second component z
+    base.position.x = x;
+    base.position.y = y;
+    base.scale.x = scale;
+    base.scale.z = scale;  // Vec2 names its second component z
     positionFromBase(&plate);
     RGBA16 primary, secondary;
-    PlayerColours(player, &primary, &secondary);
+    MenuPlayerColours(player, &primary, &secondary);
     static const char *const parts[] = {"black_parts_t_00", "black_parts_t_01"};
     for (u32 i = 0; i < 2; ++i) {
         nw4r::lyt::Pane *pane = plate.layout.GetPaneByName(parts[i]);
@@ -552,23 +595,48 @@ void CharSelectPage::LoadPlate(u32 player) {
     }
 }
 
+void CharSelectPage::LoadPlate(u32 player) {
+    LayoutUIControl &plate = *this->plates[player];
+    this->AddControl(3 + player, plate, 0);
+    LoadNamePlate(plate, player, player % 2 == 0 ? -kPlateX : kPlateX, kPlateY[player / 2], kPlateScale);
+}
+
 // As DriverModelControl::Load loads it (0x805F32DC, from CharacterSelect::CreateControl 0x8083D8E8): its
 // animation names (0x80895DC4; a null table faults in ControlLoader) and its one group started on Player,
 // full opacity. Placed here rather than by ModelRendererValuesHolder, whose variants stop at 4 players.
-void CharSelectPage::LoadPreview(u32 player) {
+void LoadModelPreview(LayoutUIControl &preview, float x, float y, float scale) {
     static const char *kModelAnims[] = {"Ghost", "Player", "Ghost", nullptr, nullptr};
-    LayoutUIControl &preview = *this->previews[player];
-    this->AddControl(3 + kMaxLocal + player, preview, 0);
     ControlLoader loader(&preview);
     loader.Load("model", "CharacterSelectModel", "1P_4Div", kModelAnims);
     preview.animator.GetAnimationGroupById(0).PlayAnimationAtFrame(0, 0.0f);
     preview.drawPriority = -2.0f;  // under the plates
     PositionAndScale &base = preview.positionAndscale[0];
-    base.position.x = player % 2 == 0 ? -kPreviewX : kPreviewX;
-    base.position.y = kPlateY[player / 2] + kPreviewDY;
-    base.scale.x = kPreviewScale;
-    base.scale.z = kPreviewScale;
+    base.position.x = x;
+    base.position.y = y;
+    base.scale.x = scale;
+    base.scale.z = scale;
     positionFromBase(&preview);
+}
+
+void CharSelectPage::LoadPreview(u32 player) {
+    LayoutUIControl &preview = *this->previews[player];
+    this->AddControl(3 + kMaxLocal + player, preview, 0);
+    LoadModelPreview(preview, player % 2 == 0 ? -kPreviewX : kPreviewX, kPlateY[player / 2] + kPreviewDY, kPreviewScale);
+}
+
+// A model's texture on a preview's model_set_p, as DriverModelControl::OnUpdate sets it (TexMap::Set, then no
+// palette, 0x805F36AC-0x805F375C).
+void SetPreviewTexture(LayoutUIControl &preview, const GX::TexObj *texObj) {
+    nw4r::lyt::Pane *pane = preview.layout.GetPaneByName("model_set_p");
+    nw4r::lyt::Material *material = pane != nullptr ? pane->GetMaterial() : static_cast<nw4r::lyt::Material *>(nullptr);
+    if (texObj == nullptr || material == nullptr)
+        return;
+    nw4r::lyt::TexMap texMap;
+    texMapSet(&texMap, texObj);
+    texMap.palette = nullptr;
+    texMap.paletteEntryNum = 0;
+    texMap.bits.paletteFormat = 0;
+    *material->GetTexMapAry() = texMap;
 }
 
 // The player's model for the character their cursor is on: P1-4 through ModelRenderer, which RR's hooks
@@ -601,8 +669,7 @@ void CharSelectPage::PosePreview(u32 player, bool confirmed) {
 }
 
 // What DriverModelControl::OnUpdate does each frame (0x805F356C), for 8: the model shown, its texture on
-// model_set_p (TexMap::Set, then no palette, 0x805F36AC-0x805F375C), and a P1-4 model a kart page left in
-// its kart pose set back to idle (0x805F37C0).
+// model_set_p, and a P1-4 model a kart page left in its kart pose set back to idle (0x805F37C0).
 void CharSelectPage::UpdatePreviews() {
     Pages::ModelRenderer *renderer = SectionMgr::sInstance->curSection->Get<Pages::ModelRenderer>();
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
@@ -614,19 +681,10 @@ void CharSelectPage::UpdatePreviews() {
             showModel(renderer, p, true, 0);
             texObj = modelTexObj(renderer, p);
             MenuDriverModel *model = modelMgr != nullptr && modelMgr->driverModels != nullptr ? modelMgr->driverModels->players[p].playerModel : static_cast<MenuDriverModel *>(nullptr);
-            if (model != nullptr && model->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT)
+            if (model != nullptr && (model->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT || model->state == kStateKartChosen))
                 model->SwitchState(p, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
         }
-        nw4r::lyt::Pane *pane = this->previews[p]->layout.GetPaneByName("model_set_p");
-        nw4r::lyt::Material *material = pane != nullptr ? pane->GetMaterial() : static_cast<nw4r::lyt::Material *>(nullptr);
-        if (texObj == nullptr || material == nullptr)
-            continue;
-        nw4r::lyt::TexMap texMap;
-        texMapSet(&texMap, texObj);
-        texMap.palette = nullptr;
-        texMap.paletteEntryNum = 0;
-        texMap.bits.paletteFormat = 0;
-        *material->GetTexMapAry() = texMap;
+        SetPreviewTexture(*this->previews[p], texObj);
     }
 }
 
@@ -805,7 +863,7 @@ void CharSelectPage::OnDeactivate() {
 }
 
 // The plate's skin toggle icons for the player's controller, as RR's PageAfterControlUpdate shows them.
-static void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type) {
+void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type) {
     static const ControllerType types[] = {GCN, CLASSIC, NUNCHUCK, WHEEL};
     static const char *const panes[][2] = {{"cc_prev_gc", "cc_next_gc"}, {"cc_prev_cls", "cc_next_cls"}, {"cc_prev_nc", "cc_next_nc"}, {"cc_prev_wh", "cc_next_wh"}};
     for (u32 i = 0; i < sizeof(types) / sizeof(types[0]); ++i) {
@@ -818,7 +876,46 @@ static void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type) {
 // RR's skin toggle input (PageCheckActions, Driver/CustomCharacters.cpp), which runs only on the vanilla
 // page, for all 8 (D81): L and R on GameCube and Classic, 1 and 2 on a Nunchuk, B and A on a sideways Wii
 // Remote. Its confirm and back then come from A and B (Nunchuk) or 2 and 1 (sideways), so a toggle button
-// never also confirms.
+// never also confirms. The kart page steps the kart with it (D142).
+s32 SkinToggleStep(Input::RealControllerHolder &holder) {
+    if (holder.curController == nullptr)
+        return 0;
+    Input::UIState &state = holder.uiinputStates[0];
+    const u16 raw = state.rawButtons;
+    const u16 pressed = raw & ~holder.uiinputStates[1].rawButtons;
+    u16 previousButton, nextButton;
+    switch (holder.curController->GetType()) {
+        case GCN:
+            previousButton = PAD::PAD_BUTTON_L;
+            nextButton = PAD::PAD_BUTTON_R;
+            break;
+        case CLASSIC:
+            previousButton = WPAD::WPAD_CL_TRIGGER_L;
+            nextButton = WPAD::WPAD_CL_TRIGGER_R;
+            break;
+        case NUNCHUCK:
+            previousButton = WPAD::WPAD_BUTTON_1;
+            nextButton = WPAD::WPAD_BUTTON_2;
+            state.buttonActions &= ~0x3;
+            if (raw & WPAD::WPAD_BUTTON_A)
+                state.buttonActions |= 0x1;
+            if (raw & WPAD::WPAD_BUTTON_B)
+                state.buttonActions |= 0x2;
+            break;
+        default:
+            previousButton = WPAD::WPAD_BUTTON_B;
+            nextButton = WPAD::WPAD_BUTTON_A;
+            state.buttonActions &= ~0x3;
+            if (raw & WPAD::WPAD_BUTTON_2)
+                state.buttonActions |= 0x1;
+            if (raw & WPAD::WPAD_BUTTON_1)
+                state.buttonActions |= 0x2;
+            break;
+    }
+    const u16 step = pressed & (previousButton | nextButton);
+    return step == previousButton ? -1 : step == nextButton ? 1 : 0;
+}
+
 void CharSelectPage::BeforeControlUpdate() {
     for (u32 p = 0; p < kMaxLocal; ++p) this->skinSteps[p] = 0;
     if (this->miiPlayer != kNoPlayer)
@@ -827,43 +924,7 @@ void CharSelectPage::BeforeControlUpdate() {
         Input::RealControllerHolder *holder = PlayerHolder(p);
         if (holder == nullptr || holder->curController == nullptr)
             continue;
-        Input::UIState &state = holder->uiinputStates[0];
-        const u16 raw = state.rawButtons;
-        const u16 pressed = raw & ~holder->uiinputStates[1].rawButtons;
-        u16 previousButton, nextButton;
-        switch (holder->curController->GetType()) {
-            case GCN:
-                previousButton = PAD::PAD_BUTTON_L;
-                nextButton = PAD::PAD_BUTTON_R;
-                break;
-            case CLASSIC:
-                previousButton = WPAD::WPAD_CL_TRIGGER_L;
-                nextButton = WPAD::WPAD_CL_TRIGGER_R;
-                break;
-            case NUNCHUCK:
-                previousButton = WPAD::WPAD_BUTTON_1;
-                nextButton = WPAD::WPAD_BUTTON_2;
-                state.buttonActions &= ~0x3;
-                if (raw & WPAD::WPAD_BUTTON_A)
-                    state.buttonActions |= 0x1;
-                if (raw & WPAD::WPAD_BUTTON_B)
-                    state.buttonActions |= 0x2;
-                break;
-            default:
-                previousButton = WPAD::WPAD_BUTTON_B;
-                nextButton = WPAD::WPAD_BUTTON_A;
-                state.buttonActions &= ~0x3;
-                if (raw & WPAD::WPAD_BUTTON_2)
-                    state.buttonActions |= 0x1;
-                if (raw & WPAD::WPAD_BUTTON_1)
-                    state.buttonActions |= 0x2;
-                break;
-        }
-        const u16 step = pressed & (previousButton | nextButton);
-        if (step == previousButton)
-            this->skinSteps[p] = -1;
-        else if (step == nextButton)
-            this->skinSteps[p] = 1;
+        this->skinSteps[p] = static_cast<s8>(SkinToggleStep(*holder));
         ShowSkinToggleIcons(*this->plates[p], holder->curController->GetType());
     }
 }
@@ -1269,7 +1330,7 @@ void CharSelectPage::UpdateButton(u32 idx) {
         return;
     }
     RGBA16 primary, secondary;
-    PlayerColours(on[(this->frame / kCursorFrames) % n], &primary, &secondary);
+    MenuPlayerColours(on[(this->frame / kCursorFrames) % n], &primary, &secondary);
     SetTev(frame, 0, primary.red, primary.green, primary.blue, primary.alpha);
     SetTev(frame, 1, secondary.red, secondary.green, secondary.blue, secondary.alpha);
     SetTev(base, 0, 200, 200, 200, 240);

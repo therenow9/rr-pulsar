@@ -503,6 +503,7 @@ struct ExtKart {
     bool wanted;
     bool failed;  // the wanted kart could not be built; tried again once the want changes
     bool shown;
+    bool chosen;  // the player has confirmed it on the kart page
 };
 static ExtKart karts[kExtPlayers];
 static EGG::ExpHeap *unpackHeap;
@@ -536,12 +537,17 @@ static bool KartCurrent(ExtKart &kart, u32 i) {
     return KartModel(kart)->model != nullptr && kart.driverModel == Own(previews[i])->model && kart.character == kart.wantCharacter && kart.slot == kart.wantSlot && kart.kart == kart.wantKart;
 }
 
+// Both kart poses use the on-kart transformator (SwitchState, 0x8082FC60).
+static bool OnKart(const MenuDriverModel *driver) {
+    return driver->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT || driver->state == kStateKartChosen;
+}
+
 // The driver leaves its on-kart animations, which are on the kart's heap, before that heap is freed.
 static void DropKart(u32 i) {
     ExtKart &kart = karts[i];
     MenuDriverModel *driver = Own(previews[i]);
     if (driver->model != nullptr && driver->model == kart.driverModel && driver->onKartTransformator != nullptr) {
-        if (driver->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT)
+        if (OnKart(driver))
             switchState(driver, -1, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
         driver->onKartTransformator = nullptr;
     }
@@ -571,6 +577,7 @@ bool ExtKartsShow(u32 count) {
             karts[i].heap = EGG::ExpHeap::Create(kKartHeapSize, prefetch, 0);
         built = karts[i].heap != nullptr;
         karts[i].shown = true;
+        karts[i].chosen = false;
     }
     prefetch->dameFlag = heapFlags;
     if (!built)
@@ -582,7 +589,7 @@ void ExtKartsHide() {
     for (u32 i = 0; i < kExtPlayers; ++i) {
         karts[i].shown = false;
         MenuDriverModel *driver = Own(previews[i]);
-        if (driver->model != nullptr && driver->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT)
+        if (driver->model != nullptr && OnKart(driver))
             switchState(driver, -1, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
     }
 }
@@ -599,6 +606,12 @@ void ExtKartRequest(u32 player, CharacterId character, u32 slot, KartId kartId) 
     kart.wantKart = kartId;
     kart.wanted = true;
     kart.failed = false;
+}
+
+void ExtKartPose(u32 player, bool confirmed) {
+    const u32 i = player - kGameLocal;
+    if (i < kExtPlayers)
+        karts[i].chosen = confirmed;
 }
 
 // On the game's load thread, as LoadKartArchiveAsync (0x80541E44) loads a game player's: the old archive out, then
@@ -730,8 +743,8 @@ static bool BuildKart(u32 i) {
 }
 
 // Each frame while the kart page shows them: build every wanted kart whose archive is unpacked, else unpack the next
-// one wanted. A shown kart puts its driver in the kart pose (VehicleModelControl::OnUpdate, 0x805F3F3C), with -1 for
-// SwitchState's player.
+// one wanted. A shown kart puts its driver in the kart pose (VehicleModelControl::OnUpdate, 0x805F3F3C), or the
+// confirmed one once chosen, with -1 for SwitchState's player.
 static void ServiceKarts() {
     if (unpackHeap == nullptr || unpackState == UNPACK_BUSY)
         return;
@@ -747,9 +760,10 @@ static void ServiceKarts() {
     for (u32 i = 0; i < kExtPlayers; ++i) {
         ExtKart &kart = karts[i];
         MenuDriverModel *driver = Own(previews[i]);
-        if (kart.shown && KartCurrent(kart, i) && driver->state != MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT) {
+        const u32 pose = kart.chosen ? kStateKartChosen : MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT;
+        if (kart.shown && KartCurrent(kart, i) && driver->state != pose) {
             *reinterpret_cast<KartId *>(reinterpret_cast<u8 *>(driver) + kDriverKart) = kart.kart;
-            switchState(driver, -1, MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT);
+            switchState(driver, -1, pose);
         }
     }
 }
