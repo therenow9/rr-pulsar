@@ -5,18 +5,14 @@
 #include <MarioKartWii/Input/InputManager.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// 6/8 race screens. Only RaceScene::GetScreenCount reports the wide count, so the views, cameras and
-// renderers built from it widen, while RacedataScenario::screenCount stays at the game's 4 for its
-// ~100 readers (item screens, thresholds). docs/plans/m2-engine-widening.md has the site list.
-
 namespace SplitScreen8 {
 
+// Only RaceScene::GetScreenCount reports this; RacedataScenario::screenCount stays 4 for its ~100 readers (item screens, thresholds).
 u8 raceScreenCount;
 // Player id per hud slot kGameLocal..kMaxLocal-1; lower slots stay in RacedataSettings::hudPlayerIds.
 static s8 hudPlayerIdsExt[kMaxLocal];
 
-// A debug build also widens a race of 4 or fewer locals to its forced count: from 1 in a debug boot
-// (--boot-locals 1), from 2 in a menu-driven build, so its 1P stays vanilla.
+// A debug build also widens a race of 4 or fewer locals: from 1 in a debug boot, from 2 otherwise, so its 1P stays vanilla.
 #ifdef SS8_DEBUG_BOOT
 #define SS8_DEBUG_MIN_LOCALS 1
 #else
@@ -51,8 +47,7 @@ static u32 WideScreenCount(const RacedataScenario &scenario) {
 #endif
 }
 
-// ComputePlayerCounts+0x194 replaces its last store, "stb r10, 0(r6)" (r10 = local players,
-// unclamped), before its blr: the scenario's count stops at the game's 4 (D25), for Init's call
+// ComputePlayerCounts+0x194, its last store "stb r10, 0(r6)" (r10 = unclamped locals): the count stops at 4 for Init's call
 // through RR's NonGhostPlayerCount and for RR's own calls. Branched to, so this blr returns.
 asmFunc ClampLocalPlayerCount() {
     ASM(
@@ -67,9 +62,8 @@ asmFunc ClampLocalPlayerCount() {
 kmBranch(0x8052f91c, ClampLocalPlayerCount);
 
 #ifdef SS8_DEBUG_SCREENS
-// ComputePlayerCounts+0x118 replaces "cmplwi r9, 3" (r9 = screen count, r10 = local count, r3 =
-// scenario). A widened race reports the game's full 4 so slots 0-3 stay on game storage; the
-// predicate matches WideScreenCount. Leaf function, so branch out and back; r0 is dead here.
+// ComputePlayerCounts+0x118, "cmplwi r9, 3" (r9 = screens, r10 = locals, r3 = scenario): a widened race reports 4 so slots 0-3
+// stay on game storage, by WideScreenCount's predicate. A leaf, so branch out and back; r0 is dead here.
 asmFunc DebugWideScreenCount() {
     ASM(
         nofralloc;
@@ -87,12 +81,8 @@ kmBranch(0x8052f8a0, DebugWideScreenCount);
 kmPatchExitPoint(DebugWideScreenCount, 0x8052f8a4);
 #endif
 
-// RacedataScenario::Init+0x274 calls InitScreens, its only caller; Init runs on the menu scenario
-// that InitRace then copies to the race scenario. screenCount is the final one, after Init's own
-// overrides (a CPU-only demo race is 1), and the game's per-screen storage is sized by it, so only
-// a race that keeps the game's full 4 widens. Locals past the 4th are hidden from InitScreens as
-// PLAYER_NONE (it would index hudPlayerIds and the holders by their slot) and take hud slot and
-// controller id 4.. here (D27); spare CPUs take the slots after them, into the side table.
+// RacedataScenario::Init+0x274, on the menu scenario InitRace copies, after Init's overrides; game storage is sized by screenCount,
+// so only 4 widens. Locals past the 4th hide as PLAYER_NONE from InitScreens, which indexes by slot, and take slots 4+ here.
 static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     const u32 wide = screenCount == kGameLocal ? WideScreenCount(scenario) : 0;
     raceScreenCount = wide;
@@ -113,8 +103,7 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     for (u32 k = 0; k < extCount; ++k) {
         RacedataPlayer &player = scenario.players[extLocals[k]];
         player.playerType = PLAYER_REAL_LOCAL;
-        // A scene that does not widen: "Next Race" (0x8085AEA4) loads a one-screen gametype 5 scene
-        // the AI drives. Its locals 5-8 keep no slot, controller or holder.
+        // "Next Race" (0x8085AEA4) loads a one-screen gametype 5 scene the AI drives; its locals 5-8 keep no slot or holder.
         if (wide == 0) {
             player.hudSlotId = -1;
             player.realControllerChannel = -1;
@@ -138,11 +127,8 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
 }
 kmCall(0x8052fe04, InitScreensWide);
 
-// Kart::BRRESHandle::__ct+0xDC replaces "cmpwi r30, 0" (r30 = vanilla 3P), reached for a hud slot
-// >= 0; its bne skips "stb 0x12". +0x12 asks for the second kart archive, which RaceScene::OnEnter
-// loads only for local players, and the 3P path sets nothing at all for a hud slot other than 3, so
-// a CPU on a spare tile takes vanilla 3P's spare-tile flag +0x11 and the bne. +0x14 is the ctor's
-// "is local" byte. r5 is dead here; the epilogue restores LR.
+// Kart::BRRESHandle::__ct+0xDC, "cmpwi r30, 0" (r30 = vanilla 3P), whose bne skips +0x12, the second kart archive OnEnter loads
+// only for locals: a spare-tile CPU (+0x14 "is local" clear) takes 3P's spare-tile flag +0x11 and the bne. r5 dead; LR saved.
 asmFunc SpareTileKartModel() {
     ASM(
         nofralloc;
@@ -163,10 +149,8 @@ asmFunc SpareTileKartModel() {
 }
 kmCall(0x80576c18, SpareTileKartModel);
 
-// DriverMgr::IsPlayerComputer+0x100 replaces "extsb. r0, r3" (r3 = hud slot), reached for CPU, online
-// and empty player types (the 0x19 mask at +0xEC); the bge after it answers 1 ("watched": the driver's model/model_lod pair) for a hud
-// slot >= 0. The 4-screen kart archives a CPU loads hold model_cpu instead, and vanilla 3P answers 0
-// for its spare-tile CPU, so a widened race reads the slot as -1. r4 is dead; the epilogue restores LR.
+// DriverMgr::IsPlayerComputer+0x100, "extsb. r0, r3" (r3 = hud slot), for CPU, online and empty players: a slot >= 0 would answer 1,
+// model/model_lod, but a CPU's 4-screen archives hold model_cpu, so a widened race reads -1 as 3P does. r4 dead; LR saved.
 asmFunc SpareTileDriverModel() {
     ASM(
         nofralloc;
@@ -183,8 +167,7 @@ asmFunc SpareTileDriverModel() {
 }
 kmCall(0x807bd6bc, SpareTileDriverModel);
 
-// RaceScene::GetScreenCount, reached only through the RaceScene vtable (0x808b426c); its result
-// becomes the static screen count ScnMgr::InitScn stores at 0x808b4bf0.
+// RaceScene::GetScreenCount, reached only through its vtable (0x808b426c); ScnMgr::InitScn stores the result at 0x808b4bf0.
 static u32 GetRaceScreenCount() {
 #ifdef SS8_DEBUG_SCREENS
     const RacedataScenario &race = Racedata::sInstance->racesScenario;
@@ -197,10 +180,8 @@ static u32 GetRaceScreenCount() {
 }
 kmBranch(0x80554f68, GetRaceScreenCount);
 
-// RouteHolder::Init copies each camera route once per screen of racesScenario.screenCount (+0x25)
-// and sizes its table by that count, while AutoCameraMoverRace looks a copy up by the camera's
-// screen: a widened race takes its own count at both reads (+0xC0 sets the table size, +0x14/+0xE;
-// +0xDC the copies per screen, +0x17). r12 is reloaded before every call in Init; the prologue saved LR.
+// RouteHolder::Init copies each camera route per screen (+0x25), which AutoCameraMoverRace looks up by screen: the race's count at
+// +0xC0 (table size) and +0xDC (copies). r12 is reloaded before every call in Init; the prologue saved LR.
 asmFunc RouteCopiesForSize() {
     ASM(
         nofralloc;
@@ -227,8 +208,7 @@ asmFunc RouteCopiesPerScreen() {
 }
 kmCall(0x806f0bb4, RouteCopiesPerScreen);
 
-// Racedata::GetPlayerIdOfLocalPlayer. Retro Rewind's KO spectating fix owns the function's blr
-// (KOMisc.cpp, 0x80531f7c), so leave through it with the id in r3.
+// Racedata::GetPlayerIdOfLocalPlayer: RR's KO spectating fix owns its blr (KOMisc.cpp, 0x80531f7c), so leave through it, id in r3.
 static s32 HudPlayerId(const Racedata &racedata, u32 hud) {
     if (hud >= kGameLocal && hud < raceScreenCount)
         return hudPlayerIdsExt[hud];
@@ -251,11 +231,8 @@ asmFunc HudPlayerIdWrapper() {
 kmBranch(0x80531f70, HudPlayerIdWrapper);
 kmPatchExitPoint(HudPlayerIdWrapper, 0x80531f7c);
 
-// isLiveView (MAP calls 0x80531fc8 LoadNextGPTrack) +0x28 replaces "add r4, r3, r4; lbz r0,
-// 0xb84(r4)": r0 = hudPlayerIds[r4], and a non-local player there means a live (TV) camera. In a
-// widened race every spare tile follows its CPU instead (D22): each hud below the count reads -1,
-// which isLiveView answers "not live", as it answers a local player. A leaf, so branch out and back
-// (one blr, for kmPatchExitPoint); only r0 and r3 are read after it, and r5 is free.
+// isLiveView (MAP: LoadNextGPTrack)+0x28, "add r4, r3, r4; lbz r0, 0xb84(r4)": a spare tile follows its CPU, not a TV camera, so a
+// hud below the count reads -1, "not live". A leaf, so branch out and back; only r0 and r3 are read after it, and r5 is free.
 asmFunc IsLiveViewHudPlayerId() {
     ASM(
         nofralloc;
@@ -272,8 +249,7 @@ asmFunc IsLiveViewHudPlayerId() {
 kmBranch(0x80531ff0, IsLiveViewHudPlayerId);
 kmPatchExitPoint(IsLiveViewHudPlayerId, 0x80531ff8);
 
-// io holds the full view size [w, h] on entry and the tile's [x, y, w, h] on return: 3x2 for 6
-// screens, 4x2 for 8, numbered left to right then top to bottom.
+// io holds the view's [w, h] on entry and the tile's [x, y, w, h] on return; tiles run left to right, then top to bottom.
 static void GridRect(const GameScreen &screen, u32 screenCount, float *io) {
     const u32 cols = screenCount / 2;
     const float w = io[0] / cols;
@@ -284,9 +260,8 @@ static void GridRect(const GameScreen &screen, u32 screenCount, float *io) {
     io[3] = h;
 }
 
-// GameScreen::CalcDimensions+0xD8 replaces "cmpwi r4, 2", reached for counts other than 3-4 with
-// r4 = screen count, f4/f5 = full width/height. Its tail stores f6/f1 as position and f4/f5 as size
-// (0x80566f48); the re-done compare sends 6 and 8 there. CalcDimensions is a leaf: LR is saved here.
+// GameScreen::CalcDimensions+0xD8, "cmpwi r4, 2" (r4 = screens, f4/f5 = full size) for counts other than 3-4: the re-done compare
+// sends 6 and 8 to its tail (0x80566f48), which stores f6/f1 as position and f4/f5 as size. A leaf: LR is saved here.
 asmFunc CalcDimensionsGrid() {
     ASM(
         nofralloc;

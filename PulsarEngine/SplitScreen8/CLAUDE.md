@@ -1,6 +1,10 @@
 # PulsarEngine/SplitScreen8
 
-The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except four things the owner wants (root `CLAUDE.md`). Same-character select and each player's own skin and model are Retro Rewind's own since upstream `2794b039` (D137, D138), so they are vanilla. The four: same-character select's OK markers offline, each a half of the button with 2 players and a quarter with 3–4 and each in its player's colour (D95, D105; RR's `UI/SameCharacterSelect.cpp`, the upstream PR's file), and at the awards a Mii head only on a Mii when two players share a driver (PD12, RR's `Race/CustomCharacters.cpp`); the main menu's seven Multiplayer buttons (D63, `Entry.cpp`); a race name balloon's portrait read once per player per race and kept on the base character in private rooms, as RR's name is (D130, D139; RR's `UI/CustomCharacters.cpp`); and the menu voices (character, kart and team select) following each player's skin, 1P and online included: a skin with its own voice files says one of its own trick lines, a silent skin nothing, a skin without voice files the base line (D133, D136; RR's `Race/CustomCharacterVoice.cpp`, the upstream fix PR's hook on per-player slots). 1P is otherwise untouched.
+The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except four things the owner wants (root `CLAUDE.md` has the decisions). Same-character select and each player's own skin and model are RR's own since upstream `2794b039`, so they are vanilla. The four, each in an RR file:
+- same-character select's OK markers offline, and the awards' Mii head only on a Mii (`UI/SameCharacterSelect.cpp`, `Race/CustomCharacters.cpp`);
+- the main menu's seven Multiplayer buttons (`Entry.cpp`);
+- a race name balloon's portrait read once per player per race (`UI/CustomCharacters.cpp`);
+- the menu voices following each player's skin, 1P and online included (`Race/CustomCharacterVoice.cpp`).
 
 Breaking a rule below **fails silently** — it builds, it may even work with 8 players, and it breaks something unrelated. `docs/widening-inventory.md` and `docs/m1-same-character.md` (repo root) have the reasoning.
 
@@ -13,8 +17,9 @@ Breaking a rule below **fails silently** — it builds, it may even work with 8 
 
 ## Players 5–8
 
-- **Every hook outside those four early-returns for ≤ 4 local players.** A skin slot is `SkinSlot(hud, c)` (`Entry.cpp`): RR's `selectedSlots[4][24]` for huds 0–3, `extSlots` for 4–7. RR's reads by `12 + hud`, by archive holder and by a race player's hud go through it; RR's own per-hud reads (`RequestDriverModel`, the cycle) stay below the game's local count, which is 4 at most. Nothing here passes a hud of 4 or more to RR's 4-wide `customModels`, `selectedSlots` or `LoadDriverBRRES`.
-- **Indices 0–3 stay on the game's own storage; 4–7 go to a side table here**, sized by `kMaxLocal`, never a literal.
+- **Every hook outside those four early-returns for ≤ 4 local players.** RR's `selectedSlots` is widened to `kMaxLocal`, so RR's reads by `12 + hud` and by a race player's hud reach every local; a hud of −1 (P5–8 in the one-screen "Next Race" scene, `Screens.cpp`) reads slot 0. `SkinSlot(hud, c)` (`Entry.cpp`) guards a Mii id. RR's own per-hud reads (`RequestDriverModel`, the cycle) stay below the game's local count, 4 at most. Nothing here passes a hud of 4 or more to RR's 4-wide `customModels` or `LoadDriverBRRES`.
+- **Where players 5–8 live (D144):** RR's own per-player statics widen in place to `kMaxLocal` in the RR file, with no side table here. The game's memory, and anything serialized or sent online, keep indices 0–3 on the game's storage and put 4–7 in a side table here, sized by `kMaxLocal`, never a literal.
+- **Write the diff as the root `CLAUDE.md`'s "Writing the diff" says:** edit the owning function, delete the superseded path, declare a shared address once (`SplitScreen8.hpp`) or as a `symbols.txt` line, and no one-caller wrapper that is not a hook target.
 - **A game slot can be -1.** Check before indexing.
 - **Menu input managers have 5 slots and read slot 4 with no mask** (`ManipulatorManager::Update`, `ControlsManipulatorManager::Update`). Anything that makes slot 4 answer a real holder (`Pause.cpp`) must be gone by the next section load, or every menu page sees that pad.
 - The `widen-to-eight` skill is the procedure for any 4-wide structure.

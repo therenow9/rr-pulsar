@@ -8,20 +8,13 @@
 #include <UI/CtrlRaceBase/Speedometer.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The race HUD of a widened race: every local tile gets its own controls (D44), each loaded from a 4P
-// variant and moved onto its tile by the owner's rule (D42), plus a speedometer (D43). The game's own
-// per-player code builds and drives slots 4-7: RR patches inside BeforeControlUpdate's per-player loop,
-// so the loop is widened, not copied. docs/plans/m3-hud-gameplay.md, phase B, has the rule and the sites.
-
 namespace SplitScreen8 {
 
-// hudHasPlayer for slots 4.. (RaceHUD+0x60 holds 4, and +0x64 follows it); indexed by slot.
+// RaceHUD::hudHasPlayer (+0x60) holds 4 slots and +0x64 follows it, so slots 4-7 live here.
 static u8 hudHasPlayerExt[kMaxLocal];
 
-// RaceHUD's reads of racesScenario.localPlayerCount (+0x26), which stays 4 in a widened race (D25): the
-// race's own local count instead. Each stub replaces "lbz rD, 0x26(rB)", writes only rD and r12, and is
-// followed by a cmpwi that sets CR0 again; every host saved LR.
-// InitCtrlRaceBase+0x24, BeforeControlUpdate+0xD8, AfterControlUpdate+0x1CC and +0x468: r3 from r3.
+// RaceHUD's "lbz rD, 0x26(rB)" reads of localPlayerCount, 4 in a widened race, get the race's count; each writes only rD and r12,
+// a cmpwi resets CR0 after, LR was saved. r3 from r3: InitCtrlRaceBase+0x24, BeforeControlUpdate+0xD8, AfterControlUpdate+0x1CC, +0x468.
 asmFunc HudCountR3() {
     ASM(
         nofralloc;
@@ -80,10 +73,8 @@ asmFunc HudCountR0R3() {
 kmCall(0x80858b28, HudCountR0R3);
 kmCall(0x80858a8c, HudCountR0R3);
 
-// RaceBalloons::OnItemObjTargeting reads the targeting item's distance from its balloon's screen as
-// "lfs fN, 0xc(r3)", r3 = the item's ClipInfo + screen * 4 (r0): screens 4+ read the shadow's, at
-// r3 + 0x47F0 (Culling.cpp's kClipShadow - 4 * 4). r3 and r12 are written before they are read after
-// each site, CR0 is set again, and the function saved LR. +0xC4 and +0x118 load f0, +0x140 f1.
+// RaceBalloons::OnItemObjTargeting's "lfs fN, 0xc(r3)", r3 = ClipInfo + screen * 4 (r0): screens 4+ read the shadow at +0x47F0
+// (Culling.cpp's kClipShadow - 4 * 4). r3, r12 and CR0 are written before read after each site; LR was saved. +0x140 loads f1.
 asmFunc BalloonDistanceF0() {
     ASM(
         nofralloc;
@@ -117,10 +108,8 @@ asmFunc BalloonDistanceF1() {
 }
 kmCall(0x807f1ef4, BalloonDistanceF1);
 
-// RendererRaceUIScreen::Draw takes its UI pass from the GameScreen's index (r0): a switch gives screens
-// 0-3 passes 2-5 and branches here, at its default, with r4 = 2, screen 0's pass, which would draw P1's
-// item warning and name tags on tiles 5-8. In a widened race screen s draws pass s + 2, the pass
-// InitCtrlRaceBase gives slot s's balloons. r4 and r12 are free until Section::Draw; CR0 is not read.
+// RendererRaceUIScreen::Draw's switch on the screen (r0) gives 0-3 passes 2-5 and defaults here with r4 = 2, P1's balloons on
+// tiles 5-8; screen s draws pass s + 2, slot s's balloons. r4 and r12 are free until Section::Draw; CR0 is not read.
 asmFunc UIScreenPass() {
     ASM(
         nofralloc;
@@ -136,9 +125,8 @@ asmFunc UIScreenPass() {
 kmBranch(0x805b41f8, UIScreenPass);
 kmPatchExitPoint(UIScreenPass, 0x805b4218);
 
-// RaceHUD's accesses of hudHasPlayer[slot], each "op rV, 0x60(page + slot)": slots 0-3 stay on the page,
-// 4.. go to hudHasPlayerExt. Only r12 and CR0 are written; CR0 is set again before it is read at each.
-// InitCtrlRaceBase+0x3DC: "stb r0, 0x60(r3)", the page in r15.
+// RaceHUD's "op rV, 0x60(page + slot)" on hudHasPlayer: slots 4+ go to hudHasPlayerExt. Only r12 and CR0 are written, and CR0
+// is set again before it is read. InitCtrlRaceBase+0x3DC: "stb r0, 0x60(r3)", the page in r15.
 asmFunc HasPlayerStoreR0R3() {
     ASM(
         nofralloc;
@@ -204,18 +192,16 @@ asmFunc HasPlayerLoadR0R3() {
 }
 kmCall(0x80857950, HasPlayerLoadR0R3);
 
-// The 4P variant whose anchoring a tile takes: the top or bottom row, and the right half of the grid
-// (mirrored, like 4P); at 6 screens the middle column anchors left. Arithmetic only: map_%d's caller
-// passes no slot.
+// The 4P variant a tile anchors like: top or bottom row, right half mirrored as in 4P, a 6-screen middle column left.
+// Arithmetic only: map_%d's caller passes no slot.
 static u32 Quadrant(u32 tile) {
     const u32 cols = raceScreenCount / 2;
     const u32 col = tile % cols;
     return (tile < cols ? 0 : 2) + (2 * col + 1 > cols ? 1 : 0);
 }
 
-// The bl snprintf naming a control's variant, "<Ctrl>_%d_%d" (screens, slot): with the count above 4
-// the game would ask for _8_5, so a widened race always loads _4_<quadrant>. RankNum, Lap, ItemWindow
-// and CountGO in InitCtrlRaceBase's per-player loop, and map_%d after it (count only).
+// The bl snprintf of "<Ctrl>_%d_%d" (screens, slot) would ask for _8_5, so a widened race loads _4_<quadrant>. RankNum, Lap,
+// ItemWindow and CountGO in InitCtrlRaceBase's per-player loop, and map_%d after it (count only).
 static int HudVariantName(char *buf, u32 size, const char *format, u32 screens, u32 slot) {
     if (raceScreenCount != 0) {
         screens = kGameLocal;
@@ -241,27 +227,19 @@ static int BalloonVariantName(char *buf, u32 size, const char *format, u32 scree
 kmCall(0x807efda8, BalloonVariantName);
 kmCall(0x807f1fd8, BalloonVariantName);
 
-// VSMultiHUD::GetCtrlRaceNameBalloonCount ("li r3, 4; blr"): one name balloon per local screen, as
-// AddNameBalloon gives balloon i to RaceBalloons[i % locals]. RR's kmBranch at 0x80633A00 is the next
-// function.
+// VSMultiHUD::GetCtrlRaceNameBalloonCount ("li r3, 4; blr"): one name balloon per local screen, as AddNameBalloon gives
+// balloon i to RaceBalloons[i % locals]. RR's kmBranch at 0x80633A00 is the next function.
 static u32 VSMultiNameBalloonCount(const Pages::RaceHUD *) {
     return raceScreenCount != 0 && raceLocalCount > kGameLocal ? raceLocalCount : kGameLocal;
 }
 kmBranch(0x806339f8, VSMultiNameBalloonCount);
 
-// Layout units: 832 x 456 at 16:9, 608 x 456 at 4:3, centred on 0, y up; each row of tiles is centred
-// 114 above or below 0, as a 4P quadrant is. Element scale 0.50 at 8 screens and 0.65 at 6 (the
-// owner's picks, D42).
+// Layout units: 832 x 456 at 16:9, 608 x 456 at 4:3, centred on 0, y up; a tile row is centred 114 above or below 0, as in 4P.
 static float LayoutWidth() {
     return SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f;
 }
 
-typedef void (*PositionFromBaseFn)(UIControl *);
-static const PositionFromBaseFn positionFromBase = reinterpret_cast<PositionFromBaseFn>(0x8063d3cc);
-
-// Moves a control loaded from its tile's 4P variant onto the tile. A countdown is centred on the tile;
-// any other control keeps its 4P distance from the tile's outer edge, scaled, and its offset from the
-// row's middle, scaled by at least 0.6.
+// Moves a control loaded from its tile's 4P variant onto the tile, keeping its distances from the outer edge and the row, scaled.
 static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
     const float width = LayoutWidth();
     const float factor = raceScreenCount == 8 ? 0.5f : 0.65f;
@@ -283,7 +261,7 @@ static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
     }
     base.scale.x *= factor;
     base.scale.z *= factor;  // Vec2 names its second component z
-    positionFromBase(&control);
+    control.PositionFromBasePosition();
 }
 
 // Vtables InitCtrlRaceBase stores after LayoutUIControl::__ct; each of their Loads stores the slot in
@@ -294,9 +272,8 @@ const u32 kItemWindowVtable = 0x808d3cc8;
 
 typedef char CtrlRaceCountIs0x198[sizeof(CtrlRaceCount) == 0x198 ? 1 : -1];
 
-// The count pairs (the countdown digits and FINISH) zoom in from many times their settled size, across
-// every tile. A widened race draws them through a copy of CtrlRaceCount's vtable (0x808D3C18, shared with
-// TTSplits and the team leaderboard) whose Draw (+0x14) scales that zoom down to start at the tile.
+// The countdown and FINISH zoom in across every tile; they draw through a copy of CtrlRaceCount's vtable (0x808D3C18, shared
+// with TTSplits and the team leaderboard) whose Draw (+0x14) starts the zoom at the tile.
 const u32 kCountVtableWords = 0x5c / 4;
 static u32 countVtable[kCountVtableWords];
 static CtrlRaceCount *countArray;
@@ -305,13 +282,9 @@ static float countZoomStart[2 * kMaxLocal];
 
 typedef void (*LayoutDrawFn)(LayoutUIControl *, u32);
 static const LayoutDrawFn layoutDraw = reinterpret_cast<LayoutDrawFn>(0x8063db84);
-typedef void (*AnimateFn)(MainLayout *);
-static const AnimateFn layoutAnimate = reinterpret_cast<AnimateFn>(0x805e91a8);
 
-// An estimate of the text's width at pane scale 1 from the text box's font: each character's width in
-// font units times fontSizeX / the font's width, plus the character spacing. MKW's tags (0x1A, then a
-// u16 whose high byte is the tag's length in bytes) are skipped. MKW draws through its own text
-// handler, so the drawn word can be wider; the caller keeps a margin.
+// An estimate at pane scale 1, skipping MKW's tags (0x1A, then a u16 whose high byte is the tag's length in bytes). MKW draws
+// through its own text handler, so the drawn word can be wider; the caller keeps a margin.
 static float TextWidth(const nw4r::lyt::TextBox &text) {
     if (text.font == nullptr || text.stringBuf == nullptr || text.font->GetWidth() == 0)
         return 0.0f;
@@ -331,12 +304,10 @@ static float TextWidth(const nw4r::lyt::TextBox &text) {
     return width;
 }
 
-// The text's scale runs from its zoom's start down to the settled scale; the zoom is remapped to start
-// where the text fills the tile (its height, or its width for a long word) through count_down_null, the
-// text's parent, which no animation scales. MainLayout::Animate applies the current frame only, so
-// applying it here and again in Draw gives the same values.
+// Rescales through count_down_null, the text's parent, which no animation scales, so the zoom starts where the text fills the
+// tile. MainLayout::Animate applies the current frame only, so running it here and again in Draw gives the same values.
 static void ZoomFromTile(CtrlRaceCount &count, u32 index) {
-    layoutAnimate(&count.layout);
+    count.layout.Animate();
     nw4r::lyt::TextBox *text = static_cast<nw4r::lyt::TextBox *>(count.layout.GetPaneByName("text_00"));
     nw4r::lyt::Pane *parent = count.layout.GetPaneByName("count_down_null");
     if (text == nullptr || parent == nullptr)
@@ -383,16 +354,11 @@ static void UseCountDraw(CtrlRaceCount *counts, u32 count) {
     }
 }
 
-typedef void (*InitCtrlRaceBaseFn)(Pages::RaceHUD *, u32);
-static const InitCtrlRaceBaseFn initCtrlRaceBase = reinterpret_cast<InitCtrlRaceBaseFn>(0x80857cc0);
-
-// RaceHUD::OnInit+0x64, "bl InitCtrlRaceBase": the controls exist once it returns (RR's custom ones
-// were built at OnInit+0x58), and are placed before InitControls, whose CtrlRaceBase::InitSelf takes
-// the pause slide from the position. The countdown pair of slot i is ctrlRaceCountArray[2i, 2i + 1]:
-// CtrlRaceCount::Load ignores the slot it is passed.
+// RaceHUD::OnInit+0x64, "bl InitCtrlRaceBase": places the controls before InitControls, whose CtrlRaceBase::InitSelf takes the
+// pause slide from the position. Slot i's countdown pair is ctrlRaceCountArray[2i, 2i + 1]: CtrlRaceCount::Load ignores its slot.
 static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
     for (u32 i = 0; i < kMaxLocal; ++i) hudHasPlayerExt[i] = 0;
-    initCtrlRaceBase(page, bitField);
+    page->InitCtrlRaceBase(bitField);
     if (raceScreenCount == 0 || raceLocalCount == 0)
         return;
     const ControlGroup &group = page->controlGroup;
@@ -414,8 +380,7 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
 }
 kmCall(0x808562dc, InitCtrlRaceBaseWide);
 
-// A speedometer per local tile (D43), when RR's setting is on; RR's own builds one for a single local
-// only, which a widened 1-local race keeps.
+// RR's own speedometer is built for a single local only, which a widened 1-local race keeps.
 static u32 SpeedoCount() {
     if (raceScreenCount == 0 || raceLocalCount < 2)
         return 0;

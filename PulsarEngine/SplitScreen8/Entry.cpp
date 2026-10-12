@@ -11,10 +11,7 @@
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The way into a 5-8 player game (D63-D65): 5-8 Players buttons beside the main menu's 2-4 Players
-// in a widened Multiplayer panel, the join page in place of RegisteredPads in section 0x54, and the
-// multiplayer menu without Battle. The main menu changes at every player count (D63); everything
-// after it acts only while menuLocalCount is set. docs/plans/m4-menu-flow.md, phase B, has the sites.
+// The main menu's added buttons show at every player count; everything after them acts only while menuLocalCount is set.
 
 namespace SplitScreen8 {
 
@@ -22,7 +19,7 @@ u8 menuLocalCount;
 
 const s32 kEntryButtonId = 8;  // 5-8 Players; the main menu's own ids are 0-7
 const u32 kEntryButtons = kMaxLocal - kGameLocal;
-// The 5-8 Players button whose game was set up last, for the focus when the main menu comes back.
+// The 5-8 Players button last clicked, for the focus when the main menu comes back.
 static u32 lastEntryCount;
 static PushButton *entryButtons[kEntryButtons];
 
@@ -30,24 +27,20 @@ typedef void (*PushButtonCtorFn)(PushButton *);
 typedef void (*CropMovieFn)(LayoutUIControl *, const char *, float, float, float, float);
 typedef void (*SoundIdFn)(PushButton *, u32);
 typedef void (*ResetParamsFn)(Pages::MainMenu *, u8);
-typedef void (*PositionFromBaseFn)(UIControl *);
 typedef void (*SelectButtonFn)(Pages::MainMenu *, PushButton *);
 static const PushButtonCtorFn pushButtonCtor = reinterpret_cast<PushButtonCtorFn>(0x805bd3a8);
 static const CropMovieFn cropMovie = reinterpret_cast<CropMovieFn>(0x8063e5c4);
 static const SoundIdFn setSelectionSoundId = reinterpret_cast<SoundIdFn>(0x805be430);
 static const ResetParamsFn resetSectionParams = reinterpret_cast<ResetParamsFn>(0x808516bc);
-static const PositionFromBaseFn positionFromBase = reinterpret_cast<PositionFromBaseFn>(0x8063d3cc);
 
-// D63: the panel 1.50x wider about its centre; seven buttons share its row. Vanilla's buttons sit at
-// x -54, 0, 54 (16:9, scale 1.05 x 0.93, TopMenuMulti.brctr), about 50.6 units wide with 3.4 between.
+// Vanilla's three buttons sit at x -54, 0, 54 (16:9, scale 1.05 x 0.93), about 50.6 units wide with 3.4 between.
 const float kPanelScale = 1.5f;
 const float kButtonWidth = 50.6f;
 const float kButtonGap = 3.4f;
 const float kButtonScaleX = 1.05f;
 const u32 kRowButtons = 3 + kEntryButtons;
 
-// A CtrlMenuMovieButton built as MainMenu::CreateControl builds its own (0x80850750): handler part
-// first, then the PushButton at +0x18, then both vtables.
+// A CtrlMenuMovieButton built as CreateControl builds its own (0x80850750): handler, PushButton at +0x18, both vtables.
 static PushButton *NewMovieButton() {
     u8 *raw = static_cast<u8 *>(::operator new(0x26c));
     *reinterpret_cast<u32 *>(raw) = 0x808d3608;
@@ -59,8 +52,7 @@ static PushButton *NewMovieButton() {
     return reinterpret_cast<PushButton *>(raw + 0x18);
 }
 
-// The 2-4 Players label, "N\n{font scale|50}Players", as BMG_TEXT's string argument: the text is drawn
-// from it every frame (the panes' buffers hold only a 0xFF13 marker), and the tag processor reads the
+// BMG_TEXT's string is redrawn every frame, so it must outlive the call; the tag processor reads the
 // font-scale escape (0x1A, size 8, type 0, 50%) whole, so its zero word does not end the string.
 static wchar_t buttonLabels[kEntryButtons][14];
 
@@ -79,7 +71,7 @@ static void PlaceInRow(PushButton &button, u32 index) {
     PositionAndScale &base = button.positionAndscale[0];
     base.position.x = (static_cast<float>(index) - (kRowButtons - 1) / 2.0f) * (width + kButtonGap);
     base.scale.x = kButtonScaleX * width / kButtonWidth;
-    positionFromBase(&button);
+    button.PositionFromBasePosition();
 }
 
 // TopMenuMultiWaku is all picture panes but its heading; widening the pictures keeps the text's size.
@@ -92,8 +84,7 @@ static void WidenPanel(LayoutUIControl &panel) {
     }
 }
 
-// After CreateControl has built the Multiplayer panel's three buttons (InitControlGroup now sizes it
-// for seven): four more as the 4 Players button is built (0x80850A2C), then all seven placed.
+// Four more buttons built as the 4 Players one is (0x80850A2C), then all seven placed in the widened row.
 static void AddEntryButtons(Pages::MainMenu *page, LayoutUIControl *panel) {
     for (u32 i = 0; i < kEntryButtons; ++i) {
         PushButton *button = NewMovieButton();
@@ -124,10 +115,10 @@ asmFunc AddEntryButtonsStub() {
         mtctr r12;
         bctr;)
 }
-kmWrite32(0x80850744, 0x38800007);  // the Multiplayer panel's InitControlGroup: li r4, 7 (was 3)
+kmWrite32(0x80850744, 0x38800007);  // the Multiplayer panel's InitControlGroup: li r4, 7 for vanilla's 3
 kmBranch(0x80850a28, AddEntryButtonsStub);
 
-// As the 2-4 Players buttons click (0x808511C0), with the game's count kept at 4 (D60).
+// As the 2-4 Players buttons click (0x808511C0), with the game's count kept at 4.
 static void EntryClick(Pages::MainMenu *page, PushButton *button) {
     const u32 count = kGameLocal + 1 + (button->buttonId - kEntryButtonId);
     SectionMgr::sInstance->sectionParams->category = 3;  // the 4 Players button's
@@ -209,9 +200,8 @@ asmFunc EntryDeselectStub() {
 }
 kmBranch(0x808515a0, EntryDeselectStub);
 
-// Every game starts at the main menu, so a 5-8 player game's state ends there: the count, P5-8's pads,
-// and holders 4-7 back on the dummy controller (TrySetController's scans read them, Input.cpp). The
-// focus goes back to the button last clicked, as OnActivate does for ids 0-7 (vtable 0x78).
+// Every game starts here, so a 5-8 player game's state ends here, holders 4-7 on the dummy that TrySetController's
+// scans read; focus returns to the button last clicked, as OnActivate does for ids 0-7 (vtable 0x78).
 static void EntryActivate(Pages::MainMenu *page) {
     menuLocalCount = 0;
     ClearExtPads();
@@ -250,9 +240,8 @@ kmCall(0x808510f0, EntryActivateStub);
 
 static_assert(Pulsar::UI::PULPAGE_SS8JOIN == 0x115, "RegisteredPadsOrJoin loads the join page's id as 0x115");
 
-// RegisteredPads (0x61), or the join page in a 5-8 player game: section 0x54's first page
-// (AddInitialLayers, 0x80630984) and the multiplayer menu's Back (button 0x8084D52C, B 0x8084DB8C).
-// Each replaces "li r4, 0x61" and leaves r0, r3 and r5 alone (0x8084DB8C sits before "stw r0").
+// Each replaces "li r4, 0x61" (RegisteredPads) at section 0x54's first page and the multiplayer menu's Back button
+// and B; r0, r3 and r5 stay live (0x8084DB8C sits before "stw r0").
 asmFunc RegisteredPadsOrJoin() {
     ASM(
         nofralloc;
@@ -268,9 +257,8 @@ kmCall(0x80630984, RegisteredPadsOrJoin);
 kmCall(0x8084d52c, RegisteredPadsOrJoin);
 kmCall(0x8084db8c, RegisteredPadsOrJoin);
 
-// D65: in a 5-8 player game the multiplayer menu hides Battle and titles itself with the real count;
-// its OnInit took "Multiplayer (4P)" from the game's count (titleBmg = 0x7EC + count).
-// Section 0x54 is built again for every game, so a page that hid Battle never serves a 1-4 player one.
+// OnInit titles the page from the game's count of 4 (0x7EC + count). Section 0x54 is built again for every game,
+// so a page that hid Battle never serves a 1-4 player one.
 static void MultiActivate(Pages::MultiPlayer *page) {
     if (menuLocalCount <= kGameLocal)
         return;
@@ -313,39 +301,19 @@ kmCall(0x8084d3e0, MultiActivateStub);
 
 ExtPick extPicks[kMaxLocal - kGameLocal];
 
-// The menus' pages set every player's type from the game's count, 4 (VSModeSelect::OnActivate,
-// CharacterSelect::OnActivate, MultiPlayer's VS click), so players 5..N are made local where each race
-// takes the menu scenario: InitRace, before RacedataScenario::Init counts its locals. The scenario's
-// character and kart for 5..N are rewritten there too: the vanilla character page's CPU fill
-// (0x8083EC28) and kart select's (0x8084745C) give every slot from 4 a random one (the 8-player page
-// runs its fill over 8, CharSelect.cpp). With no pick, D62's default: character i on the Standard Kart
-// of its weight class, as the debug boot picks it.
 CharacterId ExtCharacter(u32 player) {
     const ExtPick &pick = extPicks[player - kGameLocal];
     return pick.picked ? pick.character : static_cast<CharacterId>(player);
 }
 
-// Huds 4-7's rows beside RR's selectedSlots, which hold huds 0-3 (Driver/CustomCharacters.cpp).
-static u8 extSlots[kMaxLocal - kGameLocal][Pulsar::Driver::CHARACTER_COUNT];
-
-static bool IsValidSkinSlot(u32 character, u32 slot) {
-    return character < Pulsar::Driver::CHARACTER_COUNT && slot <= Pulsar::Driver::MAX_CUSTOM_CHARACTER_SLOTS && Pulsar::Driver::characterTables[character][slot];
-}
-
+// A Mii's id is past selectedSlots' row, so it reads 0 and writes nothing.
 u32 SkinSlot(u32 hud, u32 character) {
-    if (hud >= kMaxLocal || character >= Pulsar::Driver::CHARACTER_COUNT)
-        return 0;
-    const u32 slot = hud < kGameLocal ? Pulsar::Driver::selectedSlots[hud][character] : extSlots[hud - kGameLocal][character];
-    return IsValidSkinSlot(character, slot) ? slot : 0;
+    return hud < kMaxLocal && character < Pulsar::Driver::CHARACTER_COUNT ? Pulsar::Driver::selectedSlots[hud][character] : 0;
 }
 
 void SetSkinSlot(u32 hud, u32 character, u32 slot) {
-    if (hud >= kMaxLocal || !IsValidSkinSlot(character, slot))
-        return;
-    if (hud < kGameLocal)
+    if (hud < kMaxLocal && character < Pulsar::Driver::CHARACTER_COUNT)
         Pulsar::Driver::selectedSlots[hud][character] = slot;
-    else
-        extSlots[hud - kGameLocal][character] = slot;
 }
 
 #ifndef SS8_PAGES
@@ -353,15 +321,16 @@ void ResetExtPreviews() {
 }
 #endif
 
-// A 5-8 player game's section 0x54 has about 1.2 MB less MEM1 free than a 3-player one, too little for RR's
-// 0xE1000 per load across P1-4's skins. A load peaks at what its model keeps, the file plus at most 51,628 bytes
-// for RR's skins but Rosalina's 6th (244,948); a model that outgrows the reserve faults inside the game's code.
+// A 5-8 player section 0x54 has ~1.2 MB less MEM1 free, too little for RR's 0xE1000 per skin load. A load keeps its file
+// plus at most 51,628 bytes (Rosalina's 6th skin, 244,948); a model that outgrows the reserve faults inside game code.
 const u32 kSkinLoadReserve = 0x60000;
 
 u32 SkinLoadReserve(u32 reserve) {
     return menuLocalCount > kGameLocal ? kSkinLoadReserve : reserve;
 }
 
+// The menus set every player's type from the game's count of 4 and CPU-fill slots 4+ with random picks:
+// players 5..N are made local here, with their pick or default, before RacedataScenario::Init counts locals.
 static void MenuLocalsLocal(Racedata *racedata) {
     if (menuLocalCount <= kGameLocal)
         return;
@@ -377,9 +346,8 @@ static void MenuLocalsLocal(Racedata *racedata) {
     }
 }
 
-// InitRace+0x14 replaces "addi r3, r3, 0xc10" (r3 = r31 = the racedata); the prologue saved LR and
-// r31, and r3 is set again from r31 after the call. RaceScene::OnEnter and OnReinit, and InitAwards,
-// reach it.
+// InitRace+0x14 replaces "addi r3, r3, 0xc10" (r3 = r31 = the racedata); the prologue saved LR and r31,
+// and r3 is set again from r31 after the call.
 asmFunc MenuLocalsLocalStub() {
     ASM(
         nofralloc;

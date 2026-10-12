@@ -9,16 +9,13 @@
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The join page of a 5-8 player game (D64), in place of RegisteredPads (0x61) and RegisterPad (0x62),
-// whose PadControl[4] and per-hud prompts stop at 4. It asks for players 2..N in turn, one waiting
-// slot at a time: P2-4 through SectionPad (RequestPad; SectionPad::Update then calls TrySetController),
-// P5-8 through extPads and TrySetController on holders 4-7. Once all are in it opens vanilla's
-// OK/Change page (ConfirmPads, 0x64) as RegisteredPads does (D66). docs/plans/m4-menu-flow.md, phase B.
+// In place of RegisteredPads and RegisterPad, whose PadControl[4] and prompts stop at 4: P2-4 join through
+// SectionPad's RequestPad, P5-8 through extPads and TrySetController on holders 4-7.
 
 namespace SplitScreen8 {
 
-// PadControl (RecognizePad.hpp) keeps its members private; its functions by address. Load's mode 0
-// leaves its pad id to SetPadID; hud 4+ (P5-8) plays the "Menu" colour, which ColourSlot replaces.
+// PadControl keeps its members private, so its functions go by address. Load's mode 0 leaves its pad id to
+// SetPadID; hud 4+ plays the "Menu" colour, which ColourSlot replaces.
 const u32 kPadControlSize = 0x184;
 const u32 kDummyBackSize = 0x184;
 typedef void (*PadCtorFn)(LayoutUIControl *);
@@ -34,44 +31,33 @@ typedef void (*TrySetControllerFn)(Input::Manager *, u32, u32);
 typedef u32 (*CalculateIDFn)(const Input::RealControllerHolder *);
 typedef void (*SectionPadSlotFn)(SectionPad *, u32);
 typedef bool (*HasAControllerFn)(const SectionPad *, u32);
-typedef void (*SectionPadFn)(SectionPad *);
-typedef void (*PositionFromBaseFn)(UIControl *);
 typedef void (*ControlFn)(LayoutUIControl *);
 typedef void (*DummyBackLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32);
 typedef void (*RequestBackModelFn)(BackGroundModelControl *, s32);
-typedef bool (*IsPageTopLayerFn)(const Section *, const Page *);
 static const TrySetControllerFn trySetController = reinterpret_cast<TrySetControllerFn>(0x80523ebc);
 static const CalculateIDFn calculateID = reinterpret_cast<CalculateIDFn>(0x8061be40);
 static const SectionPadSlotFn requestPad = reinterpret_cast<SectionPadSlotFn>(0x8061b6ec);
-static const SectionPadSlotFn resetPad = reinterpret_cast<SectionPadSlotFn>(0x8061b7c4);
 static const HasAControllerFn hasAController = reinterpret_cast<HasAControllerFn>(0x8061b3cc);
-static const SectionPadFn resetPadsStatus = reinterpret_cast<SectionPadFn>(0x8061b9a0);
-static const SectionPadFn resetAllPads = reinterpret_cast<SectionPadFn>(0x8061bcc8);
-static const PositionFromBaseFn positionFromBase = reinterpret_cast<PositionFromBaseFn>(0x8063d3cc);
-static const ControlFn resetMsg = reinterpret_cast<ControlFn>(0x8063dfc8);
 static const ControlFn layoutCtor = reinterpret_cast<ControlFn>(0x8063d798);
 static const DummyBackLoadFn dummyBackLoad = reinterpret_cast<DummyBackLoadFn>(0x807e9620);
 static const RequestBackModelFn requestBackModel = reinterpret_cast<RequestBackModelFn>(0x805f2e84);
-static const IsPageTopLayerFn isPageTopLayer = reinterpret_cast<IsPageTopLayerFn>(0x80622e6c);
 
 const u32 kTitleBmg = 0x961;  // RegisterPad's title, "Controller Registration"
 const u32 kPromptBmg = 0x9c6;  // "Press the A Button on Player 1's controller.", then 2-4
 const SoundIDs kJoinSound = static_cast<SoundIDs>(0x20);  // RegisterPad's
 
-// D64's two rows, P1-4 above P5-8, at 0.80 of EntryPlayerPad's 114 x 156 layout units.
+// Two rows, P1-4 above P5-8, at 0.80 of EntryPlayerPad's 114 x 156 layout units.
 const float kSlotScale = 0.8f;
 const float kSlotY = 8.0f;
 
-// D70: while ConfirmPads is up the slots shrink and move left and its OK and Revise buttons shrink at
-// the right; at their vanilla place and size the buttons cover the fourth column of slots.
+// While ConfirmPads is up the slots move left and its buttons right, all smaller: in place they cover the fourth column.
 const float kConfirmSlotScale = 0.72f;
 const float kConfirmSlotX = -100.0f;
 const float kConfirmButtonScale = 0.8f;
 const float kConfirmButtonX = 210.0f;
 const u32 kConfirmFrames = 10;
 
-// P5-8's pads, as SectionPad's PadInfo holds P2-4's (D61): the id bound when the slot joined, 0 for
-// none, and whether the slot is the one waiting for an A.
+// P5-8's pads, as SectionPad's PadInfo holds P2-4's: the id bound at join (0 for none), and whether the slot awaits an A.
 struct ExtPad {
     u32 id;
     bool waiting;
@@ -95,9 +81,8 @@ static bool IsColourTrack(const nw4r::lyt::AnimationLink &link) {
     return false;
 }
 
-// Pulsar's UnbindRLMC steps on from the link it has just unbound, which ends in an endless walk of a
-// null link once a material has more than one colour track; each slot material has one per player
-// colour. This scan starts again after every unbind.
+// Pulsar's UnbindRLMC steps on from the link it just unbound, an endless walk once a material has more than one
+// colour track; each slot material has one per player colour, so this scan restarts after every unbind.
 static void UnbindColourTracks(nw4r::lyt::Material *material) {
     typedef nw4r::ut::LinkList<nw4r::lyt::AnimationLink, offsetof(nw4r::lyt::AnimationLink, link)> Links;
     bool unbound = true;
@@ -171,7 +156,7 @@ private:
     u32 shownIds[kMaxLocal];  // the pad id each slot shows
     bool leaving;
     bool confirming;  // ConfirmPads is open over the page
-    u32 confirmFrame;  // 0 at D64's layout, kConfirmFrames at D70's
+    u32 confirmFrame;  // 0 at the join layout, kConfirmFrames at the confirm one
 };
 
 Page *NewJoinPage() {
@@ -220,9 +205,8 @@ void JoinPage::OnInit() {
     }
     this->confirmFrame = 0;
     this->PlaceSlots();
-    // P1 drives the page as RegisterPad's PageManipulatorManager does, with B only and no control to
-    // select; P2-8's B is read from their holders. As RegisterPad's (0x80603A2C), no player is in the mask
-    // SectionPad's reconnect overlay scans: after Change every pad is reset, P1's included.
+    // P1 drives the page with B only, as RegisterPad's manager does; P2-8's B is read from their holders. As at
+    // 0x80603A2C, no player is in the mask the reconnect overlay scans: after Change every pad is reset, P1's too.
     this->manager.Init(1, false);
     this->SetManipulatorManager(this->manager);
     this->manager.UpdatePlayerBitfield2(0);
@@ -277,7 +261,7 @@ void JoinPage::Request(u32 slot) {
 // The slot empties and stops waiting; its holder drops to the dummy controller.
 void JoinPage::Release(u32 slot) {
     if (slot < kGameLocal) {
-        resetPad(&SectionMgr::sInstance->pad, slot);
+        SectionMgr::sInstance->pad.ResetPad(slot);
         return;
     }
     Input::Manager *input = Input::Manager::sInstance;
@@ -322,7 +306,7 @@ void JoinPage::PlaceSlots() {
         base.position.y = kSlotY + (slot < kGameLocal ? dy / 2 : -dy / 2);
         base.scale.x = scale;
         base.scale.z = scale;  // Vec2 names its second component z
-        positionFromBase(&pad);
+        pad.PositionFromBasePosition();
     }
 }
 
@@ -337,7 +321,7 @@ void JoinPage::OpenConfirm() {
             base.position.x = kConfirmButtonX;
             base.scale.x = kConfirmButtonScale;
             base.scale.z = kConfirmButtonScale;
-            positionFromBase(buttons[i]);
+            buttons[i]->PositionFromBasePosition();
         }
     }
     this->AddPageLayer(PAGE_CONFIRM_PAD, 0);
@@ -395,7 +379,7 @@ void JoinPage::AfterControlUpdate() {
             padSetId(this->pads[slot], id);
             // The lamp row, "{arg border|0}", draws hud 0-3 only; P5-8's slots (hud 4) show "???".
             if (slot >= kGameLocal)
-                resetMsg(this->pads[slot]);
+                this->pads[slot]->ResetMsg();
             if (id != 0 && this->shownIds[slot] != ~0u) {
                 padRegister(this->pads[slot]);
                 this->PlaySound(kJoinSound, slot);
@@ -411,10 +395,8 @@ void JoinPage::AfterControlUpdate() {
         this->OpenConfirm();
 }
 
-// ConfirmPads' OK and Back end RegisteredPads through its canEnd, which RegisteredPads::AfterControlUpdate
-// reads (0x806032C8); section 0x54 builds that page in every game, unshown in a 5-8 player one. Change
-// only closes ConfirmPads here (ConfirmChangeNextPage); every pad is reset as its OnDeactivate does before
-// RegisterPad (0x806051FC), and the page asks again from Player 1.
+// ConfirmPads' OK and Back set RegisteredPads' canEnd (read at 0x806032C8; the page is built, unshown, here too). Change
+// only closes ConfirmPads, so the pads are reset as its OnDeactivate does before RegisterPad (0x806051FC).
 void JoinPage::Confirming() {
     Pages::RegisteredPads *registered = SectionMgr::sInstance->curSection->Get<Pages::RegisteredPads>();
     if (registered != nullptr && registered->canEnd) {
@@ -423,10 +405,10 @@ void JoinPage::Confirming() {
         this->Leave(registered->endAnimDirection, registered->endAnimLength);
         return;
     }
-    if (!isPageTopLayer(SectionMgr::sInstance->curSection, this))
+    if (!SectionMgr::sInstance->curSection->IsPageTopLayer(*this))
         return;
     this->confirming = false;
-    resetAllPads(&SectionMgr::sInstance->pad);
+    SectionMgr::sInstance->pad.ResetAllPads();
     for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) this->Release(slot);
     this->requested = -1;
 }
@@ -442,14 +424,13 @@ void JoinPage::OnBackPress(u32) {
         return;
     this->Leave(1, 0.0f);
     SectionMgr *sectionMgr = SectionMgr::sInstance;
-    resetPadsStatus(&sectionMgr->pad);
+    sectionMgr->pad.ResetPadsStatus();
     sectionMgr->SetNextSection(SECTION_MAIN_MENU_FROM_MENU, 1);
     sectionMgr->RequestSceneChange(0, 0xff);
 }
 
-// ConfirmPads' Change ("li r0, 0x62") opens RegisterPad, which stops at 4, and ConfirmPads' own
-// OnDeactivate (0x806051E4) resets every pad only when its next page is 0x62. In a 5-8 player game
-// -1 only closes the page; Confirming resets the pads.
+// Replaces Change's "li r0, 0x62", RegisterPad, which stops at 4; OnDeactivate (0x806051E4) resets the pads only for
+// next page 0x62, so in a 5-8 player game -1 just closes the page and Confirming resets them.
 asmFunc ConfirmChangeNextPage() {
     ASM(
         nofralloc;

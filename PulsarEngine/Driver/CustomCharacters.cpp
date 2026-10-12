@@ -26,7 +26,7 @@ namespace Driver {
 
 bool characterTables[CHARACTER_COUNT][MAX_CUSTOM_CHARACTER_SLOTS + 1];
 
-u8 selectedSlots[4][CHARACTER_COUNT];
+u8 selectedSlots[SplitScreen8::kMaxLocal][CHARACTER_COUNT];
 static u8 loadedSlots[4];
 static s8 cycleDirections[4];
 enum {
@@ -67,7 +67,7 @@ static s32 LoadKartArchive(char *path, u32 size, const char *format, const char 
         ++character;
     }
 
-    const u32 slot = character < CHARACTER_COUNT ? SplitScreen8::SkinSlot(player, character) : 0;
+    const u32 slot = character < CHARACTER_COUNT && player < SplitScreen8::kMaxLocal ? selectedSlots[player][character] : 0;
     const char *battleSuffix = strstr(format, "_BT") != nullptr ? "_BT" : "";
     if (slot != 0) {
         char archivePath[0x80];

@@ -3,11 +3,8 @@
 #include <MarioKartWii/UI/Page/RaceHUD/RaceHUD.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Pause by players 5-8. Every page's input manager has 5 slots (0-3 and the dummy 4), so P5-8 pause
-// through slot 4: their START press calls RaceHUD::OnPause with slot 4, as the page's own START
-// handler calls it with 0-3, and while that pause is up SectionPad::GetControllerHolder answers slot 4
-// with the pausing player's holder. The pause menu takes its mask (1 << slot, 0x80859B9C) and its
-// initial selection from that slot. docs/plans/m4-menu-flow.md, phase A, has the sites.
+// A page's input manager has 5 slots, 4 the dummy: P5-8 pause through slot 4, and while that pause is up GetControllerHolder
+// answers slot 4 with their holder. The pause menu takes its mask (1 << slot, 0x80859B9C) from that slot.
 
 namespace SplitScreen8 {
 
@@ -24,8 +21,7 @@ static bool StartPressed(const Input::RealControllerHolder &holder) {
     return (holder.uiinputStates[0].buttonActions & 4) != 0 && (holder.uiinputStates[1].buttonActions & 4) == 0;
 }
 
-// After the RaceHUD's own START check, each frame its input manager is checked: the proxy is dropped
-// once no pause is up, and a new START from a player 5-8 opens one.
+// Each frame after the RaceHUD's own START check: the proxy goes once no pause is up, and a P5-8 START opens one.
 static void CheckExtPause(PageManipulatorManager *manager) {
     Pages::RaceHUD *page = Pages::RaceHUD::sInstance;
     if (page == nullptr || manager != &page->manipulatorManager || PauseUp(*page))
@@ -64,9 +60,8 @@ asmFunc CheckExtPauseStub() {
 }
 kmCall(0x805ef594, CheckExtPauseStub);
 
-// SectionPad::GetControllerHolder (r3 = the pad, r4 = the slot), a leaf: slot 4 answers the proxy while
-// it is set, returning through ReturnProxy (kmPatchExitPoint takes a function with one return);
-// anything else replays the replaced "slwi r0, r4, 4" and goes back. r12 is volatile at every call.
+// SectionPad::GetControllerHolder (r4 = the slot), a leaf: slot 4 answers the proxy while set, via ReturnProxy as
+// kmPatchExitPoint wants one return; else the replaced "slwi r0, r4, 4" runs. r12 is volatile at every call.
 asmFunc ReturnProxy() {
     ASM(
         nofralloc;
@@ -91,16 +86,14 @@ asmFunc ControllerHolderProxy() {
 kmBranch(0x8061b398, ControllerHolderProxy);
 kmPatchExitPoint(ControllerHolderProxy, 0x8061b39c);
 
-// ManipulatorManager::Update and ControlsManipulatorManager::Update ask every slot 0-4 with no mask
-// (0x805EEDC0, 0x805F1F7C, 0x805F1FE8), so a proxy left by a Quit would reach the menus: it goes at
-// every race load (a Restart) and every section load (a Quit).
+// The menu input managers ask slots 0-4 with no mask (0x805EEDC0, 0x805F1F7C, 0x805F1FE8), so a proxy left by a Quit
+// would reach the menus: it goes at every race load (Restart) and section load (Quit).
 static void ClearPauseProxy() {
     pauseProxy = nullptr;
 }
 
 #ifdef SS8_PAGES
-// The 8-player character page opens MiiSelect for a player 5-8 on slot 4 the same way (CharSelect.cpp), and
-// clears the proxy when MiiSelect closes; a section load clears it as well.
+// The 8-player character page opens MiiSelect for a P5-8 on slot 4 the same way, clearing the proxy as it closes.
 void SetMenuSlotProxy(Input::RealControllerHolder *holder) {
     pauseProxy = holder;
 }

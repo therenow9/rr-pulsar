@@ -1321,6 +1321,7 @@ SetPositionAnim__9UIControlFR16PositionAndScalef = 0x8063d194
 InitControlGroup__9UIControlFUi = 0x8063d268
 AddControl__9UIControlFUiP9UIControl = 0x8063d278
 GetClassName__9UIControlCFv = 0x8063d3c0
+PositionFromBasePosition__9UIControlFv = 0x8063d3cc
 vf_0x30__9UIControlFv = 0x8063d608
 PlaySound__9UIControlFUiUi = 0x8063d74c
 __vt__9UIControl = 0x808bf008
@@ -2613,6 +2614,7 @@ ToggleLock__12ToadetteHairFb = 0x807db028
 
 #Sound
 Initialize__Q23EGG12SoundHeapMgrFPQ23EGG4HeapUi = 0x8021318c
+PlayDriverMenuVoice = 0x80868abc
 GetGroupCount__Q34nw4r3snd12SoundArchiveCFv = 0x8009ded0
 ConvertLabelStringToGroupId__Q34nw4r3snd12SoundArchiveCFPCc = 0x8009df10
 detail_ReadGroupItemInfo__Q34nw4r3snd12SoundArchiveCFUiUiPQ44nw4r3snd12SoundArchive13GroupItemInfo = 0x8009dfd0
@@ -2686,3 +2688,38 @@ Update__Q24Kart6KillerFv = 0x8059bc44
 
 AssignTeams__Q25Pages11VSTeamsViewFv = 0x8084ffc8
 IsMultiplayer__Q25Pages4MenuFv = 0x808388b4
+
+#SplitScreen8
+Animate__10MainLayoutFv = 0x805e91a8
+ChangeTransformator__13ModelDirectorFP18ModelTransformatorb = 0x8055f7d8
+CharacterIdToKartIdByIdx__F11CharacterIdUc = 0x8081cef4
+CopyMiisToRacedata__13SectionParamsFv = 0x805e39d8
+CopyPADStatus__Q25Input7ManagerFUiPQ23PAD6Status = 0x80524628
+CreateAndBindTransformator__13ModelDirectorFv = 0x8055d9f0
+CreateEnableActions__Q26Lakitu6PlayerFv = 0x80721ec0
+CreatePlayers__Q26Lakitu7ManagerFv = 0x8071e480
+DStartCountdownAction__Q26Lakitu6PlayerFv = 0x807223bc
+GetCollision__Q24Kart4LinkFv = 0x8059084c
+GetKartArchivePrefix__10ArchiveMgrF6KartId = 0x805419ec
+GetNewID__10SectionPadCFUi = 0x8061b378
+InitCtrlRaceBase__Q25Pages7RaceHUDFUi = 0x80857cc0
+IsDemo__Q25Audio10RSARPlayerFv = 0x80713dcc
+IsPageTopLayer__7SectionCFRC4Page = 0x80622e6c
+LinkDriverAnim__20MenuModelBRRESHandleFUcR13ModelDirector11CharacterId = 0x8081eac4
+LoadArchives__14ArchivesHolderFPCcPQ23EGG4HeapPQ23EGG4HeapPUi = 0x8052a954
+LoadKartModel__20MenuModelBRRESHandleFR13ModelDirector4Team = 0x8081edc0
+RequestTask__10ArchiveMgrFPFPv_vPvUi = 0x80541cbc
+ResetAllPads__10SectionPadFv = 0x8061bcc8
+ResetPad__10SectionPadFUi = 0x8061b7c4
+ResetPadsStatus__10SectionPadFv = 0x8061b9a0
+SetDriftType__Q25Input20RealControllerHolderFUs = 0x80520f2c
+SetExpression__13MiiHeadsModelFUi = 0x807dc3e8
+SetKartActor__Q25Audio7RaceMgrFPQ25Audio9KartActor = 0x80713754
+SetPan__Q44nw4r3snd6detail10BasicSoundFf = 0x8008f620
+Set__Q34nw4r3lyt6TexMapFRCQ22GX6TexObj = 0x80082400
+StartGhostReading__Q25Input20RealControllerHolderFv = 0x805215d4
+StarteRespawnAction__Q26Lakitu6PlayerFv = 0x807223a4
+UnmountArchives__14ArchivesHolderFv = 0x8052aa88
+UpdatePlayerMatrix__Q25Audio7RaceMgrFv = 0x80711198
+Update__16MenuKartModelMgrFv = 0x8083300c
+func_8084745c__Q25Pages10KartSelectFv = 0x8084745c

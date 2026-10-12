@@ -1,16 +1,10 @@
 #include <kamek.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Per-screen item effects on screens 4-7 (D38, D39). The Blooper and POW managers keep one screen
-// object per racesScenario.screenCount (4, D10) in their last field, and ApplyBlooper indexes it by
-// the screen of every kart with a camera, so a widened race allocates both 8 wide with the wide count.
-// The lightning flash walks the wide count too.
-
 namespace SplitScreen8 {
 
-// Item::GessoMgr::CreateInstance+0x8 replaces "li r3, 0x54", the size passed to new: gessoScreens[4]
-// at +0x44 becomes 8 wide. r0 holds the caller's LR for the stw after this, so r0 stays untouched; CR0
-// is set again after new.
+// GessoMgr::CreateInstance+0x8 replaces "li r3, 0x54", new's size: gessoScreens[4] at +0x44, indexed by
+// every camera kart's screen, becomes 8 wide. r0 holds the caller's LR for the stw after, so stays untouched.
 asmFunc GessoMgrSize() {
     ASM(
         nofralloc;
@@ -24,8 +18,7 @@ asmFunc GessoMgrSize() {
 }
 kmCall(0x807a8f0c, GessoMgrSize);
 
-// Item::PowMgr::CreateInstance+0x8 replaces "li r3, 0x28": powScreens[4] at +0x18 becomes 8 wide. As
-// above, r0 holds the caller's LR.
+// PowMgr::CreateInstance+0x8 replaces "li r3, 0x28": powScreens[4] at +0x18 becomes 8 wide; r0 holds LR as above.
 asmFunc PowMgrSize() {
     ASM(
         nofralloc;
@@ -39,8 +32,7 @@ asmFunc PowMgrSize() {
 }
 kmCall(0x807b1bc8, PowMgrSize);
 
-// GessoMgr::CreateInstance+0x3C and PowMgr::CreateInstance+0x4C replace "lbz r0, 0x25(r4)", the
-// screen count stored as the manager's count (+0 and +4), which bounds every loop over its screens.
+// GessoMgr+0x3C and PowMgr+0x4C replace "lbz r0, 0x25(r4)", the stored count bounding every screen loop.
 // r12 is free; both functions saved LR.
 asmFunc ItemScreenCount() {
     ASM(
@@ -56,10 +48,8 @@ asmFunc ItemScreenCount() {
 kmCall(0x807a8f40, ItemScreenCount);
 kmCall(0x807b1c0c, ItemScreenCount);
 
-// GessoScreen::__ct+0xAC replaces "cmpwi r30, 4", the end of its loop that shows the model on its own
-// screen and hides it on the others. A widened race walks every screen, so a screen 4-7 model shows
-// on its own tile (D20's bits); otherwise ScreenBit's vanilla path would clear bits 20-21 for 4-7.
-// The blt after it reads CR0; r12 is free and the ctor saved LR.
+// GessoScreen::__ct+0xAC replaces "cmpwi r30, 4", ending the loop that shows the model on its own screen
+// only; widened, it runs over every screen, so a screen 4-7 model keeps its own bit. The blt reads CR0; r12 is free.
 asmFunc GessoScreenLoopEnd() {
     ASM(
         nofralloc;
@@ -89,9 +79,8 @@ asmFunc PowScreenLoopEnd() {
 }
 kmCall(0x807b25dc, PowScreenLoopEnd);
 
-// ObjThunder::ApplyToPlayers+0xFC replaces "lbz r27, 0x25(r3)", the bound of its loop requesting the
-// white flash on each screen; the course filters are already one per screen of the static count. r12
-// is free; the function saved LR.
+// ObjThunder::ApplyToPlayers+0xFC replaces "lbz r27, 0x25(r3)", the bound of its per-screen white-flash loop.
+// r12 is free; the function saved LR.
 asmFunc ThunderFlashScreens() {
     ASM(
         nofralloc;

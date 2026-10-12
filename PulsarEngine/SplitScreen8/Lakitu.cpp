@@ -4,10 +4,8 @@
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Lakitu for local players at hud slots 4-7 (D37): the countdown and the respawn carrier on their own
-// tiles. Lakitu::Manager keeps players[4] with its count right after, so the extras live in a side
-// table, and the manager functions that walk players[0..count) are replaced to walk it too. Every
-// outside user of the manager goes through these functions.
+// Lakitu::Manager keeps players[4] with its count right after, so hud 4-7's live in a side table; every
+// manager function walking players[0..count) is replaced, and no outside user touches the array directly.
 
 namespace SplitScreen8 {
 
@@ -16,21 +14,11 @@ static Lakitu::Player *extLakitu[kMaxLocal - kGameLocal];
 typedef void *(*NewFn)(u32);
 typedef Lakitu::Player *(*PlayerCtorFn)(void *, Kart::Player *);
 typedef void (*PlayerHudFn)(Lakitu::Player *, u32);
-typedef void (*PlayerFn)(Lakitu::Player *);
-typedef u8 (*PlayerIdxFn)(const Lakitu::Player *);
-typedef void (*CreatePlayersFn)(Lakitu::Manager *);
-typedef bool (*IsLocalFn)(const Kart::Player *);
 static const NewFn gameNew = reinterpret_cast<NewFn>(0x80229dcc);
 static const PlayerCtorFn playerCtor = reinterpret_cast<PlayerCtorFn>(0x80721514);
 static const PlayerHudFn loadGraphics = reinterpret_cast<PlayerHudFn>(0x80722504);
-static const PlayerFn createEnableActions = reinterpret_cast<PlayerFn>(0x80721ec0);
-static const PlayerFn startRespawnAction = reinterpret_cast<PlayerFn>(0x807223a4);
-static const PlayerFn startCountdownAction = reinterpret_cast<PlayerFn>(0x807223bc);
 static const PlayerHudFn toggleModelsScreenVisibility = reinterpret_cast<PlayerHudFn>(0x80721090);
 static const PlayerHudFn unknown80722418 = reinterpret_cast<PlayerHudFn>(0x80722418);
-static const PlayerIdxFn playerIdx = reinterpret_cast<PlayerIdxFn>(0x8072239c);
-static const CreatePlayersFn createPlayers = reinterpret_cast<CreatePlayersFn>(0x8071e480);
-static const IsLocalFn isLocal = reinterpret_cast<IsLocalFn>(0x80590650);
 
 // Lakitu::Player's virtual Init (vf 0xC), Update (0x10) and deleting dtor (0x8), as the manager calls them.
 static void VirtualCall(Lakitu::Player *player, u32 slot, u32 arg) {
@@ -51,13 +39,11 @@ static u32 LakituCount(const Lakitu::Manager &mgr) {
     return mgr.localPlayerCount + kMaxLocal - kGameLocal;
 }
 
-// Lakitu::Manager::Init+0x3C calls CreatePlayers, which builds one per local kart's hud slot below the
-// scenario's 4 screens. Locals at hud 4+ get theirs here, built as a VS one (widened races are VS):
-// kind 2, then CreateEnableActions. Spare CPUs get none, as vanilla's spare 3P screen has none. Init's
-// next loop initialises players[4] only, so the extras are initialised here.
+// Lakitu::Manager::Init+0x3C calls CreatePlayers (hud 0-3 only); locals at hud 4+ get a VS one here (kind 2),
+// spare CPUs none. Init's next loop initialises players[4] only, so the extras are initialised here.
 static void CreatePlayersWide(Lakitu::Manager *mgr) {
     for (u32 i = 0; i < kMaxLocal - kGameLocal; ++i) extLakitu[i] = nullptr;
-    createPlayers(mgr);
+    mgr->CreatePlayers();
     if (raceScreenCount == 0)
         return;
     for (u32 hud = kGameLocal; hud < raceScreenCount; ++hud) {
@@ -65,7 +51,7 @@ static void CreatePlayersWide(Lakitu::Manager *mgr) {
         if (id < 0)
             continue;
         Kart::Player *kart = Kart::Manager::sInstance->GetKartPlayer(id);
-        if (!isLocal(kart))
+        if (!kart->IsLocal())
             continue;
         void *memory = gameNew(0x218);
         if (memory == nullptr)
@@ -73,7 +59,7 @@ static void CreatePlayersWide(Lakitu::Manager *mgr) {
         Lakitu::Player *player = playerCtor(memory, kart);
         loadGraphics(player, hud);
         *reinterpret_cast<u32 *>(reinterpret_cast<u8 *>(player) + 0x1d0) = 2;
-        createEnableActions(player);
+        player->CreateEnableActions();
         VirtualCall(player, 0xc, 0);
         extLakitu[hud - kGameLocal] = player;
     }
@@ -116,8 +102,8 @@ kmBranch(0x8071e6c0, Update);
 static void DoEnableRespawnAction(Lakitu::Manager *mgr, u8 playerId) {
     for (u32 i = 0; i < LakituCount(*mgr); ++i) {
         Lakitu::Player *player = LakituAt(*mgr, i);
-        if (player != nullptr && playerIdx(player) == playerId) {
-            startRespawnAction(player);
+        if (player != nullptr && player->GetPlayerIdx() == playerId) {
+            player->StarteRespawnAction();
             return;
         }
     }
@@ -127,7 +113,7 @@ kmBranch(0x8071e734, DoEnableRespawnAction);
 static void ToggleVisible(Lakitu::Manager *mgr, u8 playerId, bool isVisible) {
     for (u32 i = 0; i < LakituCount(*mgr); ++i) {
         Lakitu::Player *player = LakituAt(*mgr, i);
-        if (player != nullptr && playerIdx(player) == playerId) {
+        if (player != nullptr && player->GetPlayerIdx() == playerId) {
             toggleModelsScreenVisibility(player, isVisible);
             return;
         }
@@ -139,7 +125,7 @@ kmBranch(0x8071e7ac, ToggleVisible);
 static void ClearPlayer5C(Lakitu::Manager *mgr, u8 playerId) {
     for (u32 i = 0; i < LakituCount(*mgr); ++i) {
         Lakitu::Player *player = LakituAt(*mgr, i);
-        if (player != nullptr && playerIdx(player) == playerId) {
+        if (player != nullptr && player->GetPlayerIdx() == playerId) {
             *(reinterpret_cast<u8 *>(player) + 0x5c) = 0;
             return;
         }
@@ -150,7 +136,7 @@ kmBranch(0x8071e82c, ClearPlayer5C);
 static void StartCountdownAnm(Lakitu::Manager *mgr) {
     for (u32 i = 0; i < LakituCount(*mgr); ++i)
         if (Lakitu::Player *player = LakituAt(*mgr, i))
-            startCountdownAction(player);
+            player->DStartCountdownAction();
 }
 kmBranch(0x8071e8a4, StartCountdownAnm);
 

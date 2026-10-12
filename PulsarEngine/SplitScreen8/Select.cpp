@@ -8,6 +8,7 @@
 #include <MarioKartWii/Input/ControllerHolder.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/UI/Page/Page.hpp>
+#include <MarioKartWii/UI/Page/Menu/KartSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/Menu.hpp>
 #include <MarioKartWii/UI/Page/Other/ModelRenderer.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuText.hpp>
@@ -20,18 +21,13 @@
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The kart and drift pages of a 5-8 player game (D67, D71): each player readies with A and un-readies with B, P1's
-// B with nobody ready goes back, and the last ready moves on. The kart page is D127's grid, the karts stepped by
-// Left/Right and the skin toggle buttons (D142); the character page is CharSelect.cpp's. Only with --ss8-pages
-// (SS8_PAGES); normal builds keep phase B's flow. docs/plans/m4-menu-flow.md, C3, C5a and C5b.
-
 namespace SplitScreen8 {
 
 struct SelectStep {
     u32 id;
     u32 prev;
     u32 next;
-    const wchar_t *title;  // English only until C4's pages take the game's own titles
+    const wchar_t *title;  // English only
     const char *name;
 };
 static const SelectStep kSteps[] = {
@@ -39,41 +35,26 @@ static const SelectStep kSteps[] = {
     {Pulsar::UI::PULPAGE_SS8DRIFTSELECT, Pulsar::UI::PULPAGE_SS8KARTSELECT, PAGE_CUP_SELECT, L"Drift", "drift"},
 };
 
-// The vanilla kart page's last confirm gives every CPU from the game's count (4, D60) a random kart
-// (KartSelect, 0x8084745C); it reads no argument. P5-8 are among them until InitRace makes them local
-// (MenuLocalsLocal, Entry.cpp).
-typedef void (*FillCpusFn)();
-static const FillCpusFn fillCpuKarts = reinterpret_cast<FillCpusFn>(0x8084745c);
-typedef KartId (*KartByIdxFn)(CharacterId, u8);
-static const KartByIdxFn characterIdToKartIdByIdx = reinterpret_cast<KartByIdxFn>(0x8081cef4);  // not in Kamek's externals
-typedef void (*PositionFromBaseFn)(UIControl *);
-static const PositionFromBaseFn positionFromBase = reinterpret_cast<PositionFromBaseFn>(0x8063d3cc);
 typedef GX::TexObj *(*ModelTexObjFn)(Pages::ModelRenderer *, u32);
 static const ModelTexObjFn modelTexObj = reinterpret_cast<ModelTexObjFn>(0x805f5a4c);
-// MultiKartSelect::OnTextChange's kart name (0x8084A338) and OnUpDownClick's P1-4 confirm voice (0x8084A1C4), which
-// returns at once for hud 4+; neither is in Kamek's externals.
+// MultiKartSelect::OnTextChange's kart name (0x8084A338) and OnUpDownClick's confirm voice (0x8084A1C4), which
+// returns at once for hud 4 or more.
 typedef u32 (*KartBmgFn)(KartId);
 static const KartBmgFn kartBmg = reinterpret_cast<KartBmgFn>(0x808334e0);
 typedef bool (*KartVoiceFn)(void *, u32);
 static const KartVoiceFn kartVoice = reinterpret_cast<KartVoiceFn>(0x808689dc);
 static u8 *const *const voiceOwner = reinterpret_cast<u8 *const *>(0x809c4740);
 
-// D127's grid: P1-4 over P5-8, columns at the layout's x, rows 175 apart, each kart above its plate at the size the
-// decision page's renders showed. Their 0.65 was of the prototype's preview control; this CharacterSelectModel
-// takes 0.45 for the same kart, its middle 48 above the plate.
 const float kCellX[kGameLocal] = {-240.0f, -80.0f, 80.0f, 240.0f};
 const float kKartPlateY[2] = {10.0f, -165.0f};
 const float kKartPlateScale = 0.5f;
 const float kKartPreviewDY = 71.0f;  // the texture's middle; the kart sits low in it
 const float kKartPreviewScale = 0.45f;
-// The vanilla arrows beside each kart (the 4P page's MachineArrowLeft/Right, ButtonArrowLeft4/Right4), smaller to
-// fit a column.
 const float kArrowDX = 42.0f;
 const float kArrowDY = 48.0f;
 const float kArrowScale = 0.32f;
 const s16 kArrowBaseAlpha = 70;
-// UpDownControl's sounds: a change's 0x11 and 0x12 (HandleLeftPress 0x8063FD8C, HandleRightPress 0x8063FC6C) and a
-// click's 0x13 (+0x5C4, set in its constructor at 0x8063EB3C; MultiKartSelect keeps it).
+// UpDownControl's change sounds (0x8063FD8C, 0x8063FC6C) and click sound (+0x5C4, set at 0x8063EB3C).
 const u32 kSoundKartLeft = 0x11;
 const u32 kSoundKartRight = 0x12;
 const u32 kSoundKartConfirm = 0x13;
@@ -105,29 +86,29 @@ enum ArrowSide {
 
 KartId KartForCharacter(CharacterId character, KartId kart) {
     for (u8 k = 0; k < 12; ++k)
-        if (characterIdToKartIdByIdx(character, k) == kart)
+        if (CharacterIdToKartIdByIdx(character, k) == kart)
             return kart;
     return static_cast<KartId>(GetCharacterWeightClass(character));
 }
 
-// P1-4's karts, from SectionParams as the kart page leaves them, written where the vanilla page's confirm
-// writes them.
+// Written where the vanilla page's confirm writes P1-4's karts.
 static void WriteKarts() {
     const SectionParams *params = SectionMgr::sInstance->sectionParams;
     for (u32 i = 0; i < kGameLocal; ++i) {
         RacedataPlayer &player = Racedata::sInstance->menusScenario.players[i];
         player.kartId = KartForCharacter(player.characterId, params->karts[i]);
     }
-    fillCpuKarts();
+    // The kart page's last confirm (0x8084745C, no arguments) gives every CPU from the game's local count of 4 a random
+    // kart, P5-8 included until InitRace makes them local (MenuLocalsLocal, Entry.cpp).
+    Pages::KartSelect::func_8084745c();
 }
 
-// A character's karts as MultiKartSelect::FillPossibleKarts lists them (0x8084A3F8): its weight class in KartId
-// order, unlocked as that page asks (IsKartUnlocked with its 2, 0x8084A45C), and RR's vehicle restriction, which
-// offline allows every kart (GetVehicleMask needs a friend room's PULSAR_VEHICLERESTRICT).
+// As MultiKartSelect::FillPossibleKarts lists them (0x8084A3F8): the weight class in KartId order, unlocked with its
+// 2 (0x8084A45C), and RR's vehicle restriction, which offline allows every kart.
 static u32 KartChoices(CharacterId character, KartId *choices) {
     u32 count = 0;
     for (u8 k = 0; k < 12; ++k) {
-        const KartId kart = characterIdToKartIdByIdx(character, k);
+        const KartId kart = CharacterIdToKartIdByIdx(character, k);
         if (IsKartUnlocked(kart, static_cast<u32>(2)) && Pulsar::Restrictions::IsVehicleEnabled(kart))
             choices[count++] = kart;
     }
@@ -149,9 +130,8 @@ typedef void (*ShowModelFn)(Pages::ModelRenderer *, u32, bool, u32);
 static const ShowModelFn showModel = reinterpret_cast<ShowModelFn>(0x805f59ac);
 const u32 kDriverKart = 0x14;  // MenuDriverModel's kart (0x805F3F30)
 
-// UpDownControl::Update's colours for its hud (0x8063F304-0x8063F5A0): each arrow's frame (fuchi_pattern) the
-// player's two colours, its arrow (color_yajirushi) the first at no alpha over the second, and its base
-// (color_base) the slot's single colour, which the game's table (0x80895CC0) makes the second at alpha 70.
+// As UpDownControl::Update colours its hud (0x8063F304-0x8063F5A0): the frame both colours, the arrow the first at
+// no alpha over the second, the base the second at alpha 70 (the game's table, 0x80895CC0).
 static void SetPaneColours(LayoutUIControl &control, const char *name, const RGBA16 &first, const RGBA16 &second) {
     nw4r::lyt::Pane *pane = control.layout.GetPaneByName(name);
     nw4r::lyt::Material *material = pane != nullptr ? pane->GetMaterial() : static_cast<nw4r::lyt::Material *>(nullptr);
@@ -207,7 +187,7 @@ private:
     LayoutUIControl *plates[kMaxLocal];
     LayoutUIControl *arrows[kMaxLocal][2];
     s32 held[kMaxLocal][2];  // frames Left and Right have been held, -1 when not
-    s8 toggleSteps[kMaxLocal];  // this frame's skin toggle press, -1, 0 or 1 (D142)
+    s8 toggleSteps[kMaxLocal];  // this frame's skin toggle press, -1, 0 or 1
 };
 
 Page *NewSelectPage(u32 id) {
@@ -246,15 +226,14 @@ void SelectPage::OnInit() {
     info.strings[0] = const_cast<wchar_t *>(this->step.title);
     this->titleText->SetMessage(Pulsar::UI::BMG_TEXT, &info);
     for (u32 p = 0; this->kartStep && p < kMaxLocal; ++p) this->LoadKartCell(p);
-    // A page with no control to select takes a PageManipulatorManager; every player's A and B are read
-    // from the holders. SectionPad's reconnect overlay watches P1-4, as the vanilla pages' mask does with
-    // D60's count of 4; P5-8's box is D69's (C6).
+    // No control to select, so A and B are read from the holders. The bitfield keeps SectionPad's reconnect
+    // overlay on P1-4, as the vanilla pages' mask does with the game's count of 4.
     this->manager.Init(1, false);
     this->SetManipulatorManager(this->manager);
     this->manager.UpdatePlayerBitfield2((1 << kGameLocal) - 1);
 }
 
-// A cell of D127's grid: the preview, then the plate over it, then the arrows.
+// A grid cell: the preview, then the plate over it, then the arrows.
 void SelectPage::LoadKartCell(u32 player) {
     const float x = kCellX[player % kGameLocal];
     const float y = kKartPlateY[player / kGameLocal];
@@ -266,9 +245,8 @@ void SelectPage::LoadKartCell(u32 player) {
     this->LoadArrow(player, ARROW_RIGHT);
 }
 
-// UpDownControl::Load's buttons (0x8063ECF8-0x8063EDC8) as MultiKartSelect::CreateControl names them for 3-4
-// players (0x80849A84), coloured as UpDownControl::Update colours them. Plain LayoutUIControls, since an
-// UpDownControl joins the page's 5-slot ControlsManipulatorManager (0x8063EFC8), which cannot serve 8.
+// UpDownControl::Load's buttons (0x8063ECF8) as MultiKartSelect names them for 3-4 players (0x80849A84), as plain
+// controls: an UpDownControl joins the page's 5-slot ControlsManipulatorManager (0x8063EFC8), which cannot serve 8.
 void SelectPage::LoadArrow(u32 player, ArrowSide side) {
     LayoutUIControl &arrow = *this->arrows[player][side];
     this->AddControl(1 + 2 * kMaxLocal + 2 * player + side, arrow, 0);
@@ -282,7 +260,7 @@ void SelectPage::LoadArrow(u32 player, ArrowSide side) {
     base.position.y = kKartPlateY[player / kGameLocal] + kArrowDY;
     base.scale.x = kArrowScale;
     base.scale.z = kArrowScale;  // Vec2 names its second component z
-    positionFromBase(&arrow);
+    arrow.PositionFromBasePosition();
     RGBA16 primary, secondary;
     MenuPlayerColours(player, &primary, &secondary);
     RGBA16 clear = primary;
@@ -311,9 +289,8 @@ void SelectPage::OnDeactivate() {
     ExtPreviewsHide();
 }
 
-// Each player starts on their last kart if their character has it, else the class's first choice. P1-4's karts
-// load as a character click loads them (LoadKartModelsByCharacter, 0x805F570C), each time the page opens: their
-// once-per-character flag (+0x9) is cleared first, since a skin, which the flag does not see, can change the archive.
+// P1-4's karts load as a character click loads them (0x805F570C) each time the page opens, their once-per-character
+// flag (+0x9) cleared first: a skin, which the flag does not see, can change the archive.
 void SelectPage::ActivateKarts() {
     const u32 count = menuLocalCount;
     if (!ExtPreviewsShow(count) || !ExtKartsShow(count))
@@ -340,8 +317,7 @@ void SelectPage::ActivateKarts() {
         const KartId last = player < kGameLocal ? params->karts[player] : extPicks[player - kGameLocal].picked ? extPicks[player - kGameLocal].kart : static_cast<KartId>(-1);
         this->karts[player] = KartForCharacter(character, last);
         this->StepKart(player, 0);
-        // VehicleModelControl::InitSelf takes each hud out of the confirmed pose as the page opens (0x805F3CD8), which a
-        // Back from the drift page needs.
+        // As VehicleModelControl::InitSelf leaves the confirmed pose on open (0x805F3CD8), for a Back from the drift page.
         MenuDriverModel *model = player < kGameLocal ? GameDriverModel(player) : static_cast<MenuDriverModel *>(nullptr);
         if (model != nullptr && model->state == kStateKartChosen)
             model->SwitchState(player, MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT);
@@ -352,8 +328,7 @@ void SelectPage::ActivateKarts() {
     }
 }
 
-// A step of 0 keeps the kart if it is a choice, else takes the first. The plate names the kart, as OnTextChange
-// does (0x8084A338).
+// A step of 0 keeps the kart if it is a choice, else takes the first.
 void SelectPage::StepKart(u32 player, s32 step) {
     KartId choices[12];
     const CharacterId character = PlayerCharacter(player);
@@ -386,9 +361,8 @@ void SelectPage::RequestKart(u32 player) {
     ExtKartRequest(player, character, SkinSlot(player, character), this->karts[player]);
 }
 
-// What VehicleModelControl::OnUpdate does each frame for P1-4 (0x805F3CF8): the model shown, and once its karts
-// have loaded (params' isVisible, 0x805F3DBC) the kart asked for and the driver put on it, unless it is in the
-// confirmed pose (state 3, 0x805F3F0C). Then every player's texture on their preview.
+// What VehicleModelControl::OnUpdate does each frame for P1-4 (0x805F3CF8): once the karts have loaded (isVisible,
+// 0x805F3DBC), the kart asked for and the driver put on it unless in the confirmed pose (0x805F3F0C).
 void SelectPage::UpdateKartPreviews() {
     Pages::ModelRenderer *renderer = SectionMgr::sInstance->curSection->Get<Pages::ModelRenderer>();
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
@@ -413,9 +387,8 @@ void SelectPage::UpdateKartPreviews() {
     }
 }
 
-// UpDownButton::Update (0x8063FFB0): the arrow's loop runs while it is selected, and it shows while the player can
-// change the kart or its OK still plays. UpDownControl::Update gives each arrow that "can change" (+0x174,
-// 0x8063F614-0x8063F678) from the control's own (+0x211, which a confirm clears), the page's karts wrapping.
+// As UpDownButton::Update (0x8063FFB0): the loop runs while selected, and the arrow shows until a ready player's OK
+// has played; UpDownControl's "can change" (0x8063F614) is what a confirm clears, and the karts wrap.
 void SelectPage::UpdateArrows(u32 player) {
     for (u32 side = 0; side < 2; ++side) {
         LayoutUIControl &arrow = *this->arrows[player][side];
@@ -431,9 +404,8 @@ void SelectPage::UpdateArrows(u32 player) {
     }
 }
 
-// UpDownButton::ToggleSelect (0x8064019C) on both arrows: a player who chooses leaves them, as the 4P page's
-// confirm does by taking the player's holder off the control (InitHolders, 0x8084A164), and one who un-chooses
-// comes back to them.
+// UpDownButton::ToggleSelect (0x8064019C) on both arrows: a confirm leaves them, as the 4P page's takes the
+// player's holder off the control (InitHolders, 0x8084A164), and an un-confirm comes back to them.
 void SelectPage::SelectArrows(u32 player, bool select) {
     for (u32 side = 0; side < 2; ++side) {
         UIAnimator &animator = this->arrows[player][side]->animator;
@@ -453,8 +425,7 @@ void SelectPage::SelectArrows(u32 player, bool select) {
     }
 }
 
-// Left or Right this frame, -1, 1 or 0, as the menus read a direction: the D-pad first, else the stick, each
-// repeating while held (CharSelect.cpp's Direction for two directions).
+// -1, 1 or 0: the D-pad first, else the stick, each repeating while held (CharSelect.cpp's Direction for two).
 s32 SelectPage::KartDirection(u32 player, const Input::RealControllerHolder &holder) {
     const Input::UIState &state = holder.uiinputStates[0];
     const u16 actions = state.buttonActions;
@@ -494,8 +465,7 @@ void SelectPage::Ready(u32 player) {
     }
 }
 
-// As MultiKartSelect::OnBackPress for a player who has chosen (0x80849FB8-0x8084A020): the driver back in the kart
-// pose, the arrows back, the back sound.
+// As MultiKartSelect::OnBackPress for a player who has chosen (0x80849FB8-0x8084A020).
 void SelectPage::Unready(u32 player) {
     this->ready[player] = false;
     OS::Report("ss8 select: %s player %u unready\n", this->step.name, player + 1);
@@ -511,8 +481,7 @@ void SelectPage::Unready(u32 player) {
     this->PlaySound(SOUND_ID_BACK_PRESS, -1);
 }
 
-// The skin toggle buttons, read before the page's actions as the character page reads them (D81, D142), with
-// each player's toggle icons on their plate.
+// The skin toggle buttons, read before the page's actions as the character page reads them.
 void SelectPage::BeforeControlUpdate() {
     for (u32 p = 0; p < kMaxLocal; ++p) this->toggleSteps[p] = 0;
     if (!this->kartStep)
@@ -589,10 +558,8 @@ void SelectPage::Leave(u32 next, u32 animDirection) {
     this->EndStateAnimated(animDirection, 0.0f);
 }
 
-// VSModeSelect::OnButtonClick's two "bl Menu::LoadNextPageById" with r4 = 0x6B: Team VS (0x80852A6C,
-// the team bit set) and VS (0x80852A90, cleared). r3-r5 are the call's own arguments, and the code after
-// it sets r0 and r3 before reading them. A 5-8 player game opens the character page in both; the team bit
-// is not read until phase D.
+// VSModeSelect::OnButtonClick's "bl Menu::LoadNextPageById" for Team VS (0x80852A6C) and VS (0x80852A90); r3-r5 are
+// the call's own arguments, and the code after it sets r0 and r3 before reading them.
 static void VSModeNextPage(Pages::Menu &page, PageId id, PushButton &button) {
     page.LoadNextPageById(menuLocalCount > kGameLocal ? static_cast<PageId>(Pulsar::UI::PULPAGE_SS8CHARSELECT) : id, button);
 }

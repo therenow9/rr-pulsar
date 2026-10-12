@@ -2,10 +2,8 @@
 #include <core/rvl/OS/OS.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Culling for screens 4-7 (D21). A ClipInfo keeps a distance and a flag byte per screen inline, for 4
-// screens. In a widened race ClipInfoMgr allocates its pool twice over; entry i + kClipPool holds
-// screens 4-7 of entry i in the same layout, so every reader reaches it by adding kClipShadow.
-// docs/plans/m2-engine-widening.md (phase B, "Culling") has the reader scan.
+// A ClipInfo holds distance[4] and flags[4] inline. A widened race allocates the pool twice over: entry i + kClipPool
+// holds screens 4-7 of entry i in the same layout, so every reader reaches it by adding kClipShadow.
 
 namespace SplitScreen8 {
 
@@ -50,9 +48,8 @@ static float Dot(const float *plane, const float *d) {
     return d[0] * plane[0] + d[1] * plane[1] + d[2] * plane[2];
 }
 
-// Update's per-screen body (+0x160..+0x304) for one screen: the new culled and far bits, and the
-// distance. The comparisons keep the game's branch senses (bgt / ble after fcmpo), so a NaN takes the
-// same path.
+// Update's per-screen body (+0x160..+0x304) for one screen: the new culled and far bits, and the distance.
+// The comparisons keep the game's branch senses (bgt / ble after fcmpo), so a NaN takes the same path.
 static u8 Classify(const Clip &clip, const ClipScreen &screen, u8 flags, float &distance) {
     const float d[3] = {clip.position[0] - screen.position[0], clip.position[1] - screen.position[1], clip.position[2] - screen.position[2]};
     distance = screen.scale * (d[2] * d[2] + d[0] * d[0] + d[1] * d[1]);
@@ -104,9 +101,8 @@ static void SelfCheck(const Clip &clip, const ClipScreen *screens) {
 }
 #endif
 
-// After Update's per-screen loop for one ClipInfo (screens 0-3), screens 4..N-1 into its shadow. The
-// flags Init or the item code set uniformly are taken from screen 0; under the skip bit, as Update
-// leaves the bytes alone, the shadow takes screen 0's whole byte.
+// After Update's loop over screens 0-3 of one ClipInfo, screens 4..N-1 into its shadow. Uniformly set flags come from
+// screen 0; under the skip bit Update leaves the bytes alone, so the shadow takes screen 0's whole byte.
 static void ClipShadowUpdate(Clip &clip, const ClipScreen *screens) {
 #ifdef SS8_DEBUG_SCREENS
     SelfCheck(clip, screens);
@@ -128,9 +124,8 @@ static void ClipShadowUpdate(Clip &clip, const ClipScreen *screens) {
     }
 }
 
-// ClipInfoMgr::Update+0x318 replaces "addi r26, r26, 0x24", the per-ClipInfo loop's tail, reached
-// both after the screen loop and from the skip test; r23 = the ClipInfo, r22 = ClipInfoMgr (+0x1C
-// the ClipScreenInfos). r0 and r3-r12 are reloaded before they are read; the prologue saved LR.
+// ClipInfoMgr::Update+0x318 replaces "addi r26, r26, 0x24", the per-ClipInfo tail (after the screen loop and the skip test);
+// r23 = ClipInfo, r22 = mgr (+0x1C screens). r0 and r3-r12 are reloaded before they are read; the prologue saved LR.
 asmFunc ClipShadowUpdateHook() {
     ASM(
         nofralloc;
@@ -153,9 +148,8 @@ asmFunc ClipShadowUpdateHook() {
 }
 kmCall(0x80787a8c, ClipShadowUpdateHook);
 
-// ClipInfoMgr::Update+0x110 replaces "andc. r0, r0, r5" (r0 = 0x02020202, r5 = the flag word): the
-// area ids are refreshed unless every screen is far, so screens 4-7 count too. r31 = 0x02020000 and
-// r23 = the ClipInfo; r12 is free in the loop. 0x4820 is kClipShadow + 0x20.
+// ClipInfoMgr::Update+0x110 replaces "andc. r0, r0, r5" (r0 = 0x02020202, r5 = flags): area ids refresh unless every screen,
+// 4-7 included, is far. r31 = 0x02020000, r23 = ClipInfo; r12 is free in the loop. 0x4820 is kClipShadow + 0x20.
 asmFunc ClipAreaRefreshAllScreens() {
     ASM(
         nofralloc;
@@ -225,9 +219,8 @@ asmFunc ClipPoolSize() {
 }
 kmCall(0x807874b4, ClipPoolSize);
 
-// CreateInstance+0x7C "li r3, 0x190" and +0x9C "li r7, 4": 4 ClipScreenInfos (0x60 each, a 0x10
-// array header), 8 (kMaxLocal) in a widened race, so Update's own first loop fills one per screen.
-// r0 holds a value stored after the first; r12 is free at both.
+// CreateInstance+0x7C "li r3, 0x190" and +0x9C "li r7, 4": 4 ClipScreenInfos (0x60 each + 0x10 header), 8 when widened,
+// so Update's own first loop fills one per screen. r0 holds a value stored after the first; r12 is free at both.
 asmFunc ClipScreensSize() {
     ASM(
         nofralloc;
@@ -254,10 +247,8 @@ asmFunc ClipScreensCount() {
 }
 kmCall(0x80787508, ClipScreensCount);
 
-// The leaf 0x8055d2f4 reads a screen's distance as "add r6, r6, r0; lfs f1, 0xc(r6)" (r6 = the
-// ClipInfo, r0 = screen r4 * 4) on each of its four paths. No stack frame, so branch out and back
-// over both; r7 is never read in the leaf. For screens 4+ the shadow's is at r6 + 0x47F0
-// (kClipShadow - 4 * 4) + 0xC.
+// Leaf 0x8055d2f4 reads a distance as "add r6, r6, r0; lfs f1, 0xc(r6)" (r6 = ClipInfo, r0 = r4 * 4) on all four paths. No
+// stack frame, so branch out and back; r7 is never read in the leaf. Screens 4+ add 0x47F0 (kClipShadow - 4 * 4).
 asmFunc LeafDistanceA() {
     ASM(
         nofralloc;
@@ -330,9 +321,8 @@ asmFunc LeafDistanceD() {
 kmBranch(0x8055d3e8, LeafDistanceD);
 kmPatchExitPoint(LeafDistanceD, 0x8055d3f0);
 
-// ModelDirector::SetDisableDrawScnOptionsFromClipInfo+0x54 replaces "lbz r0, 0x20(r5)" (r5 =
-// ClipInfo + screen r4): bit 0 set hides the model on that screen. 0x481C is kClipShadow + 0x20 - 4.
-// The next instruction sets CR0 from r0; r12 is reloaded before it is read.
+// ModelDirector::SetDisableDrawScnOptionsFromClipInfo+0x54 replaces "lbz r0, 0x20(r5)" (r5 = ClipInfo + screen r4).
+// 0x481C is kClipShadow + 0x20 - 4. The next instruction sets CR0 from r0; r12 is reloaded before it is read.
 asmFunc ClipByteForScreen() {
     ASM(
         nofralloc;
@@ -351,10 +341,8 @@ asmFunc ClipByteForScreen() {
 }
 kmCall(0x8055d5a8, ClipByteForScreen);
 
-// SetAllScnOptionsFromClipInfo decides "hidden on every screen" (then disables the model outright)
-// from screens 0-3. In a widened race it takes every screen; the shadow's bytes past the race's count
-// read culled, and the hidden mask's bits past the static count are set by ModelDirector::__ct(ClipInfo).
-// +0x48 replaces "lwz r0, 0x20(r4)" (r4 = the ClipInfo; "andc. r0, 0x01010101, r0" follows).
+// SetAllScnOptionsFromClipInfo+0x48 replaces "lwz r0, 0x20(r4)" (r4 = ClipInfo), its "hidden on every screen" word, to take
+// all 8; shadow bytes past the race's count read culled, and ModelDirector::__ct(ClipInfo) sets the mask's high bits.
 asmFunc SetAllClipWord() {
     ASM(
         nofralloc;
@@ -369,9 +357,8 @@ asmFunc SetAllClipWord() {
 }
 kmCall(0x8055d490, SetAllClipWord);
 
-// Effects::Player::UpdateValues+0x40 replaces "lwz r0, 0x20(r3)" (r3 = the kart's ClipInfo) ahead of
-// "andc 0x01010101": +4 = culled on every screen, which skips the kart's item effects (UpdateItemEffect:
-// star, thunder, POW). In a widened race it takes screens 4-7 as SetAllClipWord does. r12 is free.
+// Effects::Player::UpdateValues+0x40 replaces "lwz r0, 0x20(r3)" (r3 = the kart's ClipInfo): culled on every screen skips
+// the kart's star, thunder and POW effects, so it takes screens 4-7 as SetAllClipWord does. r12 is free.
 asmFunc PlayerEffectsClipWord() {
     ASM(
         nofralloc;
@@ -386,10 +373,8 @@ asmFunc PlayerEffectsClipWord() {
 }
 kmCall(0x80693ed4, PlayerEffectsClipWord);
 
-// Item::ObjHolder::UpdateModelPositions+0x38 replaces "lwz r0, 0x20(r4)" (r4 = the item's ClipInfo) ahead
-// of "andc. 0x01010101": an item culled on every screen gets the light update (vtable +0x14) instead of
-// its model placement (+0x10), so a Thundercloud over a kart seen only on tiles 5-8 never hovers there
-// (PD8). In a widened race it takes screens 4-7 too. r12 is reloaded before it is read.
+// Item::ObjHolder::UpdateModelPositions+0x38 replaces "lwz r0, 0x20(r4)" (r4 = the item's ClipInfo): culled on every screen
+// gets the light update (vtable +0x14), not placement (+0x10), so 4-7 must count. r12 is reloaded before it is read.
 asmFunc ItemModelClipWord() {
     ASM(
         nofralloc;
@@ -448,9 +433,8 @@ asmFunc SetAllScreenBitsOff() {
 }
 kmCall(0x8055d530, SetAllScreenBitsOff);
 
-// The item-box (FIB) pass 0x807a7d90, called per drawn screen r4 from ScnMgrRace::Draw: +0x64
-// replaces "lbz r0, 0x20(r3)" (r3 = ClipInfo + r4) and +0x7C "lfs f31, 0xc(r3)" (r3 = ClipInfo +
-// r4 * 4). The prologue saved LR and f31; CR0 is set next from r0 or by fcmpo.
+// Item-box pass 0x807a7d90, per drawn screen r4: +0x64 "lbz r0, 0x20(r3)" (r3 = ClipInfo + r4) and +0x7C "lfs f31, 0xc(r3)"
+// (r3 = ClipInfo + r4 * 4). The prologue saved LR and f31; CR0 is set next from r0 or by fcmpo.
 asmFunc FibClipByte() {
     ASM(
         nofralloc;
@@ -485,9 +469,8 @@ asmFunc FibClipDistance() {
 }
 kmCall(0x807a7e0c, FibClipDistance);
 
-// The GX pass 0x8087a718 (drawn screen r22, from the renderer's GameScreen) tests each object's
-// ClipInfo at +0x698, "lbz r0, 0x20(r3)" with r3 = ClipInfo + r22. The prologue saved LR; the next
-// instruction sets CR0.
+// GX pass 0x8087a718 (drawn screen r22) tests each object's ClipInfo at +0x698, "lbz r0, 0x20(r3)" with r3 = ClipInfo + r22.
+// The prologue saved LR; the next instruction sets CR0.
 asmFunc GxPassClipByte() {
     ASM(
         nofralloc;
@@ -505,9 +488,8 @@ asmFunc GxPassClipByte() {
 }
 kmCall(0x8087adb0, GxPassClipByte);
 
-// Objects::HighwayCar::__ct+0xCC replaces "stb r0, 0x15a(r26)" (r0 = the static screen count). Its
-// one reader 0x806d9fcc keeps per-screen distances for its horn sounds in a 4-slot stack array, so
-// spare tiles take none: the count stays at the game's 4. The prologue saved LR; CR0 is reset next.
+// Objects::HighwayCar::__ct+0xCC replaces "stb r0, 0x15a(r26)": its one reader 0x806d9fcc keeps horn distances in a 4-slot
+// stack array, so the count stays at 4 and screens 4-7 get none. The prologue saved LR; CR0 is reset next.
 asmFunc HighwayCarScreens() {
     ASM(
         nofralloc;

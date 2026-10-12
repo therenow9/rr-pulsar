@@ -6,20 +6,17 @@
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 
 // Each player's own OK marker on a shared driver with 2-4 local players offline, ported from mkw-sp
-// PR #452 (LICENSE_mkw-sp). RR already makes driver buttons not exclusive (Driver/CustomCharacters.cpp);
-// here every multiplayer driver button loads the way the Mii button does, one OK marker per player.
-// The controls come from scripts/gen_charselect_multi.py. Online rooms and 1P keep RR's buttons.
+// PR #452 (LICENSE_mkw-sp). Online rooms and 1P keep RR's buttons.
 
 namespace Pulsar {
 namespace UI {
 
-// The generated controls' OK markers each take half the button with 2 players and a quarter with 3-4.
+// From scripts/gen_charselect_multi.py; their OK markers take half the button with 2 players and a quarter with 3-4.
 static const char multiButtonCtrName2[] = "CharacterSelect%d_%d_Multi2";
 static const char multiButtonCtrName4[] = "CharacterSelect%d_%d_Multi4";
 
-// Set by LoadButton's first multiplayer hook and read by the hooks after it and OnUpdate's, which run
-// where a call would clobber live registers. An online character select is built before any room
-// exists, so the section decides, as CharacterSelect::OnInit's own IsOnlineSection test does.
+// Set by LoadButton's first multiplayer hook for the later hooks, which run where a call would clobber live registers. An online
+// character select is built before any room exists, so the section decides, as CharacterSelect::OnInit's IsOnlineSection test does.
 static bool sameCharacterOffline;
 
 static bool UpdateSameCharacterOffline() {
@@ -30,9 +27,8 @@ static bool UpdateSameCharacterOffline() {
     return sameCharacterOffline;
 }
 
-// CtrlMenuCharacterSelect::LoadButton+0x5C, "cmpwi r28, 0" (isMii), reached only with 2+ players.
-// Offline, CR0 is set from "r29 (the player count) != 1" instead, so the bne after takes the Mii
-// button's path for every button. Volatile registers are dead here and LoadButton saved LR.
+// CtrlMenuCharacterSelect::LoadButton+0x5C, "cmpwi r28, 0" (isMii), reached only with 2+ players: offline, CR0 comes from r29
+// (the player count) != 1, so the bne after takes the Mii path for every button. Volatiles are dead here; LoadButton saved LR.
 static asmFunc LoadAsMultiButtonIfOffline() {
     ASM(
         nofralloc;
@@ -53,9 +49,8 @@ static asmFunc LoadAsMultiButtonIfOffline() {
 }
 kmCall(0x807e2984, LoadAsMultiButtonIfOffline);
 
-// LoadButton+0x98, "addi r5, r30, 0x80": the Mii path's "CharacterSelect%d_%d_Mii". Offline, use the
-// _Multi controls, which exist for every column. r29 is the player count (0x807E2954); nothing reads
-// CR0 before the snprintf.
+// LoadButton+0x98, "addi r5, r30, 0x80", the Mii path's "CharacterSelect%d_%d_Mii"; offline, the _Multi controls of every column.
+// r29 is the player count (0x807E2954); nothing reads CR0 before the snprintf.
 static asmFunc LoadMultiButtonCtrName() {
     ASM(
         nofralloc;
@@ -76,9 +71,8 @@ static asmFunc LoadMultiButtonCtrName() {
 }
 kmCall(0x807e29c0, LoadMultiButtonCtrName);
 
-// LoadButton+0x110, "stb r28, 0x254(r4)": the byte normally means "this is the Mii button", and the
-// control uses it to pick the per-player OK markers, so offline multiplayer sets it on every button.
-// 1P and online keep isMii. CR0 is not read before LoadButton's next compare; r12 is free.
+// LoadButton+0x110, "stb r28, 0x254(r4)": the control picks per-player OK markers by this "is the Mii button" byte, so offline
+// multiplayer sets it on every button. CR0 is not read before LoadButton's next compare; r12 is free.
 static asmFunc StoreIsMultiButton() {
     ASM(
         nofralloc;
@@ -105,10 +99,8 @@ static u32 HasConfirmedDriver(u32 player) {
     return manager[(player & 0xff) * 0x5c + 0xa4] == 0;
 }
 
-// CtrlMenuCharacterSelect::OnUpdate+0x70, "cmpwi r0, 1": r0 is player r27's preview model state, 1
-// once confirmed. Two players on one driver still share the stock model when RR's own model for a
-// player fails to load, so offline in multiplayer (r28 players) the player's own holder must also be
-// off, or one confirm would show both OK markers on the button. The beq after reads CR0; OnUpdate reloads the volatile registers after it and saved LR.
+// OnUpdate+0x70, "cmpwi r0, 1" (r0 = player r27's model state, 1 once confirmed): if RR's own model fails to load, two players share
+// the stock one, so offline (r28 players > 1) the player's holder must be off too. The beq reads CR0; volatiles reload after; LR saved.
 static asmFunc OwnConfirmForMarker() {
     ASM(
         nofralloc;
@@ -136,9 +128,8 @@ static asmFunc OwnConfirmForMarker() {
 }
 kmCall(0x807e311c, OwnConfirmForMarker);
 
-// OnButtonClick+0xA8 and OnUpdate+0x4AC set the OK message (0x9FB + hud, coloured for that player) on
-// the whole button. On a shared button that recolours every player's marker, so offline in multiplayer
-// only the confirming player's marker text is set, as OnMultiplayerMiiSelected does for the Mii button.
+// OnButtonClick+0xA8 and OnUpdate+0x4AC set the OK message (0x9FB + hud, in that player's colour) on the whole button, recolouring
+// every marker on a shared one; offline only the confirming player's text is set, as OnMultiplayerMiiSelected does for the Mii.
 static void SetOwnOkMessage(LayoutUIControl *button, u32 bmgId, const Text::Info *info) {
     const u32 hud = bmgId - 0x9fb;
     if (hud < 4 && reinterpret_cast<const u8 *>(button)[0x254] != 0 && UpdateSameCharacterOffline()) {

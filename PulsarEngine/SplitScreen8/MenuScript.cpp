@@ -2,6 +2,8 @@
 #include <kamek.hpp>
 #include <core/rvl/PAD.hpp>
 #include <core/rvl/OS/OS.hpp>
+#include <core/nw4r/snd/BasicSound.hpp>
+#include <core/nw4r/snd/WsdFile.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
 #include <core/egg/mem/ExpHeap.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
@@ -16,10 +18,7 @@
 #error "a menu script and the debug boot both hook Input::Manager::CopyPADStatus's call (0x80520220)"
 #endif
 
-// Debug build only: presses GC pad buttons on ports 1-4, and Classic Controller buttons on Wii channels
-// 1-4 for ports 5-8, at fixed frames from boot, so menu paths (the 3P character select, M4's join
-// screen) run with no one at the pads. tools/build_code.py --menu-script turns a script file into
-// SS8_MENU_STEPS; docs/toolchain.md has the format.
+// Presses scripted GC buttons on ports 1-4 and Classic Controller buttons on Wii channels 1-4 at fixed frames from boot.
 
 namespace SplitScreen8 {
 
@@ -39,13 +38,10 @@ bool menuOpenMiiC = false;
 static void ReportHeaps(const char *when);
 static void ReportSkins();
 
-// GCNController::UpdateImpl+0x70 calls Input::Manager::CopyPADStatus(manager, channel, &padStatus) for
-// each plugged-in port every frame, and reads padStatus after it, as DebugBoot.cpp's race script does.
-typedef u32 (*CopyPADStatusFn)(Input::Manager *, u32, PAD::Status *);
-static const CopyPADStatusFn copyPADStatus = reinterpret_cast<CopyPADStatusFn>(0x80524628);
-
+// GCNController::UpdateImpl+0x70 calls Input::Manager::CopyPADStatus(manager, channel, &padStatus) for each
+// plugged-in port every frame, and reads padStatus after it.
 static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Status *status) {
-    const u32 result = copyPADStatus(input, channel, status);
+    const u32 result = input->CopyPADStatus(channel, status);
     if (status == nullptr)
         return result;
     for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
@@ -64,9 +60,8 @@ static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Stat
 }
 kmCall(0x80520220, CopyPADStatusMenuScript);
 
-// WiiController::UpdateImpl+0x1E8 calls UpdateStatesClassic(controller, status, state, uiState) for a
-// channel with a Classic Controller; with the extension readable it takes the held buttons from the
-// status's +0x2A (WPADCLStatus), and the controller's +0x8F8 holds the last frame's. +0x8D4 is the channel.
+// WiiController::UpdateImpl+0x1E8 calls UpdateStatesClassic for a Classic Controller channel; it takes held buttons
+// from the status's +0x2A (WPADCLStatus). The controller's +0x8D4 is its channel, +0x8F8 the last frame's buttons.
 typedef void (*UpdateStatesClassicFn)(u8 *controller, u8 *status, void *state, void *uiState);
 static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<UpdateStatesClassicFn>(0x8051f410);
 
@@ -84,9 +79,8 @@ static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *stat
 }
 kmCall(0x8051fe6c, UpdateStatesClassicMenuScript);
 
-// Every EGG heap's free bytes, in EGG's own list (0x80384320), at each section load and every 300 frames:
-// a menu page's allocations land on the scene heaps (D57's method). "free" is an ExpHeap's total free bytes or
-// any other heap's largest block; "largest" is every heap's largest block, the one a skin load needs (C4e).
+// Every EGG heap (EGG's list, 0x80384320) at each section load and every 300 frames. "free" is an ExpHeap's total
+// free or another heap's largest block; "largest" is every heap's largest block, the one a skin load needs.
 static nw4r::ut::List *const heapList = reinterpret_cast<nw4r::ut::List *>(0x80384320);
 
 static void ReportHeaps(const char *when) {
@@ -100,8 +94,7 @@ static void ReportHeaps(const char *when) {
     }
 }
 
-// Each menu player's character, skin slot and whether they show the character's shared model or a
-// model of their own (RR's Driver/CustomCharacters.cpp, D72), when any of the three changes.
+// Each menu player's character, skin slot and shared or own model, logged when any of the three changes.
 static u32 reportedSkins[kGameLocal];
 
 static void ReportSkins() {
@@ -121,8 +114,7 @@ static void ReportSkins() {
     }
 }
 
-// Each menu voice P1-4's picker (0x80868ABC) plays or skips, after RR's skin hook at 0x80868AD0 chose its
-// character. 0x80868B84 (mulli r3, r28, 0xc0) is the play, with r28 the character and r31 the voice type.
+// The picker (0x80868ABC) plays at 0x80868B84 (mulli r3, r28, 0xc0), r28 the character and r31 the type.
 static u32 LogMenuVoicePlay() {
     register u32 character, type;
     asm(mr character, r28;);
@@ -144,10 +136,9 @@ kmCall(0x80868ae4, LogMenuVoiceNone);
 
 // 0x800A2D60 (bl WsdFileReader::ReadWaveInfo in WsdCallback::GetWaveSoundData): a note looks its wave up in
 // the wave archive the player resolved for its file id; a skin's trick line reads RR's trimmed archive.
-typedef bool (*ReadWaveInfoFn)(void *reader, int waveIndex, void *info, const void *origin);
 static u32 waveLogs;
 static bool LogReadWaveInfo(void *reader, int waveIndex, void *info, const void *origin) {
-    const bool ok = reinterpret_cast<ReadWaveInfoFn>(0x800adc80)(reader, waveIndex, info, origin);
+    const bool ok = static_cast<const nw4r::snd::detail::WsdFileReader *>(reader)->ReadWaveInfo(waveIndex, static_cast<nw4r::snd::detail::WaveInfo *>(info), origin);
     if (waveLogs < 48 && origin != nullptr) {
         ++waveLogs;
         OS::Report("ss8 wave: index %d archive %p ok %d frame %u\n", waveIndex, origin, ok, menuFrames);
@@ -156,8 +147,7 @@ static bool LogReadWaveInfo(void *reader, int waveIndex, void *info, const void 
 }
 kmCall(0x800a2d60, LogReadWaveInfo);
 
-// A script's "pick" lines fill P5-8's extPicks in a 5-8 player game, which phase C's select pages will
-// write; the main menu clears them (Entry.cpp), and section 0x54 loads after it.
+// A script's "pick" lines fill P5-8's extPicks at each section load; the main menu clears them (Entry.cpp).
 #ifdef SS8_MENU_PICKS
 struct MenuPick {
     u32 slot;  // 0-3 for P5-8
@@ -167,9 +157,8 @@ struct MenuPick {
 static const MenuPick menuPicks[] = {SS8_MENU_PICKS};
 #endif
 
-// The race scenario's players, CPUs included (D98), once per race at its first frame (InitRace has run
-// by then), with the skin slot RR's race readers get for each and the character whose voice groups RR
-// lends that player (-1 for none).
+// Every race scenario player, CPUs included, once per race at its first frame (after InitRace), with the skin slot
+// RR's race readers get and the character whose voice groups RR lends it (-1 for none).
 static bool racePlayersReported;
 
 static void ReportRacePlayers() {

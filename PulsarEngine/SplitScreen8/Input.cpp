@@ -3,9 +3,8 @@
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Real controller holders 4-7 for local players 5-8 (D26). They follow Input::Manager's own 0x415C
-// bytes, so holder id is mgr + 4 + id * 0xEC plus kExtGap for ids 4+: index 4 of the game's array
-// is the first AIControllerHolder. docs/plans/m2-engine-widening.md, Phase C, has the site table.
+// Holders 4-7 follow Input::Manager's own 0x415C bytes: holder id is mgr + 4 + id * 0xEC, plus kExtGap for ids 4+,
+// because index 4 of the game's array is the first AIControllerHolder.
 
 namespace SplitScreen8 {
 
@@ -14,17 +13,14 @@ const u32 kHolderSize = 0xec;
 const u32 kExtGap = kManagerSize - 4 - kGameLocal * kHolderSize;
 
 typedef Input::RealControllerHolder *(*HolderCtorFn)(Input::RealControllerHolder *);
-typedef void (*HolderFn)(Input::RealControllerHolder *);
 static const HolderCtorFn holderCtor = reinterpret_cast<HolderCtorFn>(0x805220bc);
-static const HolderFn startGhostReading = reinterpret_cast<HolderFn>(0x805215d4);
 
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id) {
     u8 *base = reinterpret_cast<u8 *>(&input) + 4 + id * kHolderSize;
     return *reinterpret_cast<Input::RealControllerHolder *>(id < kGameLocal ? base : base + kExtGap);
 }
 
-// P1-4's holders are SectionPad's (null for a slot with no pad); P5-8's are holders 4-7, which the
-// menus of a 5-8 player game update (UpdateExtHolders).
+// P1-4's holders are SectionPad's (null for a slot with no pad); P5-8's are holders 4-7.
 Input::RealControllerHolder *PlayerHolder(u32 player) {
     if (player < kGameLocal)
         return SectionMgr::sInstance->pad.padInfos[player].controllerHolder;
@@ -130,7 +126,7 @@ static void BlockAllInputs(Input::Manager *input) {
 kmBranch(0x80524568, BlockAllInputs);
 
 static void StartAllGhostReading(Input::Manager *input) {
-    for (u32 id = 0; id < RaceHolderCount(); ++id) startGhostReading(&Holder(*input, id));
+    for (u32 id = 0; id < RaceHolderCount(); ++id) Holder(*input, id).StartGhostReading();
 }
 kmBranch(0x80524580, StartAllGhostReading);
 
@@ -154,10 +150,8 @@ static void EndGhostWriting(Input::Manager *input, u8 id) {
 }
 kmBranch(0x805245cc, EndGhostWriting);
 
-// Replaces "mulli r0, r0, 0xec" where r0 is a controller id and the result is added to the manager:
-// ids 4-7 also step over the AI holders (kExtGap, 0x3da8). Branchless, so CR0 is untouched; r12 is
-// dead at every site (InitControllers' VS path, RaceinfoPlayer::__ct's kart holder pointer,
-// ComputeGPRank x2, TrySetController's two scans), and each function saved LR in its prologue.
+// Replaces "mulli r0, r0, 0xec" (r0 = a controller id), adding kExtGap (0x3da8) for ids 4-7. Branchless so CR0 survives;
+// r12 is dead and LR saved at every site: InitControllers, RaceinfoPlayer::__ct, ComputeGPRank x2, TrySetController x2.
 asmFunc HolderOffset() {
     ASM(
         nofralloc;
@@ -174,10 +168,8 @@ kmCall(0x80534140, HolderOffset);
 kmCall(0x80536b8c, HolderOffset);
 kmCall(0x80536bd8, HolderOffset);
 
-// TrySetController (r4 = the holder id) binds a pressed controller no other holder has: its holder
-// "mulli r30, r4, 0xec" (0x80523ECC) steps over the AI holders for ids 4-7, as HolderOffset does, and
-// its two scans of the other holders (0x80523F3C/F5C Wii, 0x80524034/4054 GC) cover all eight. With
-// 1-4 players holders 4-7 hold the dummy controller, which no scan matches, so their answer is unchanged.
+// TrySetController's "mulli r30, r4, 0xec" (r4 = the holder id) and its Wii and GC scans cover all eight holders.
+// With 1-4 players holders 4-7 hold the dummy controller, which no scan matches, so the answer is vanilla's.
 asmFunc TrySetHolderOffset() {
     ASM(
         nofralloc;
@@ -190,17 +182,13 @@ asmFunc TrySetHolderOffset() {
 kmCall(0x80523ecc, TrySetHolderOffset);
 kmCall(0x80523f3c, HolderOffset);
 kmCall(0x80524034, HolderOffset);
-kmWrite32(0x80523f5c, 0x28000008);  // cmplwi r0, 8 (was 4)
+kmWrite32(0x80523f5c, 0x28000008);  // the scans' bound: cmplwi r0, 8 for vanilla's 4
 kmWrite32(0x80524054, 0x28000008);
 
-// SectionPad::SetDriftType finds the holder as mgr + 4 + hud * 0xEC, which for hud 4-7 is an AI
-// holder; the race reads a player's drift type from its own holder's controller (Kart::Status,
-// 0x805944F4). Replaced whole at its entry: the leaf's tail call keeps no frame to patch into.
-typedef void (*HolderDriftFn)(Input::RealControllerHolder *, u16);
-static const HolderDriftFn holderSetDriftType = reinterpret_cast<HolderDriftFn>(0x80520f2c);
-
+// SectionPad::SetDriftType's mgr + 4 + hud * 0xEC is an AI holder for hud 4-7, and the race reads drift type from the
+// holder (0x805944F4). Replaced whole at its entry: the leaf's tail call keeps no frame to patch into.
 static void SetDriftTypeWide(const void *, u32 hud, u16 isDriftAuto) {
-    holderSetDriftType(&Holder(*Input::Manager::sInstance, hud & 0xff), isDriftAuto);
+    Holder(*Input::Manager::sInstance, hud & 0xff).SetDriftType(isDriftAuto);
 }
 kmBranch(0x8061b420, SetDriftTypeWide);
 

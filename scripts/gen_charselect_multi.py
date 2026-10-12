@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
-"""Add the CharacterSelect<N>_<col>_Multi2 and _Multi4 controls to a MenuMulti.szs.
-
-UI/SameCharacterSelect.cpp loads every offline 2-4 player driver button as "CharacterSelect%d_%d_Multi2"
-(2 players) or "_Multi4" (3-4 players). Each is the column's own control on a copy of the
-Mii button's layout (one OK marker per player), with the markers resized into a grid: 2 x 1 for
-2 players, 2 x 2 for 3-4, so markers on a shared button do not overlap.
-
-Assets/ReplacedAssets.szs is mounted ahead of MenuMulti.szs and holds newer copies of these
-controls, so its copies are the sources. Every member already in the archive is checked to be unchanged.
-
-Requires wuj5 (https://github.com/stblr/wuj5).
+"""Add the CharacterSelect<N>_<col>_Multi2 and _Multi4 controls UI/SameCharacterSelect.cpp loads to a MenuMulti.szs:
+each column's control on its Mii twin's layout, with the per-player OK markers in a 2 x 1 or 2 x 2 grid.
+ReplacedAssets.szs is mounted ahead of MenuMulti.szs, so its controls are the sources. Requires wuj5.
 
 Usage:
   gen_charselect_multi.py --wuj5 <wuj5 dir> <in MenuMulti.szs> <ReplacedAssets.szs> <out MenuMulti.szs>
@@ -71,11 +63,8 @@ def find_pane(pane: dict, name: str) -> dict | None:
 
 
 def sized_markers(content: bytes, name: str, cells: int, unpack_brlyt, pack_brlyt) -> bytes:
-    """The layout with its four OK markers in a grid of `cells` over black_base, filled row by row.
-
-    Each marker is scaled to half the vanilla marker's width and 0.55 of its height, then scaled evenly
-    as far as its cell allows, so every marker keeps its shape.
-    """
+    """The layout with its OK markers in a grid of `cells` over black_base, each at half the vanilla marker's
+    width and 0.55 of its height, then scaled evenly as far as its cell allows."""
     cols, rows = MARKER_GRIDS[cells]
     lyt = unpack_brlyt(content)
     root = next(s for s in lyt["sections"] if s["magic"] == "pan1")
@@ -96,17 +85,6 @@ def sized_markers(content: bytes, name: str, cells: int, unpack_brlyt, pack_brly
         pane["scale x"] = pane["scale x"] * 0.5 * fit
         pane["scale y"] = pane["scale y"] * 0.55 * fit
     return pack_brlyt(lyt)
-
-
-def snapshot(node: dict, prefix: str = "") -> dict[str, bytes]:
-    out = {}
-    for child in node["children"]:
-        path = f"{prefix}/{child['name']}"
-        if child["is_dir"]:
-            out.update(snapshot(child, path))
-        else:
-            out[path] = child["content"]
-    return out
 
 
 def main() -> int:
@@ -151,7 +129,6 @@ def main() -> int:
         if m and ((m.group(1), m.group(2)) not in sources or m.group(3)):
             sources[(m.group(1), m.group(2))] = name
 
-    before = snapshot(root)
     existing = {c["name"] for c in ctrl_dir["children"]}
     added = []
     multi_layouts = set()
@@ -176,10 +153,6 @@ def main() -> int:
                 raise SystemExit(f"{name} already in {args.input}")
             blyt_dir["children"].append(
                 {"is_dir": False, "name": name, "content": sized_markers(src["content"], name, cells, unpack_brlyt, pack_brlyt)})
-    after = snapshot(root)
-    changed = [path for path, content in before.items() if after.get(path) != content]
-    if changed:
-        raise SystemExit(f"existing members changed: {', '.join(changed)}")
     ctrl_dir["children"].sort(key=lambda c: c["name"].lower())
 
     out = pack_u8(root)

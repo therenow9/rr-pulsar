@@ -3,6 +3,7 @@
 
 #include <kamek.hpp>
 #include <MarioKartWii/System/Identifiers.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 class MenuDriverModel;
 
@@ -15,7 +16,7 @@ enum {
 };
 
 extern bool characterTables[CHARACTER_COUNT][MAX_CUSTOM_CHARACTER_SLOTS + 1];
-extern u8 selectedSlots[4][CHARACTER_COUNT];
+extern u8 selectedSlots[SplitScreen8::kMaxLocal][CHARACTER_COUNT];
 
 void CreateCharacterTable();
 bool LoadDriverBRRES(u8 player, CharacterId character, u32 slot);

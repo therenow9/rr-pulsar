@@ -2,16 +2,10 @@
 #include <MarioKartWii/3D/Model/ModelDirector.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Screens past the game's 4 (Screens.cpp) where per-screen state is 4 wide: ModelDirector's screen
-// bits move to spare bits, and Effects::Mgr's culling reads "visible". Screen indices of 4+ exist
-// only in a widened race. ClipInfo culling is in Culling.cpp.
-
 namespace SplitScreen8 {
 
-// ModelDirector's per-screen visibility bit is 0x10000 << screen in bitfield +4, so screens 4-7
-// would land on bits 20 (G3D initialized), 21 (in ScnGroups), 22 and 23 (every ctor sets it). In
-// a widened race they use bits 28-31, which nothing in the game reads or writes (D20).
-// Otherwise this is slw's result exactly: a 6-bit shift amount, 32-63 giving 0 (hud slot -1).
+// ModelDirector's screen bit is 0x10000 << screen in bitfield +4; 4-7 would hit bits 20-23, which the game uses, so a
+// widened race uses 28-31, which nothing reads. Otherwise this is exactly slw: a 6-bit amount, 32-63 giving 0 (hud -1).
 static u32 ScreenBit(u32 screen) {
     if (raceScreenCount == 0 || screen < kGameLocal) {
         screen &= 0x3f;
@@ -38,9 +32,8 @@ static bool IsVisibleOnScreen(const ModelDirector &director, u32 screen) {
 kmBranch(0x8055cd10, IsVisibleOnScreen);
 kmBranch(0x8055cd48, IsVisibleOnScreen);  // IsVisibleOnScreen2, the same body
 
-// ModelDirector::UpdateVisibility+0x40 replaces "slw r0, r0, r4" (r0 = 0x10000 from the lis before,
-// r4 = screen); the next "and r3, r3, r0" tests bitfield +4. r12 is reloaded before it is read; the
-// prologue saved LR. 4 is kGameLocal, 8 kMaxLocal; ScreenBit has the rule.
+// ModelDirector::UpdateVisibility+0x40 replaces "slw r0, r0, r4" (r0 = 0x10000, r4 = screen), ScreenBit's rule in asm.
+// r12 is reloaded before it is read; the prologue saved LR. 4 is kGameLocal, 8 kMaxLocal.
 asmFunc UpdateVisibilityScreenBit() {
     ASM(
         nofralloc;
@@ -63,10 +56,8 @@ asmFunc UpdateVisibilityScreenBit() {
 }
 kmCall(0x8055cc4c, UpdateVisibilityScreenBit);
 
-// The leaf 0x8055d2f4 (per-screen visibility of general-list models) tests the screen bit inline at
-// +0x30 and +0x48 as "lis r0, 1; slw r0, r0, r4; and. r0, r5, r0" (r5 = bitfield +4). No stack
-// frame, so branch out and back past the and.; r7 is never read in the leaf. One blr each, for
-// kmPatchExitPoint.
+// Leaf 0x8055d2f4 tests the screen bit inline at +0x30 and +0x48 ("lis r0, 1; slw r0, r0, r4; and. r0, r5, r0").
+// No stack frame, so branch out and back past the and.; r7 is never read in the leaf. One blr each, for kmPatchExitPoint.
 asmFunc LeafScreenBitHide() {
     ASM(
         nofralloc;
@@ -119,9 +110,8 @@ asmFunc LeafScreenBitShow() {
 kmBranch(0x8055d33c, LeafScreenBitShow);
 kmPatchExitPoint(LeafScreenBitShow, 0x8055d348);
 
-// Effects::Mgr keeps one Sub9d8 (per-player culling for a screen) per racesScenario.screenCount,
-// which stays 4, next to inline per-screen blocks that end where the Sub9d8 pointers begin, so the
-// count cannot widen. Screens 4+ read this stand-in: every player near (0) and on screen (1).
+// Effects::Mgr's Sub9d8 pointers (per-player culling per screen) cannot widen: inline per-screen blocks end where
+// they begin. Screens 4+ read this stand-in: every player near (0) and on screen (1).
 struct Sub9d8Visible {
     const u8 *distance;  // 0x0
     void *unknown_0x4;
@@ -132,9 +122,8 @@ static const u8 visibleDistance[12] = {};
 static const s32 visibleOnScreen[12] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
 static const Sub9d8Visible sub9d8Visible = {visibleDistance, nullptr, nullptr, visibleOnScreen};
 
-// Effects::Mgr::Draw+0x6B8 replaces "lwzx r5, r18, r3" (r3 = the Sub9d8 array, r18 = screen * 4),
-// the per-player loop's only read of it. r3 is rewritten next; the prologue saved LR. 16 is
-// kGameLocal * 4.
+// Effects::Mgr::Draw+0x6B8 replaces "lwzx r5, r18, r3" (r3 = the Sub9d8 array, r18 = screen * 4), its only read.
+// r3 is rewritten next; the prologue saved LR. 16 is kGameLocal * 4.
 asmFunc Sub9d8ForGameScreens() {
     ASM(
         nofralloc;
@@ -149,9 +138,8 @@ asmFunc Sub9d8ForGameScreens() {
 }
 kmCall(0x8067d62c, Sub9d8ForGameScreens);
 
-// Audio::ItemWarningMgr::GetItemWarning, a leaf replaced whole: 4 warnings of 0xC at +0x14 in a
-// 0x44-byte object, indexed by a shell target's hud slot, 4-7 for a spare CPU. Those get an entry
-// whose hud is -1, on which PlayTargetedWarning returns at once (+0x5C); spare CPUs have no listener.
+// Audio::ItemWarningMgr::GetItemWarning, a leaf replaced whole: warnings[4] (0xC at +0x14) indexed by a shell target's
+// hud, 4-7 for a spare CPU. Those get hud -1, on which PlayTargetedWarning returns at once (+0x5C).
 struct ItemWarning {
     s8 hud;
     u8 unknown_0x1[0xC - 0x1];
@@ -165,10 +153,8 @@ static ItemWarning *GetItemWarning(u8 *mgr, u32 hud) {
 }
 kmBranch(0x806f8210, GetItemWarning);
 
-// Audio::KartActor::Link+0x6C replaces "stb r3, 0xb3(r31)", the hud slot that also makes Link treat
-// the kart as local (+0xE0, SetKartSound). A local's hud 4+ is kept, and its 4-wide readers are
-// redirected in Audio.cpp (PC2); a spare CPU's hud 4+ is stored as -1, the CPU path. CR0, r11 and r12
-// are set again before they are read; the prologue saved LR.
+// Audio::KartActor::Link+0x6C replaces "stb r3, 0xb3(r31)", the hud slot that also marks the kart local. A local's hud 4+
+// is kept (Audio.cpp redirects its 4-wide readers); a spare CPU's becomes -1. CR0, r11, r12 are rewritten; LR saved.
 asmFunc KartSoundHud() {
     ASM(
         nofralloc;

@@ -137,7 +137,7 @@ struct SoundArchive::SoundInfo {  // https://wiki.tockdom.com/wiki/BRSAR_(File_F
     u32 panCurve;
 };  // total size 0x20
 
-struct SoundArchive::WaveSoundInfo {  // filled by detail_ReadWaveSoundInfo
+struct SoundArchive::WaveSoundInfo {
     s32 subNo;
     u32 channelPriority;
     bool releasePriorityFixFlag;

@@ -2,7 +2,6 @@
 #include <IO/LooseArchiveOverrides.hpp>
 #include <Race/CustomCharacters.hpp>
 #include <Settings/Settings.hpp>
-#include <SplitScreen8/SplitScreen8.hpp>
 #include <MarioKartWii/Archive/ArchiveMgr.hpp>
 #include <MarioKartWii/3D/Model/ModelDirector.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
@@ -23,7 +22,7 @@ u32 GetPlayerCustomCharacterSlot(u32 playerId, CharacterId character, bool isAwa
         return 0;
     // Menu callers use 12 + the local HUD slot to bypass race player IDs.
     if (playerId >= 12 || Racedata::sInstance == nullptr)
-        return SplitScreen8::SkinSlot(playerId >= 12 ? playerId - 12 : 0, characterId);
+        return Driver::selectedSlots[playerId >= 12 ? playerId - 12 : 0][characterId];
     const RacedataScenario &scenario = isAward ? Racedata::sInstance->awardScenario : Racedata::sInstance->racesScenario;
     if (playerId >= scenario.playerCount || scenario.players[playerId].characterId != character)
         return Driver::selectedSlots[0][characterId];
@@ -52,7 +51,7 @@ void RandomizeCPUCharacterTables(const RacedataScenario &scenario) {
         if (entry.playerType == PLAYER_REAL_ONLINE)
             continue;
         if (entry.playerType != PLAYER_CPU) {
-            racePlayerSlots[player] = entry.playerType == PLAYER_REAL_LOCAL ? SplitScreen8::SkinSlot(Racedata::sInstance->GetHudSlotId(player), character) : 0;
+            racePlayerSlots[player] = entry.playerType == PLAYER_REAL_LOCAL && entry.hudSlotId >= 0 ? Driver::selectedSlots[entry.hudSlotId][character] : 0;
             continue;
         }
         if (scenario.settings.raceNumber != 0)
@@ -194,9 +193,8 @@ static asmFunc LinkAwardAnimations() {
 }
 kmCall(0x807897e0, LinkAwardAnimations);
 
-// AwardsMgr::LoadPlayers+0x304, "li r27, 1": r27 makes the award model a Mii head. A driver that two
-// players share takes the duplicate path, which keeps its player's Mii in r17 whatever the character.
-// Only Mii ids (from 0x18, as the first-player path decides) get the head; r17 stays for the skin lookup above.
+// AwardsMgr::LoadPlayers+0x304, "li r27, 1" (a Mii head): a shared driver's duplicate path keeps its player's Mii in r17 whatever
+// the character, so only Mii ids (from 0x18, as the first-player path decides) get the head; r17 stays for the skin lookup above.
 static asmFunc AwardsMiiHeadOnlyForMiis() {
     ASM(
         nofralloc;

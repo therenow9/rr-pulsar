@@ -4,11 +4,6 @@
 #include <MarioKartWii/UI/Page/Other/Wipe.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The Wipe page (0x3A) draws each local player's respawn fade and the partition lines. Its wipes are
-// the section's 1P/2P/4P variants, so on a 3x2 or 4x2 grid they cover 4P quadrants and the lines
-// cross the middle of tiles (D35, D36). Only race and demo sections build it, after InitRace has set
-// raceScreenCount for that race.
-
 namespace SplitScreen8 {
 
 const u32 kExtWipes = kMaxLocal - kGameLocal;
@@ -33,8 +28,8 @@ static LayoutUIControl &ExtLine(Pages::Wipe &page, u32 i) {
     return *reinterpret_cast<LayoutUIControl *>(reinterpret_cast<u8 *>(&page) + kExtOffset + kExtWipes * kWipeControlSize + i * kLineControlSize);
 }
 
-// Section::CreatePageById, case 0x3A, replaces "li r3, 0x7a8", the size passed to new. CR0 is set again
-// after new returns; the function saved LR. 0x7a8 is sizeof(Pages::Wipe).
+// Section::CreatePageById case 0x3A, "li r3, 0x7a8" (sizeof(Pages::Wipe)) for new; only race and demo sections build the page,
+// after InitRace has set raceScreenCount. CR0 is set again after new returns; the function saved LR.
 asmFunc WipePageSize() {
     ASM(
         nofralloc;
@@ -57,8 +52,7 @@ static const ControlDtorFn wipeControlDtor = reinterpret_cast<ControlDtorFn>(0x8
 static const ControlCtorFn layoutControlCtor = reinterpret_cast<ControlCtorFn>(0x8063d798);
 static const ControlDtorFn layoutControlDtor = reinterpret_cast<ControlDtorFn>(0x8063d8c0);
 
-// The same case's "bl Pages::Wipe::__ct" (r3 = the new page, which the case returns in r3). A page
-// allocated wide constructs its extras as the ctor's __construct_array constructs the game's.
+// The same case's "bl Pages::Wipe::__ct" (r3 = the new page, which the case returns in r3).
 static Pages::Wipe *WipeCtor(Pages::Wipe *page) {
     wipeCtor(page);
     if (raceScreenCount == 0)
@@ -70,8 +64,7 @@ static Pages::Wipe *WipeCtor(Pages::Wipe *page) {
 }
 kmCall(0x806238dc, WipeCtor);
 
-// Pages::Wipe::__dt+0x38 calls LayoutUIControl::__dt(&partition_line, -1), before __destroy_array
-// destroys the game's 4 wipes: the extras go with them.
+// Pages::Wipe::__dt+0x38, LayoutUIControl::__dt(&partition_line, -1), before __destroy_array destroys the game's 4 wipes.
 static void WipeLineDtor(LayoutUIControl *line, s32 flag) {
     layoutControlDtor(line, flag);
     Pages::Wipe *page = reinterpret_cast<Pages::Wipe *>(reinterpret_cast<u8 *>(line) - offsetof(Pages::Wipe, partition_line));
@@ -115,14 +108,8 @@ asmFunc WipeGroupSizeStub() {
 }
 kmCall(0x80652114, WipeGroupSizeStub);
 
-// UIControl::PositionFromBasePosition: positionAndscale[1..3] from [0] through the parent group, which
-// AddControl has set.
-typedef void (*PositionFromBaseFn)(UIControl *);
-static const PositionFromBaseFn positionFromBase = reinterpret_cast<PositionFromBaseFn>(0x8063d3cc);
-
-// Layout units: the 2D screen is 832 x 456 at 16:9 and 608 x 456 at 4:3, centred on 0, y up; the wipe
-// pane is 832 x 456 at scale 1. Tiles are numbered as Screens.cpp's GridRect numbers them, so a hud
-// slot's wipe sits on its own tile.
+// The 2D screen is 832 x 456 at 16:9 and 608 x 456 at 4:3, centred on 0, y up, and the wipe pane 832 x 456 at scale 1.
+// Tiles are numbered as Screens.cpp's GridRect numbers them, so a hud slot's wipe sits on its own tile.
 static void PlaceOnTile(UIControl &control, u32 tile) {
     const float width = SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f;
     const u32 cols = raceScreenCount / 2;
@@ -132,7 +119,7 @@ static void PlaceOnTile(UIControl &control, u32 tile) {
     base.position.y = tile < cols ? 114.0f : -114.0f;
     base.scale.x = tileWidth / 832.0f;
     base.scale.z = 0.5f;  // Vec2 names its second component z
-    positionFromBase(&control);
+    control.PositionFromBasePosition();
 }
 
 static const char **const wipeAnims = reinterpret_cast<const char **>(0x80899f18);  // "Wipe", "Nothing", "Normal"
@@ -152,12 +139,11 @@ static void PlaceLines(Pages::Wipe &page, u32 firstIdx) {
         line.SetPaneVisibility("yoko_line", false);
         const float offset = width / (raceScreenCount == 8 ? 4 : 6);
         line.positionAndscale[0].position.x = i == 0 ? -offset : offset;
-        positionFromBase(&line);
+        line.PositionFromBasePosition();
     }
 }
 
-// After OnInit has loaded the game's wipes (idx = hud slot) and line: the extra wipes for hud slots
-// 4.., then every wipe moved to its tile, then the lines.
+// Runs after OnInit has loaded the game's wipes (idx = hud slot) and line.
 static void WideWipeInit(Pages::Wipe *page, u32 gameWipes) {
     if (page != widePage)
         return;

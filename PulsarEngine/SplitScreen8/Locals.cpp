@@ -1,16 +1,11 @@
 #include <kamek.hpp>
+#include <MarioKartWii/AI/KartAIController.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
-
-// Game objects that keep one entry per local player, 4 wide, reached by players 5-8 just by racing.
-// docs/plans/m2-engine-widening.md, Phase C, has the site list.
 
 namespace SplitScreen8 {
 
-// The AI object at AI::Manager+0x84 lists CPU karts at +0xE8 (12 of 8 bytes) and human karts at
-// +0x148 (4), followed by a pointer at +0x168 and the CPU count at +0x178: a 5th human would
-// overwrite both. Each human entry is the human's AI object, then the human ranked i-th (the sort's
-// output). Humans past the 4th go to extHumans, and the human count (+0x17C) stays 4; the readers that
-// loop over the humans or use the last-ranked one are extended to them (PC3).
+// AI::Manager+0x84's object holds 4 human entries (AI object, i-th ranked) at +0x148, then +0x168 and the CPU count
+// +0x178, which a 5th would overwrite: humans past the 4th go to extHumans, and the human count (+0x17C) stays 4.
 struct Human {
     u8 *ai;
     u8 *ranked;
@@ -19,12 +14,10 @@ static Human extHumans[kMaxLocal - kGameLocal];
 static u32 extHumanCount;
 
 typedef void (*RegisterKartFn)(u8 *ai, void *kartAI);
-typedef bool (*IsCPUFn)(const void *kartAI);
 typedef void (*HumansFn)(u8 *ai);
 typedef void (*KartCallFn)(void *link, u32 arg);
 typedef u8 *(*HumanOfFn)(u8 *owner);
 static const RegisterKartFn registerKart = reinterpret_cast<RegisterKartFn>(0x807414b8);
-static const IsCPUFn isCPU = reinterpret_cast<IsCPUFn>(0x8072624c);
 static const HumansFn sortHumans = reinterpret_cast<HumansFn>(0x807426e4);
 static const HumansFn rubberBand = reinterpret_cast<HumansFn>(0x80742944);
 static const KartCallFn humanKartCall = reinterpret_cast<KartCallFn>(0x80591898);
@@ -39,13 +32,12 @@ static u8 *&HumanRanked(u8 *ai, u32 i) {
     return i < kGameLocal ? *reinterpret_cast<u8 **>(ai + 0x14c + i * 8) : extHumans[i - kGameLocal].ranked;
 }
 
-// The first kart registered in a race finds both counts 0, which resets extHumans. A human past the
-// 4th gets the entry the registration (0x807414B8) would make: its AI object, from the kart AI's
-// +0x10, +0x144, through that object's vtable (+0x34) at +0x3C.
+// The first kart registered in a race finds both counts 0, which resets extHumans. A human past the 4th gets the entry
+// 0x807414B8 would make: its AI object, from the kart AI's +0x10, +0x144, through that object's vtable (+0x34) at +0x3C.
 static void RegisterKartWithAI(u8 *ai, void *kartAI) {
     if (*reinterpret_cast<const u32 *>(ai + 0x178) == 0 && HumanCount(ai) == 0)
         extHumanCount = 0;
-    if (raceLocalCount > kGameLocal && HumanCount(ai) >= kGameLocal && !isCPU(kartAI)) {
+    if (raceLocalCount > kGameLocal && HumanCount(ai) >= kGameLocal && !static_cast<const KartAIController *>(kartAI)->IsCPU()) {
         if (extHumanCount >= kMaxLocal - kGameLocal)
             return;
         u8 *owner = *reinterpret_cast<u8 **>(*reinterpret_cast<u8 **>(static_cast<u8 *>(kartAI) + 0x10) + 0x144);
@@ -97,9 +89,8 @@ asmFunc HumansUpdatedB() {
 }
 kmCall(0x80741964, HumansUpdatedB);
 
-// 0x807426E4 writes the humans in race order (each human's +0x14, 1-12) into the entries' +0x14C,
-// one entry per ranked human: 8 humans write past the 4th entry. In a widened race with extHumans the
-// same runs over all of them, entries 4+ in extHumans.
+// 0x807426E4 writes the humans in race order (each human's +0x14, 1-12) into the entries' +0x14C, one per ranked
+// human, so 8 would write past the 4th entry; with extHumans the same runs here over all of them.
 static void SortHumansWide(u8 *ai) {
     if (raceScreenCount == 0 || extHumanCount == 0) {
         sortHumans(ai);
