@@ -2618,6 +2618,7 @@ ToggleLock__12ToadetteHairFb = 0x807db028
 #Sound
 Initialize__Q23EGG12SoundHeapMgrFPQ23EGG4HeapUi = 0x8021318c
 PlayDriverMenuVoice = 0x80868abc
+PlayDriverTeamVoice = 0x80868a3c
 GetGroupCount__Q34nw4r3snd12SoundArchiveCFv = 0x8009ded0
 ConvertLabelStringToGroupId__Q34nw4r3snd12SoundArchiveCFPCc = 0x8009df10
 detail_ReadGroupItemInfo__Q34nw4r3snd12SoundArchiveCFUiUiPQ44nw4r3snd12SoundArchive13GroupItemInfo = 0x8009dfd0

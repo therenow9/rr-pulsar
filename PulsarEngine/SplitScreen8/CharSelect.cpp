@@ -153,7 +153,6 @@ typedef void (*SeqDetachFn)(void *);
 static const SeqHandleFn seqHandleCtor = reinterpret_cast<SeqHandleFn>(0x8009acb0);
 static const SeqWriteFn seqWriteVariable = reinterpret_cast<SeqWriteFn>(0x8009aa50);
 static const SeqDetachFn seqDetach = reinterpret_cast<SeqDetachFn>(0x8009adc0);
-const u32 kVoiceKart = 1;  // 0x80868ABC's type: 0 character, 1 kart, 2 and 3 team select
 
 static void MarkKartLine(nw4r::snd::SoundHandle &handle) {
     void *seq[1];
@@ -243,12 +242,13 @@ static void StartExtMiiVoice(u32 player, u32 type) {
         MarkKartLine(handle);
 }
 
-// The kart page's confirm voice for P5-8, as 0x808689DC plays P1-4's: a Mii (0x18-0x29) through 0x80868C20, a driver through 0x80868ABC.
-void ExtKartVoice(u32 player, CharacterId character) {
+// The kart and team pages' confirm voices for P5-8, as 0x808689DC and 0x80868A3C play P1-4's: a Mii (0x18-0x29)
+// through 0x80868C20, a driver through 0x80868ABC.
+void ExtMenuVoice(u32 player, CharacterId character, u32 type) {
     if (static_cast<u32>(character - MII_S_A_MALE) <= MII_L_C_FEMALE - MII_S_A_MALE)
-        StartExtMiiVoice(player, kVoiceKart);
+        StartExtMiiVoice(player, type);
     else
-        ExtConfirmVoice(player, character, kVoiceKart);
+        ExtConfirmVoice(player, character, type);
 }
 
 void MenuPlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary) {
@@ -340,7 +340,6 @@ private:
     void LoadPreview(u32 player);
     void RequestPreview(u32 player);
     void PosePreview(u32 player, bool confirmed);
-    void UpdatePreviews();
     void SetPlateName(u32 player);
     void SetIcon(Button &button);
     void CycleSkin(u32 player, s32 direction);
@@ -627,7 +626,7 @@ void CharSelectPage::PosePreview(u32 player, bool confirmed) {
 
 // What DriverModelControl::OnUpdate does each frame (0x805F356C), for 8: the model shown, its texture on
 // model_set_p, and a P1-4 model a kart page left in its kart pose set back to idle (0x805F37C0).
-void CharSelectPage::UpdatePreviews() {
+void UpdateDriverPreviews(LayoutUIControl *const *previews) {
     Pages::ModelRenderer *renderer = SectionMgr::sInstance->curSection->Get<Pages::ModelRenderer>();
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
     for (u32 p = 0; p < menuLocalCount; ++p) {
@@ -641,7 +640,7 @@ void CharSelectPage::UpdatePreviews() {
             if (model != nullptr && (model->state == MenuDriverModel::MENUDRIVERMODEL_STATE_ONKARTSELECT || model->state == kStateKartChosen))
                 model->SwitchState(p, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
         }
-        SetPreviewTexture(*this->previews[p], texObj);
+        SetPreviewTexture(*previews[p], texObj);
     }
 }
 
@@ -935,7 +934,7 @@ void CharSelectPage::SyncSkinModels() {
 }
 
 void CharSelectPage::AfterControlUpdate() {
-    this->UpdatePreviews();
+    UpdateDriverPreviews(this->previews);
     if (this->currentState != STATE_ACTIVE || this->leaving)
         return;
     ++this->frame;
@@ -991,7 +990,7 @@ void CharSelectPage::AfterControlUpdate() {
         this->FillCpus();
     }
     if (this->leaveFrames-- == 0)
-        this->Leave(Pulsar::UI::PULPAGE_SS8KARTSELECT, 0);
+        this->Leave(MenuTeamVS() ? Pulsar::UI::PULPAGE_SS8TEAMSELECT : Pulsar::UI::PULPAGE_SS8KARTSELECT, 0);
 }
 
 // For the fill's one call SectionParams' count is the true one and P5-8's picks sit in their scenario slots, so no CPU

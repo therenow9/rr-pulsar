@@ -39,7 +39,13 @@ static const SelectStep kSteps[] = {
     {Pulsar::UI::PULPAGE_SS8KARTSELECT, Pulsar::UI::PULPAGE_SS8CHARSELECT, Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT, L"Vehicles", "kart"},
     {Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT, Pulsar::UI::PULPAGE_SS8KARTSELECT, Pulsar::UI::PULPAGE_SS8DRIFTSELECT, L"Transmission", "transmission"},
     {Pulsar::UI::PULPAGE_SS8DRIFTSELECT, Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT, PAGE_CUP_SELECT, L"Drift", "drift"},
+    {Pulsar::UI::PULPAGE_SS8TEAMSELECT, Pulsar::UI::PULPAGE_SS8CHARSELECT, Pulsar::UI::PULPAGE_SS8KARTSELECT, L"Team Settings", "team"},
 };
+
+// VSModeSelect's Team VS sets bit 1 (0x80852A64); Battle sets it too (0x8083B96C).
+bool MenuTeamVS() {
+    return (Racedata::sInstance->menusScenario.settings.modeFlags & 2) != 0;
+}
 
 // MultiKartSelect::OnTextChange's kart name (0x8084A338) and OnUpDownClick's confirm voice (0x8084A1C4), which
 // returns at once for hud 4 or more.
@@ -47,6 +53,8 @@ typedef u32 (*KartBmgFn)(KartId);
 static const KartBmgFn kartBmg = reinterpret_cast<KartBmgFn>(0x808334e0);
 typedef bool (*KartVoiceFn)(void *, u32);
 static const KartVoiceFn kartVoice = reinterpret_cast<KartVoiceFn>(0x808689dc);
+// MultiTeamSelect::OnButtonClick's team voice (0x8084C8BC), which returns at once for hud 4 or more.
+extern "C" bool PlayDriverTeamVoice(u8 *manager, u32 hud, u32 team);
 
 const float kCellX[kGameLocal] = {-240.0f, -80.0f, 80.0f, 240.0f};
 const float kKartPlateY[2] = {10.0f, -165.0f};
@@ -72,6 +80,20 @@ const u32 kDriftAuto = 2;
 const s32 kRepeatFrames = 15;
 const float kStickStart = 0.67f;
 const float kStickHold = 0.33f;
+// The team page's cells: the driver beside MultiTeamSelect's buttons (0x8084C290), Red first. A team of six is full
+// (the game's team views hold six a side), and its button fades for the players still choosing.
+const float kTeamCellX[kGameLocal] = {-225.0f, -75.0f, 75.0f, 225.0f};
+const float kTeamRowY[2] = {70.0f, -100.0f};
+const float kTeamDriverDX = -38.0f;
+const float kTeamDriverScale = 0.4f;
+const float kTeamButtonDX[2] = {-5.0f, 38.0f};
+const float kTeamButtonScale = 0.6f;
+const u32 kTeamMessages[2] = {0xdb3, 0xdb2};  // "Red Team", "Blue Team" (0x8084C2C4)
+const char *const kTeamFlags[2] = {"flag_red", "flag_blue"};
+const u32 kTeamFull = 6;
+const u8 kTeamFullAlpha = 100;
+// SectionParams+0x174's last team per hud for P5-8, seeded as ResetLicenseParams seeds P1-4's (0x805E4184): odd huds Blue.
+static u8 extLastTeam[kMaxLocal - kGameLocal] = {TEAM_RED, TEAM_BLUE, TEAM_RED, TEAM_BLUE};
 
 enum ArrowSide {
     ARROW_LEFT,
@@ -173,6 +195,8 @@ private:
     void LoadCell(u32 player);
     void ActivateKarts();
     void ActivateButtons();
+    void ActivateTeams();
+    void UpdateTeamCap(bool moveOff);
     void StepKart(u32 player, s32 step);
     void LightArrow(u32 player, s32 step);
     void RequestKart(u32 player);
@@ -186,6 +210,7 @@ private:
 
     const SelectStep &step;
     const bool kartStep;
+    const bool teamStep;
     CtrlMenuPageTitleText *titleText;
     PageManipulatorManager manager;
     PageId nextPageId;
@@ -199,6 +224,7 @@ private:
     LayoutUIControl *sides[kMaxLocal][2];  // the arrows on the kart page, the two buttons on the others
     u8 buttons[kMaxLocal];  // the button each player is on, 0 or 1
     s32 held[kMaxLocal][2];  // frames each direction has been held, -1 when not
+    bool teamFull[2];  // the team page's teams six players have chosen
 };
 
 Page *NewSelectPage(u32 id) {
@@ -210,7 +236,7 @@ Page *NewSelectPage(u32 id) {
     return nullptr;
 }
 
-SelectPage::SelectPage(const SelectStep &step) : step(step), kartStep(step.id == Pulsar::UI::PULPAGE_SS8KARTSELECT) {
+SelectPage::SelectPage(const SelectStep &step) : step(step), kartStep(step.id == Pulsar::UI::PULPAGE_SS8KARTSELECT), teamStep(step.id == Pulsar::UI::PULPAGE_SS8TEAMSELECT) {
     this->nextPageId = PAGE_NONE;
     this->titleText = new CtrlMenuPageTitleText;
     for (u32 p = 0; p < kMaxLocal; ++p) {
@@ -250,7 +276,10 @@ void SelectPage::LoadCell(u32 player) {
     const float x = kCellX[player % kGameLocal];
     const float y = kKartPlateY[player / kGameLocal];
     this->AddControl(1 + player, *this->previews[player], 0);
-    LoadModelPreview(*this->previews[player], x, y + kKartPreviewDY, kKartPreviewScale);
+    if (this->teamStep)
+        LoadModelPreview(*this->previews[player], kTeamCellX[player % kGameLocal] + kTeamDriverDX, kTeamRowY[player / kGameLocal], kTeamDriverScale);
+    else
+        LoadModelPreview(*this->previews[player], x, y + kKartPreviewDY, kKartPreviewScale);
     u32 next = 1 + kMaxLocal;
     if (this->kartStep) {
         this->AddControl(next + player, *this->plates[player], 0);
@@ -262,7 +291,12 @@ void SelectPage::LoadCell(u32 player) {
         LayoutUIControl &control = *this->sides[player][side];
         this->AddControl(next + 2 * player + side, control, 0);
         ControlLoader loader(&control);
-        if (!this->kartStep) {
+        if (this->teamStep) {
+            loader.Load("button", "TeamSelect_4", side == 0 ? "ButtonRed" : "ButtonBlue", kButtonAnims);
+            PlaceControl(control, player, kTeamCellX[player % kGameLocal] + kTeamButtonDX[side], kTeamRowY[player / kGameLocal], kTeamButtonScale);
+            control.SetTextBoxMessage("text", kTeamMessages[side]);
+            control.SetPicturePane("flag_set_p", kTeamFlags[side]);
+        } else if (!this->kartStep) {
             loader.Load("button", "drift_4", side == 0 ? "ButtonAuto" : "ButtonManual", kButtonAnims);
             PlaceControl(control, player, x, y + kButtonDY[side], kButtonScale);
         } else {
@@ -297,7 +331,7 @@ void SelectPage::OnActivate() {
     for (u32 i = 0; i < kMaxLocal; ++i) this->ready[i] = false;
     OS::Report("ss8 select: %s page, %u players\n", this->step.name, menuLocalCount);
     const u32 count = menuLocalCount;
-    if (!ExtPreviewsShow(count) || !ExtKartsShow(count))
+    if (!ExtPreviewsShow(count) || (!this->teamStep && !ExtKartsShow(count)))
         OS::Report("ss8 select: P5-8 kart previews failed\n");
     for (u32 player = 0; player < kMaxLocal; ++player) {
         const bool shown = player < count;
@@ -307,7 +341,9 @@ void SelectPage::OnActivate() {
             this->held[player][side] = -1;
         }
     }
-    if (!this->kartStep) {
+    if (this->teamStep) {
+        this->ActivateTeams();
+    } else if (!this->kartStep) {
         this->ActivateButtons();
     } else {
         this->ActivateKarts();
@@ -345,6 +381,47 @@ void SelectPage::ActivateKarts() {
         } else if (player < kGameLocal && renderer != nullptr) {
             renderer->params[player].unknown_0x9 = 0;
             renderer->LoadKartModelsByCharacter(player, character);
+        }
+    }
+}
+
+// As MultiTeamSelect::OnActivate (0x8084C444): each player on their last team (SectionParams+0x174, 0x8084C638),
+// their driver idle (0x8084C6E4).
+void SelectPage::ActivateTeams() {
+    const SectionParams *params = SectionMgr::sInstance->sectionParams;
+    for (u32 player = 0; player < menuLocalCount; ++player) {
+        const u32 last = player < kGameLocal ? params->isOddLicense[player] : extLastTeam[player - kGameLocal];
+        this->buttons[player] = last == TEAM_BLUE ? 1 : 0;
+        for (u32 side = 0; side < 2; ++side) StartAnimations(*this->sides[player][side], side == this->buttons[player]);
+        if (player >= kGameLocal) {
+            ExtPreviewPose(player, false);
+        } else if (MenuDriverModel *model = GameDriverModel(player)) {
+            model->SwitchState(player, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
+        }
+    }
+}
+
+// A team six players have chosen fades for the players still choosing, and moves them off it when moveOff.
+void SelectPage::UpdateTeamCap(bool moveOff) {
+    u32 chosen[2] = {0, 0};
+    for (u32 player = 0; player < menuLocalCount; ++player)
+        if (this->ready[player])
+            ++chosen[this->buttons[player]];
+    for (u32 side = 0; side < 2; ++side) this->teamFull[side] = chosen[side] >= kTeamFull;
+    for (u32 player = 0; player < menuLocalCount; ++player) {
+        if (this->ready[player])
+            continue;
+        for (u32 side = 0; side < 2; ++side) {
+            const bool full = this->teamFull[side];
+            // With influenced alpha (flag bit 1) every pane of the button takes its layout root's.
+            nw4r::lyt::Pane *root = this->sides[player][side]->layout.layout.rootPane;
+            root->alpha = full ? kTeamFullAlpha : 255;
+            root->flag |= 2;
+            if (moveOff && full && this->buttons[player] == side) {
+                SelectControl(*this->sides[player][side], false);
+                SelectControl(*this->sides[player][side ^ 1], true);
+                this->buttons[player] = side ^ 1;
+            }
         }
     }
 }
@@ -515,6 +592,12 @@ void SelectPage::Ready(u32 player) {
         button.animator.GetAnimationGroupById(GROUP_OK).PlayAnimationAtFrame(0, 0.0f);
         button.PlaySound(SOUND_ID_BUTTON_PRESS, player);
         this->WriteButton(player);
+        if (this->teamStep) {
+            if (player < kGameLocal)
+                PlayDriverTeamVoice(*driverSoundManager, player, this->buttons[player]);
+            else
+                ExtMenuVoice(player, PlayerCharacter(player), this->buttons[player] == 0 ? kVoiceTeamRed : kVoiceTeamBlue);
+        }
         return;
     }
     this->plates[player]->PlaySound(kSoundKartConfirm, player);
@@ -525,7 +608,7 @@ void SelectPage::Ready(u32 player) {
         kartVoice(*driverSoundManager, player);
     } else {
         ExtKartPose(player, true);
-        ExtKartVoice(player, PlayerCharacter(player));
+        ExtMenuVoice(player, PlayerCharacter(player), kVoiceKart);
     }
 }
 
@@ -551,6 +634,15 @@ void SelectPage::Unready(u32 player) {
 void SelectPage::WriteButton(u32 player) {
     const bool first = this->buttons[player] == 0;
     OS::Report("ss8 select: %s player %u on %s\n", this->step.name, player + 1, first ? "first" : "second");
+    if (this->teamStep) {
+        const Team team = first ? TEAM_RED : TEAM_BLUE;
+        Racedata::sInstance->menusScenario.players[player].team = team;
+        if (player < kGameLocal)
+            SectionMgr::sInstance->sectionParams->isOddLicense[player] = team;
+        else
+            extLastTeam[player - kGameLocal] = team;
+        return;
+    }
     if (this->step.id == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT) {
         Pulsar::UI::SetSelectedTransmission(player, first ? Pulsar::TRANSMISSION_OUTSIDE : Pulsar::TRANSMISSION_INSIDE);
         return;
@@ -568,7 +660,12 @@ void SelectPage::WriteButton(u32 player) {
 }
 
 void SelectPage::AfterControlUpdate() {
-    this->UpdateKartPreviews();
+    if (this->teamStep) {
+        UpdateDriverPreviews(this->previews);
+        this->UpdateTeamCap(true);
+    } else {
+        this->UpdateKartPreviews();
+    }
     for (u32 player = 0; player < menuLocalCount; ++player) this->UpdateSides(player);
     if (this->currentState != STATE_ACTIVE || this->leaving)
         return;
@@ -578,16 +675,20 @@ void SelectPage::AfterControlUpdate() {
     u32 readyCount = 0;
     for (u32 player = 0; player < count; ++player) {
         const Input::RealControllerHolder *holder = this->rolling >= 0 || SectionMgr::sInstance->curSection->skipsActions ? static_cast<Input::RealControllerHolder *>(nullptr) : PlayerHolder(player);
-        const s32 step = holder != nullptr ? this->Direction(player, *holder, !this->kartStep) : 0;
+        const s32 step = holder != nullptr ? this->Direction(player, *holder, !this->kartStep && !this->teamStep) : 0;
         if (holder != nullptr && UIPressed(*holder, FORWARD_PRESS) && !this->ready[player]) {
+            if (this->teamStep && this->teamFull[this->buttons[player]])
+                continue;  // filled earlier this frame; next frame's cap moves this player off it
             this->Ready(player);
+            if (this->teamStep)
+                this->UpdateTeamCap(false);  // a later confirm on this frame sees the count
         } else if (holder != nullptr && !this->ready[player] && step != 0) {
             if (this->kartStep) {
                 this->StepKart(player, step);
                 this->LightArrow(player, step);
             } else {
-                const u8 to = step < 0 ? 0 : 1;  // Up the first button, Down the second, no wrap
-                if (to != this->buttons[player]) {
+                const u8 to = step < 0 ? 0 : 1;  // Up or Left the first button, Down or Right the second, no wrap
+                if (to != this->buttons[player] && !(this->teamStep && this->teamFull[to])) {
                     SelectControl(*this->sides[player][this->buttons[player]], false);
                     SelectControl(*this->sides[player][to], true);
                     this->buttons[player] = to;
@@ -625,6 +726,8 @@ void SelectPage::AfterControlUpdate() {
 // Menu::LoadNextPageById stores a Menu caller's id as the next Menu's prevPageId (0x808377DC); these pages are not
 // Menus, so cup select gets it here. The transmission page is skipped as RR's LoadMultiTransmissionSelectBeforeDrift.
 void SelectPage::Leave(u32 next, u32 animDirection) {
+    if (next == Pulsar::UI::PULPAGE_SS8CHARSELECT && this->kartStep && MenuTeamVS())
+        next = Pulsar::UI::PULPAGE_SS8TEAMSELECT;
     if (next == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT && Pulsar::UI::ShouldSkipTransmissionSelect(Pulsar::System::sInstance))
         next = this->kartStep ? Pulsar::UI::PULPAGE_SS8DRIFTSELECT : Pulsar::UI::PULPAGE_SS8KARTSELECT;
     this->leaving = true;

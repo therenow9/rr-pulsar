@@ -136,7 +136,13 @@ enum SelectAnim {
 const u32 kAnimStop = 1;  // SelectIn's SelectStop and OK's OKStop
 void StartAnimations(LayoutUIControl &control, bool selected);
 void SelectControl(LayoutUIControl &control, bool select);
-void ExtKartVoice(u32 player, CharacterId character);
+// 0x80868ABC's voice types: the kart page's, and the team page's for Blue and Red (0x80868A3C).
+const u32 kVoiceKart = 1;
+const u32 kVoiceTeamBlue = 2;
+const u32 kVoiceTeamRed = 3;
+void ExtMenuVoice(u32 player, CharacterId character, u32 type);
+void UpdateDriverPreviews(LayoutUIControl *const *previews);
+bool MenuTeamVS();
 // The holder menu input slot 4 answers, null for none; Pause.cpp's proxy, cleared at every section load.
 void SetMenuSlotProxy(Input::RealControllerHolder *holder);
 #endif

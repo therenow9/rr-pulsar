@@ -165,6 +165,7 @@ void ExpSection::CreatePulPages() {
                 this->CreateAndInitPage(*this, PULPAGE_SS8KARTSELECT);
                 this->CreateAndInitPage(*this, PULPAGE_SS8TRANSMISSIONSELECT);
                 this->CreateAndInitPage(*this, PULPAGE_SS8DRIFTSELECT);
+                this->CreateAndInitPage(*this, PULPAGE_SS8TEAMSELECT);
 #endif
             }
             this->CreateAndInitPage(*this, SettingsPageSelect::id);
@@ -343,6 +344,7 @@ void ExpSection::CreateAndInitPage(ExpSection &self, u32 id) {
         case PULPAGE_SS8KARTSELECT:
         case PULPAGE_SS8TRANSMISSIONSELECT:
         case PULPAGE_SS8DRIFTSELECT:
+        case PULPAGE_SS8TEAMSELECT:
             page = SplitScreen8::NewSelectPage(id);
             break;
 #endif
