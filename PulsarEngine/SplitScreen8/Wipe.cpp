@@ -49,7 +49,6 @@ typedef void (*ControlDtorFn)(void *, s32);
 static const WipeCtorFn wipeCtor = reinterpret_cast<WipeCtorFn>(0x80651e80);
 static const ControlCtorFn wipeControlCtor = reinterpret_cast<ControlCtorFn>(0x80651c0c);
 static const ControlDtorFn wipeControlDtor = reinterpret_cast<ControlDtorFn>(0x80651c48);
-static const ControlCtorFn layoutControlCtor = reinterpret_cast<ControlCtorFn>(0x8063d798);
 static const ControlDtorFn layoutControlDtor = reinterpret_cast<ControlDtorFn>(0x8063d8c0);
 
 // The same case's "bl Pages::Wipe::__ct" (r3 = the new page, which the case returns in r3).
@@ -58,7 +57,7 @@ static Pages::Wipe *WipeCtor(Pages::Wipe *page) {
     if (raceScreenCount == 0)
         return page;
     for (u32 i = 0; i < kExtWipes; ++i) wipeControlCtor(&ExtWipe(*page, i));
-    for (u32 i = 0; i < kExtLines; ++i) layoutControlCtor(&ExtLine(*page, i));
+    for (u32 i = 0; i < kExtLines; ++i) layoutCtor(&ExtLine(*page, i));
     widePage = page;
     return page;
 }

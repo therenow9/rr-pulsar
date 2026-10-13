@@ -28,18 +28,12 @@ static const PadSetIdFn padSetId = reinterpret_cast<PadSetIdFn>(0x80601564);
 static const PadFn padRegister = reinterpret_cast<PadFn>(0x8060156c);
 
 typedef void (*TrySetControllerFn)(Input::Manager *, u32, u32);
-typedef u32 (*CalculateIDFn)(const Input::RealControllerHolder *);
 typedef void (*SectionPadSlotFn)(SectionPad *, u32);
 typedef bool (*HasAControllerFn)(const SectionPad *, u32);
-typedef void (*ControlFn)(LayoutUIControl *);
-typedef void (*DummyBackLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32);
 typedef void (*RequestBackModelFn)(BackGroundModelControl *, s32);
 static const TrySetControllerFn trySetController = reinterpret_cast<TrySetControllerFn>(0x80523ebc);
-static const CalculateIDFn calculateID = reinterpret_cast<CalculateIDFn>(0x8061be40);
 static const SectionPadSlotFn requestPad = reinterpret_cast<SectionPadSlotFn>(0x8061b6ec);
 static const HasAControllerFn hasAController = reinterpret_cast<HasAControllerFn>(0x8061b3cc);
-static const ControlFn layoutCtor = reinterpret_cast<ControlFn>(0x8063d798);
-static const DummyBackLoadFn dummyBackLoad = reinterpret_cast<DummyBackLoadFn>(0x807e9620);
 static const RequestBackModelFn requestBackModel = reinterpret_cast<RequestBackModelFn>(0x805f2e84);
 
 const u32 kTitleBmg = 0x961;  // RegisterPad's title, "Controller Registration"

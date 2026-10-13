@@ -16,6 +16,9 @@ namespace Input {
 class Manager;
 class RealControllerHolder;
 }  // namespace Input
+namespace Pages {
+class ModelRenderer;
+}  // namespace Pages
 
 namespace SplitScreen8 {
 
@@ -25,6 +28,30 @@ const int kGameLocal = 4;
 
 // Screens of the current race: 0 while it uses the game's own count, else 6 or 8.
 extern u8 raceScreenCount;
+// A hud 4-7 of a widened race, which the game's 4-wide per-hud state cannot hold. Compared in the caller's type: a signed
+// hud of -1 is not wide, an unsigned one is.
+template <typename Hud>
+inline bool IsWideHud(Hud hud) {
+    return raceScreenCount != 0 && hud >= kGameLocal;
+}
+
+// Game calls and statics used in more than one file, whose GameSource declarations are missing, private or mistyped.
+typedef void (*UpdateStatesClassicFn)(u8 *controller, u8 *status, void *state, void *uiState);
+typedef u32 (*CalculateIDFn)(const Input::RealControllerHolder *);
+typedef void (*ControlFn)(LayoutUIControl *);
+typedef void (*DummyBackLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32);
+typedef void (*ShowModelFn)(Pages::ModelRenderer *, u32, bool, u32);
+typedef GX::TexObj *(*ModelTexObjFn)(Pages::ModelRenderer *, u32);
+static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<UpdateStatesClassicFn>(0x8051f410);
+static const CalculateIDFn calculateID = reinterpret_cast<CalculateIDFn>(0x8061be40);
+static const ControlFn layoutCtor = reinterpret_cast<ControlFn>(0x8063d798);
+static const DummyBackLoadFn dummyBackLoad = reinterpret_cast<DummyBackLoadFn>(0x807e9620);
+// ModelRenderer's per-hud show and texture, as the model controls call them each frame; the show ends in
+// MenuDriverModelMgr::TogglePlayerModel, which writes players[hud] (4 wide), so huds 0-3 only.
+static const ShowModelFn showModel = reinterpret_cast<ShowModelFn>(0x805f59ac);
+static const ModelTexObjFn modelTexObj = reinterpret_cast<ModelTexObjFn>(0x805f5a4c);
+static u8 *const *const driverSoundManager = reinterpret_cast<u8 *const *>(0x809c4740);
+static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710);  // MiiManager::sInstance, private
 
 // Local players of a widened race or of any race with more than 4, else 0; the scenario's own count stops at 4.
 extern u8 raceLocalCount;
@@ -61,6 +88,12 @@ Page *NewSelectPage(u32 id);
 Page *NewCharSelectPage();
 // The kart if it is one of the character's 12, else the Standard Kart of the character's weight class.
 KartId KartForCharacter(CharacterId character, KartId kart);
+// RR's Randomize Combo roulette (ExpVR::randomDuration, ExpCharacterSelect::BeforeControlUpdate): 60 frames, a
+// hop on each frame whose count left is 1 modulo 4 (the last onto the roll), every player confirming at 0.
+const s32 kRollFrames = 60;
+const s32 kRollHop = 4;
+// Set by a roll on the character page, so the kart page opens on the karts' roulette.
+extern bool kartRoulette;
 // P5-8's previews: Show builds the textures (null until then) and gives the model pass loop `count` passes until
 // Hide; Stock says the player's model fell back to the character's stock one.
 bool ExtPreviewsShow(u32 count);
@@ -80,13 +113,29 @@ void ExtKartRequest(u32 player, CharacterId character, u32 slot, KartId kart);
 const u32 kStateKartChosen = 3;
 // A P5-8 driver's kart pose: kStateKartChosen once confirmed, else the turning one.
 void ExtKartPose(u32 player, bool confirmed);
-// Shared by the character and kart pages; SkinToggleStep is this frame's toggle press, -1, 0 or 1.
+// Shared by the character and kart pages.
 void MenuPlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary);
 void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale);
 void LoadModelPreview(LayoutUIControl &preview, float x, float y, float scale);
 void SetPreviewTexture(LayoutUIControl &preview, const GX::TexObj *texObj);
 void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type);
-s32 SkinToggleStep(Input::RealControllerHolder &holder);
+// PushButton's animation names (0x808B7690, UpDownButton's the same), so a loaded control keeps its group ids.
+extern const char *kButtonAnims[];
+enum ButtonGroup {
+    GROUP_LOOP,
+    GROUP_SELECT,
+    GROUP_SELECT_IN,
+    GROUP_OK
+};
+enum SelectAnim {
+    ANIM_FREE,
+    ANIM_FREE_TO_SELECT,
+    ANIM_SELECT,
+    ANIM_SELECT_TO_FREE
+};
+const u32 kAnimStop = 1;  // SelectIn's SelectStop and OK's OKStop
+void StartAnimations(LayoutUIControl &control, bool selected);
+void SelectControl(LayoutUIControl &control, bool select);
 void ExtKartVoice(u32 player, CharacterId character);
 // The holder menu input slot 4 answers, null for none; Pause.cpp's proxy, cleared at every section load.
 void SetMenuSlotProxy(Input::RealControllerHolder *holder);

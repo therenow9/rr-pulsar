@@ -58,7 +58,6 @@ static const HeadParamsFn headParams = reinterpret_cast<HeadParamsFn>(0x807dc2c0
 const u32 kHeadSize = 0x70;
 const u32 kHeadLayer = 5;
 const float kMiiBodyScale = 1.6f;  // the Mii body loader's SetScale (0x8083129C, 0x808AC980)
-static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710);  // MiiManager::sInstance
 
 // Raw storage given the shared models' vtable word and set up field by field, not MenuDriverModel's constructor.
 struct ExtPreview {

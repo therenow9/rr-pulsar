@@ -335,16 +335,13 @@ kmCall(0x8051ffa0, ScriptedWiiButtonsStub);
 #endif
 
 #if SS8_BOOT_PAUSE_BY
-// --boot-pause-by N: player N (5-8) drives the pause steps on its Classic Controller. WiiController::UpdateImpl+0x1E8
-// calls UpdateStatesClassic, which takes held buttons from the status's +0x2A (WPADCLStatus) when the extension reads.
-typedef void (*UpdateStatesClassicFn)(u8 *controller, u8 *status, void *state, void *uiState);
-static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<UpdateStatesClassicFn>(0x8051f410);
-
 // PAD::PAD_BUTTON_* to WPAD_CL_BUTTON_*, for the buttons the pause steps use.
 static u16 ClassicButtons(u16 pad) {
     return (pad & PAD::PAD_BUTTON_START ? 0x400 : 0) | (pad & PAD::PAD_BUTTON_A ? 0x10 : 0) | (pad & PAD::PAD_BUTTON_UP ? 0x1 : 0) | (pad & PAD::PAD_BUTTON_DOWN ? 0x4000 : 0);
 }
 
+// --boot-pause-by N: player N (5-8) drives the pause steps on its Classic Controller. WiiController::UpdateImpl+0x1E8
+// calls UpdateStatesClassic, which takes held buttons from the status's +0x2A (WPADCLStatus) when the extension reads.
 static void UpdateStatesClassicPauseBy(u8 *controller, u8 *status, void *state, void *uiState) {
     const u32 channel = *reinterpret_cast<const u32 *>(controller + 0x8d4);
     if (bootRaces != 0 && channel == SS8_BOOT_PAUSE_BY - 5 && InPauseSteps(raceFrames))

@@ -58,6 +58,7 @@ enum PulPageId {
     PULPAGE_SS8JOIN,  // SplitScreen8's 5-8 player join page
     PULPAGE_SS8CHARSELECT,  // SplitScreen8's 5-8 player character, kart and drift pages
     PULPAGE_SS8KARTSELECT,
+    PULPAGE_SS8TRANSMISSIONSELECT,
     PULPAGE_SS8DRIFTSELECT,
 
     PULPAGE_MAX = PULPAGE_SS8DRIFTSELECT - PULPAGE_INITIAL + 1

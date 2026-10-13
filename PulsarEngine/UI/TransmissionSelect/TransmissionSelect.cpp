@@ -6,11 +6,16 @@
 #include <MarioKartWii/UI/Page/Menu/KartSelect.hpp>
 #include <RetroRewindChannel.hpp>
 #include <UI/ChangeCombo/ChangeCombo.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace UI {
 
-static Transmission selectedTransmission[4] = {
+static Transmission selectedTransmission[SplitScreen8::kMaxLocal] = {
+    TRANSMISSION_INSIDE,
+    TRANSMISSION_INSIDE,
+    TRANSMISSION_INSIDE,
+    TRANSMISSION_INSIDE,
     TRANSMISSION_INSIDE,
     TRANSMISSION_INSIDE,
     TRANSMISSION_INSIDE,
@@ -23,7 +28,7 @@ static bool IsVanillaModeOnline() {
     return controller != nullptr && controller->connectionState != RKNet::CONNECTIONSTATE_SHUTDOWN && System::sInstance->IsVanillaMode();
 }
 
-static bool ShouldSkipTransmissionSelect(const System *system) {
+bool ShouldSkipTransmissionSelect(const System *system) {
     if (IsVanillaModeOnline())
         return true;
     if (system->IsContext(PULSAR_STARTREGS))
@@ -36,13 +41,13 @@ static Transmission GetTransmissionFromButton(const PushButton &button) {
 }
 
 Transmission GetSelectedTransmission(u32 hudSlotId) {
-    if (hudSlotId >= 4)
+    if (hudSlotId >= SplitScreen8::kMaxLocal)
         return TRANSMISSION_INSIDE;
     return selectedTransmission[hudSlotId];
 }
 
 void SetSelectedTransmission(u32 hudSlotId, Transmission transmission) {
-    if (hudSlotId < 4)
+    if (hudSlotId < SplitScreen8::kMaxLocal)
         selectedTransmission[hudSlotId] = transmission;
 }
 

@@ -11,6 +11,7 @@
 #include <Driver/CustomCharacters.hpp>
 #include <Race/CustomCharacters.hpp>
 #include <Race/CustomCharacterVoice.hpp>
+#include <UI/TransmissionSelect/TransmissionSelect.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 
@@ -62,9 +63,6 @@ kmCall(0x80520220, CopyPADStatusMenuScript);
 
 // WiiController::UpdateImpl+0x1E8 calls UpdateStatesClassic for a Classic Controller channel; it takes held buttons
 // from the status's +0x2A (WPADCLStatus). The controller's +0x8D4 is its channel, +0x8F8 the last frame's buttons.
-typedef void (*UpdateStatesClassicFn)(u8 *controller, u8 *status, void *state, void *uiState);
-static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<UpdateStatesClassicFn>(0x8051f410);
-
 static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *state, void *uiState) {
     const u32 port = 4 + *reinterpret_cast<const u32 *>(controller + 0x8d4);
     for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
@@ -176,7 +174,7 @@ static void ReportRacePlayers() {
     for (u32 i = 0; Input::Manager::sInstance != nullptr && i < kMaxLocal; ++i) {
         const Input::RealControllerHolder &holder = Holder(*Input::Manager::sInstance, i);
         const u8 *controller = reinterpret_cast<const u8 *>(holder.curController);
-        OS::Report("ss8 holder %u: drift %u controller %d\n", i, *reinterpret_cast<const u16 *>(reinterpret_cast<const u8 *>(&holder) + 0xc0), controller != nullptr ? controller[0x51] : -1);
+        OS::Report("ss8 holder %u: drift %u controller %d transmission %d\n", i, holder.isDriftAuto, controller != nullptr ? controller[0x51] : -1, Pulsar::UI::GetSelectedTransmission(i));
     }
 }
 static RaceFrameHook reportRacePlayers(ReportRacePlayers);

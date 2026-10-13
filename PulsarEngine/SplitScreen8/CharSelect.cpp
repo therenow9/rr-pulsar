@@ -38,12 +38,9 @@ namespace SplitScreen8 {
 
 typedef bool (*ConfirmVoiceFn)(void *, u32, CharacterId);
 typedef void (*FillCpusFn)();
-typedef void (*ControlFn)(LayoutUIControl *);
-typedef void (*DummyBackLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32);
 // ButtonDriver::OnButtonClick's confirm voice (0x807E36D0). It returns at once for hud 4+: its driver path
 // (0x80868ABC) keeps one sound handle per hud, 4 wide, at DriverSoundManager+0x2430.
 static const ConfirmVoiceFn confirmVoice = reinterpret_cast<ConfirmVoiceFn>(0x80868974);
-static u8 *const *const confirmVoiceOwner = reinterpret_cast<u8 *const *>(0x809c4740);
 typedef void *(*StartVoiceFn)(void *, nw4r::snd::SoundHandle *);
 const u32 kVoiceSetStride = 0xc0;  // one character's voice pickers
 const u32 kVoicePicker = 0x30;  // the confirm voice's picker in its set
@@ -52,14 +49,6 @@ static nw4r::snd::SoundHandle extVoices[kMaxLocal - kGameLocal];
 // Gives every CPU from GetLocalPlayerCount (read once, 0x8083EC38) a random character no earlier slot has,
 // keeping the slots below the count in a 14-word array (0x8083EC80).
 static const FillCpusFn fillCpuCharacters = reinterpret_cast<FillCpusFn>(0x8083ec28);
-static const ControlFn layoutCtor = reinterpret_cast<ControlFn>(0x8063d798);
-static const DummyBackLoadFn dummyBackLoad = reinterpret_cast<DummyBackLoadFn>(0x807e9620);
-typedef void (*ShowModelFn)(Pages::ModelRenderer *, u32, bool, u32);
-typedef GX::TexObj *(*ModelTexObjFn)(Pages::ModelRenderer *, u32);
-// DriverModelControl::OnUpdate's per-frame calls (0x805F3618, 0x805F3624): the first ends in
-// MenuDriverModelMgr::TogglePlayerModel, which writes players[hud] (4 wide), so P1-4 only.
-static const ShowModelFn showModel = reinterpret_cast<ShowModelFn>(0x805f59ac);
-static const ModelTexObjFn modelTexObj = reinterpret_cast<ModelTexObjFn>(0x805f5a4c);
 
 const u32 kTitleBmg = 0xd4a;  // CharacterSelect's titleBmg (0x80626C90)
 const u32 kDummyBackSize = 0x184;
@@ -88,27 +77,8 @@ const float kPlateScale = 0.5f;
 const float kPreviewX = 240.0f;
 const float kPreviewDY = 40.0f;  // above its plate
 const float kPreviewScale = 0.4f;  // of the 256 x 256 model_set_p
-// RR's Randomize Combo roulette (ExpVR::randomDuration, ExpCharacterSelect::BeforeControlUpdate): 60 frames, a
-// hop on each frame whose count left is 1 modulo 4 (the last onto the roll), every player confirming at 0.
-const s32 kRollFrames = 60;
-const s32 kRollHop = 4;
-
-// PushButton's animation names (0x808B7690), so the groups and animations keep PushButton's ids.
-static const char *kButtonAnims[] = {
+const char *kButtonAnims[] = {
     "Loop", "Loop", nullptr, "Select", "Free", "FreeToSelect", "Select", "SelectToFree", nullptr, "SelectIn", "SelectIn", "SelectStop", nullptr, "OK", "OK", "OKStop", nullptr, nullptr};
-enum ButtonGroup {
-    GROUP_LOOP,
-    GROUP_SELECT,
-    GROUP_SELECT_IN,
-    GROUP_OK
-};
-enum SelectAnim {
-    ANIM_FREE,
-    ANIM_FREE_TO_SELECT,
-    ANIM_SELECT,
-    ANIM_SELECT_TO_FREE
-};
-const u32 kAnimStop = 1;  // SelectIn's SelectStop and OK's OKStop
 
 // P5-8's index among the console's and the default Miis, as P1-4's at SectionParams+0x154 (4 wide). Vanilla zeroes
 // P1-4's at every license click (0x805E4118); these go back to 0 only when the page is built under another license.
@@ -116,10 +86,10 @@ static u32 extMiiIdx[kMaxLocal - kGameLocal];
 static s32 extMiiLicense = -1;
 // The player 5-8 MiiSelect is open for, else 0xFF; read by MiiPickPlayer.
 static u8 extMiiPlayer = kNoPlayer;
+bool kartRoulette = false;
 const u32 kMiiSelectClicked = 0xd94;  // MiiSelect::clickedButtonId, -1 for none
 const u32 kMiiSelectHud = 0xda0;  // MiiSelect::activeHudSlotId
-static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710);  // MiiManager::sInstance
-const u32 kOfficialMiiCount = 0x2d4;  // its count of the console's Miis, read as a byte (0x8083D6DC)
+const u32 kOfficialMiiCount = 0x2d4;  // MiiManager's count of the console's Miis, read as a byte (0x8083D6DC)
 
 typedef void (*LoadMiiFn)(MiiGroup *, u8, u32);
 typedef void (*MiiVoiceFn)(void *, Mii *, u32);
@@ -196,7 +166,7 @@ static void MarkKartLine(nw4r::snd::SoundHandle &handle) {
 // 0x80868ABC's driver path for P5-8 on handles of their own: the character's picker for the type, or the confirm one
 // where the type's table at 0x808DBE38 gives 0x392, started through its vtable +0xC. A Mii takes 0x80868C20's path.
 static void ExtConfirmVoice(u32 player, CharacterId character, u32 type = 0) {
-    u8 *manager = *confirmVoiceOwner;
+    u8 *manager = *driverSoundManager;
     if (manager == nullptr || player < kGameLocal || player >= kMaxLocal || static_cast<u32>(character) >= Pulsar::Driver::CHARACTER_COUNT)
         return;
     // The skin's voice, as RR's hook in 0x80868ABC gives P1-4: a skin's own trick line is already in the handle,
@@ -242,7 +212,7 @@ const float kMiiVoicePan = 0.0f;  // 0x808B1FCC
 static void StartExtMiiVoice(u32 player, u32 type);
 
 static void ExtMiiConfirmVoice(u32 player, Mii *mii) {
-    u8 *manager = *confirmVoiceOwner;
+    u8 *manager = *driverSoundManager;
     if (manager == nullptr || mii == nullptr || player < kGameLocal || player >= kMaxLocal)
         return;
     miiVoiceRecord(manager, mii, &extMiiVoices[player - kGameLocal], 1);
@@ -251,7 +221,7 @@ static void ExtMiiConfirmVoice(u32 player, Mii *mii) {
 
 // 0x80868C20 on the player's record, which their character confirm filled.
 static void StartExtMiiVoice(u32 player, u32 type) {
-    u8 *manager = *confirmVoiceOwner;
+    u8 *manager = *driverSoundManager;
     if (manager == nullptr || player < kGameLocal || player >= kMaxLocal)
         return;
     const MiiVoice &record = extMiiVoices[player - kGameLocal];
@@ -300,10 +270,33 @@ static void SetVisible(nw4r::lyt::Pane *pane, bool visible) {
         pane->flag = visible ? (pane->flag | 1) : (pane->flag & ~1);
 }
 
-// 1 - the share of the current animation played, so a reversed transition starts where the other stopped.
-static float Remaining(const AnimationGroup &group) {
+// Every group as PushButton::Init (0x805BDBE0) starts it; a loaded group has no animation, and a hidden control
+// still updates.
+void StartAnimations(LayoutUIControl &control, bool selected) {
+    UIAnimator &animator = control.animator;
+    animator.GetAnimationGroupById(GROUP_LOOP).PlayAnimationAtFrameAndDisable(0, 0.0f);
+    animator.GetAnimationGroupById(GROUP_SELECT).PlayAnimationAtFrame(selected ? ANIM_SELECT : ANIM_FREE, 0.0f);
+    animator.GetAnimationGroupById(GROUP_SELECT_IN).PlayAnimationAtFrame(kAnimStop, 0.0f);
+    animator.GetAnimationGroupById(GROUP_OK).PlayAnimationAtFrame(kAnimStop, 0.0f);
+}
+
+// PushButton::HandleSelect and HandleDeselect's animations (0x805BDFFC, 0x805BE130); a reversed transition starts
+// where the other stopped.
+void SelectControl(LayoutUIControl &control, bool select) {
+    UIAnimator &animator = control.animator;
+    AnimationGroup &group = animator.GetAnimationGroupById(GROUP_SELECT);
     const u16 size = group.animations[group.curAnimation].transform->GetFrameSize();
-    return 1.0f - group.curFrame / static_cast<float>(size);
+    const float remaining = 1.0f - group.curFrame / static_cast<float>(size);
+    if (select && group.curAnimation == ANIM_FREE)
+        group.PlayAnimationAtFrame(ANIM_FREE_TO_SELECT, 0.0f);
+    else if (select && group.curAnimation == ANIM_SELECT_TO_FREE)
+        group.PlayAnimationAtPercent(ANIM_FREE_TO_SELECT, remaining);
+    else if (!select && group.curAnimation == ANIM_FREE_TO_SELECT)
+        group.PlayAnimationAtPercent(ANIM_SELECT_TO_FREE, remaining);
+    else if (!select && group.curAnimation == ANIM_SELECT)
+        group.PlayAnimationAtFrame(ANIM_SELECT_TO_FREE, 0.0f);
+    if (select)
+        animator.GetAnimationGroupById(GROUP_SELECT_IN).PlayAnimationAtFrame(0, 0.0f);
 }
 
 class CharSelectPage : public Page {
@@ -772,6 +765,7 @@ void CharSelectPage::OnActivate() {
     this->miiPlayer = kNoPlayer;
     this->miiResumed = false;
     this->rolling = -1;
+    kartRoulette = false;
     const SectionParams *params = SectionMgr::sInstance->sectionParams;
     bool miiCOpen = Pulsar::Restrictions::IsOnlyMiiOutfitCEnabled();
     const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
@@ -801,15 +795,10 @@ void CharSelectPage::OnActivate() {
         this->PosePreview(p, false);
         this->SetPlateName(p);
     }
-    // Every group starts as PushButton::Init (0x805BDBE0) starts it; a loaded group has no animation yet.
     for (u32 i = 0; i < kButtons; ++i) {
         bool hovered = false;
         for (u32 p = 0; p < menuLocalCount; ++p) hovered |= this->cursors[p].button == i;
-        UIAnimator &animator = this->buttons[i].control.animator;
-        animator.GetAnimationGroupById(GROUP_LOOP).PlayAnimationAtFrameAndDisable(0, 0.0f);
-        animator.GetAnimationGroupById(GROUP_SELECT).PlayAnimationAtFrame(hovered ? ANIM_SELECT : ANIM_FREE, 0.0f);
-        animator.GetAnimationGroupById(GROUP_SELECT_IN).PlayAnimationAtFrame(kAnimStop, 0.0f);
-        animator.GetAnimationGroupById(GROUP_OK).PlayAnimationAtFrame(kAnimStop, 0.0f);
+        StartAnimations(this->buttons[i].control, hovered);
         this->UpdateButton(i);
     }
     OS::Report("ss8 select: character page, %u players, mii C %s\n", menuLocalCount, miiC.locked ? "locked" : "open");
@@ -832,8 +821,8 @@ void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type) {
 }
 
 // RR's skin toggle input (PageCheckActions), which runs only on the vanilla page. Confirm and back then come from A and B
-// (Nunchuk) or 2 and 1 (sideways Wii Remote), so a toggle button never also confirms.
-s32 SkinToggleStep(Input::RealControllerHolder &holder) {
+// (Nunchuk) or 2 and 1 (sideways Wii Remote), so a toggle button never also confirms. -1, 0 or 1.
+static s32 SkinToggleStep(Input::RealControllerHolder &holder) {
     if (holder.curController == nullptr)
         return 0;
     Input::UIState &state = holder.uiinputStates[0];
@@ -1074,6 +1063,7 @@ bool CharSelectPage::Roll() {
         OS::Report("ss8 select: character player %u roll %#x slot %u kart %#x\n", p + 1, character, slot, kart);
     }
     this->rolling = kRollFrames;
+    kartRoulette = true;
     return true;
 }
 
@@ -1159,20 +1149,10 @@ void CharSelectPage::Hover(u32 player, u32 to, bool preview) {
     this->cursors[player].button = to;
     bool shared = false;
     for (u32 p = 0; p < kMaxLocal; ++p) shared |= this->PlayerOn(p, from);
-    if (!shared) {
-        AnimationGroup &select = this->buttons[from].control.animator.GetAnimationGroupById(GROUP_SELECT);
-        if (select.curAnimation == ANIM_FREE_TO_SELECT)
-            select.PlayAnimationAtPercent(ANIM_SELECT_TO_FREE, Remaining(select));
-        else if (select.curAnimation == ANIM_SELECT)
-            select.PlayAnimationAtFrame(ANIM_SELECT_TO_FREE, 0.0f);
-    }
+    if (!shared)
+        SelectControl(this->buttons[from].control, false);
     LayoutUIControl &control = this->buttons[to].control;
-    AnimationGroup &select = control.animator.GetAnimationGroupById(GROUP_SELECT);
-    if (select.curAnimation == ANIM_FREE)
-        select.PlayAnimationAtFrame(ANIM_FREE_TO_SELECT, 0.0f);
-    else if (select.curAnimation == ANIM_SELECT_TO_FREE)
-        select.PlayAnimationAtPercent(ANIM_FREE_TO_SELECT, Remaining(select));
-    control.animator.GetAnimationGroupById(GROUP_SELECT_IN).PlayAnimationAtFrame(0, 0.0f);
+    SelectControl(control, true);
     control.PlaySound(SOUND_ID_BUTTON_SELECT, player);
     const CharacterId character = this->CharacterOn(player, to);
     this->SetPlateName(player);
@@ -1208,10 +1188,10 @@ void CharSelectPage::Confirm(u32 player) {
         pick.picked = true;
     }
     if (player < kGameLocal && this->buttons[cursor.button].outfit >= 0) {
-        miiVoice(*confirmVoiceOwner, this->PlayerMii(player), player);
-        miiConfirmVoice(*confirmVoiceOwner, player);
+        miiVoice(*driverSoundManager, this->PlayerMii(player), player);
+        miiConfirmVoice(*driverSoundManager, player);
     } else if (player < kGameLocal) {
-        confirmVoice(*confirmVoiceOwner, player, character);
+        confirmVoice(*driverSoundManager, player, character);
     } else if (this->buttons[cursor.button].outfit >= 0) {
         ExtMiiConfirmVoice(player, this->PlayerMii(player));
     } else {

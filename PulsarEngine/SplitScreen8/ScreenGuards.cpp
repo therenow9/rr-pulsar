@@ -7,7 +7,7 @@ namespace SplitScreen8 {
 // ModelDirector's screen bit is 0x10000 << screen in bitfield +4; 4-7 would hit bits 20-23, which the game uses, so a
 // widened race uses 28-31, which nothing reads. Otherwise this is exactly slw: a 6-bit amount, 32-63 giving 0 (hud -1).
 static u32 ScreenBit(u32 screen) {
-    if (raceScreenCount == 0 || screen < kGameLocal) {
+    if (!IsWideHud(screen)) {
         screen &= 0x3f;
         return screen < 32 ? 0x10000u << screen : 0;
     }
@@ -147,7 +147,7 @@ struct ItemWarning {
 static ItemWarning noItemWarning = {-1};
 
 static ItemWarning *GetItemWarning(u8 *mgr, u32 hud) {
-    if (raceScreenCount != 0 && hud >= kGameLocal)
+    if (IsWideHud(hud))
         return &noItemWarning;
     return reinterpret_cast<ItemWarning *>(mgr + 0x14 + hud * 0xC);
 }

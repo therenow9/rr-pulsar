@@ -353,20 +353,18 @@ typedef bool (*AnyKartFn)(const u8 *raceMgr);
 typedef void (*ApplyTriggerFn)(u8 *triggers, s32 variant, s32 hud, void *link);
 typedef void (*EchoVolumeFn)(void *echo, u32 hud, u32 frames, float volume);
 typedef void (*AmbienceVolumeFn)(void *ambience, u32 hud, u32 frames);
-typedef u32 (*CalculateIDFn)(const Input::RealControllerHolder *);
 static const AnyKartFn isAPlayerInMega = reinterpret_cast<AnyKartFn>(0x807117a0);
 static const AnyKartFn isAPlayerInStar = reinterpret_cast<AnyKartFn>(0x8071172c);
 static const AnyKartFn isAPlayerSquishedOrSmall = reinterpret_cast<AnyKartFn>(0x80711668);
 static const ApplyTriggerFn applyTrigger = reinterpret_cast<ApplyTriggerFn>(0x80719044);
 static const EchoVolumeFn echoSetVolume = reinterpret_cast<EchoVolumeFn>(0x807182b8);
 static const AmbienceVolumeFn setAllAmbiencesVolume = reinterpret_cast<AmbienceVolumeFn>(0x806fcfa0);
-static const CalculateIDFn calculateID = reinterpret_cast<CalculateIDFn>(0x8061be40);
 
 // KartActor::Link+0xBC calls RaceMgr::SetKartSound, which keeps the first 4 locals in player order, so hud 4-7 could displace
 // P1-4. They go to extKartActors; the counts (+0x28; +0x29 scales engine volume by locals racing) stay P1-4's.
 static void SetKartSoundWide(Audio::RaceMgr *mgr, Audio::KartActor *actor) {
     const s32 hud = ActorHud(actor);
-    if (raceScreenCount != 0 && hud >= kGameLocal) {
+    if (IsWideHud(hud)) {
         if (hud < kMaxLocal)
             extKartActors[hud - kGameLocal] = actor;
         return;
@@ -408,7 +406,7 @@ kmCall(0x8070ff08, IsAPlayerSquishedOrSmallWide);
 // KartActor::ApplyKCLSoundTrigger's tail call to ApplyTrigger, which sets the hud's listener's ambience, echo and music, then
 // curVariant[hud]. Hud 4-7 share P1-4's listeners, so only the store is done, under its two early returns (+0x38 bit 1, race state).
 static void ApplyTriggerWide(u8 *triggers, s32 variant, s32 hud, void *link) {
-    if (raceScreenCount == 0 || hud < kGameLocal) {
+    if (!IsWideHud(hud)) {
         applyTrigger(triggers, variant, hud, link);
         return;
     }
@@ -465,12 +463,12 @@ kmCall(0x80708658, LimitedVariantWide);
 // KartActor::UpdateLapSounds, when a local finishes: EchoMgr::SetVolume and SetAllAmbiencesVolume write 4-wide per-listener
 // arrays by hud, which hud 4+ would overrun; P1-4's listeners keep theirs.
 static void EchoVolumeLocal(void *echo, u32 hud, u32 frames, float volume) {
-    if (raceScreenCount != 0 && hud >= kGameLocal)
+    if (IsWideHud(hud))
         return;
     echoSetVolume(echo, hud, frames, volume);
 }
 static void AmbienceVolumeLocal(void *ambience, u32 hud, u32 frames) {
-    if (raceScreenCount != 0 && hud >= kGameLocal)
+    if (IsWideHud(hud))
         return;
     setAllAmbiencesVolume(ambience, hud, frames);
 }
