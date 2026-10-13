@@ -2252,6 +2252,7 @@ EnableAction__Q26Lakitu22EnableDisplayLapActionFv = 0x80725bd8
 ##AI
 #KartAIController
 IsCPU__16KartAIControllerCFv = 0x8072624c
+StartPostRaceAI__16KartAIControllerFv = 0x807263a8
 
 #GlobeMgr
 GetCountry__13SystemManagerCFRUib = 0x8000af78

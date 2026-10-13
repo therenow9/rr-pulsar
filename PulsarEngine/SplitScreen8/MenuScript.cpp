@@ -9,6 +9,12 @@
 #include <MarioKartWii/Input/InputManager.hpp>
 #include <core/egg/mem/ExpHeap.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
+#include <MarioKartWii/Race/RaceInfo/RaceInfo.hpp>
+#include <MarioKartWii/UI/Section/SectionMgr.hpp>
+#include <MarioKartWii/UI/Section/SectionParams.hpp>
+#include <PulsarSystem.hpp>
+#include <Settings/Settings.hpp>
+#include <UI/ExtendedTeamSelect/ExtendedTeamManager.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 #include <Driver/CustomCharacters.hpp>
 #include <Race/CustomCharacters.hpp>
@@ -194,12 +200,18 @@ static void ReportRacePlayers() {
         return;
     racePlayersReported = true;
     const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
+    Pulsar::UI::ExtendedTeamManager *teams = Pulsar::UI::ExtendedTeamManager::sInstance;
     for (u32 i = 0; i < sizeof(scenario.players) / sizeof(scenario.players[0]); ++i) {
         const RacedataPlayer &player = scenario.players[i];
         const u32 slot = Pulsar::Race::GetPlayerCustomCharacterSlot(i, player.characterId);
-        OS::Report("ss8 race player %u: type %d hud %d character %#x kart %#x skin %u voice %d\n", i, player.playerType, player.hudSlotId, player.characterId, player.kartId, slot,
-          Pulsar::Race::GetPlayerVoiceAlias(i));
+        OS::Report("ss8 race player %u: type %d hud %d character %#x kart %#x skin %u voice %d team %d ext %d\n", i, player.playerType, player.hudSlotId, player.characterId, player.kartId, slot,
+          Pulsar::Race::GetPlayerVoiceAlias(i), player.team, teams != nullptr ? static_cast<s32>(teams->GetPlayerTeam(i)) : -1);
     }
+    // RR's race modes as UpdateContext set them for this race, and the series length a KO race forces.
+    const Pulsar::System *system = Pulsar::System::sInstance;
+    OS::Report("ss8 context: gametype %d ko %d lapko %d kofinal %d royale %d extteams %d vsRaceCount %u\n", scenario.settings.gametype, system->IsContext(Pulsar::PULSAR_MODE_KO),
+      system->IsContext(Pulsar::PULSAR_MODE_LAPKO), system->IsContext(Pulsar::PULSAR_KOFINAL), system->IsContext(Pulsar::PULSAR_MODE_BATTLEROYALE), system->IsContext(Pulsar::PULSAR_EXTENDEDTEAMS),
+      SectionMgr::sInstance->sectionParams->vsRaceCount);
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).
     for (u32 i = 0; Input::Manager::sInstance != nullptr && i < kMaxLocal; ++i) {
@@ -210,9 +222,34 @@ static void ReportRacePlayers() {
 }
 static RaceFrameHook reportRacePlayers(ReportRacePlayers);
 
+// A script's "autodrive" line: every local's kart goes to the AI a second into each race, so a lane reaches the
+// results; the awards and the one-screen "Next Race" scene are other gametypes.
+#ifdef SS8_MENU_AUTODRIVE
+static void AutodriveMenuRace() {
+    const Raceinfo *raceinfo = Raceinfo::sInstance;
+    if (raceinfo != nullptr && raceinfo->raceFrames == 60 && Racedata::sInstance->racesScenario.settings.gametype == GAMETYPE_DEFAULT)
+        AutodriveLocals();
+}
+static RaceFrameHook autodriveMenuRace(AutodriveMenuRace);
+#endif
+
+// A script's "setting ID VALUE" lines, set at each section load; RR's next settings save writes them to the copy's file.
+#ifdef SS8_MENU_SETTINGS
+struct MenuSetting {
+    Pulsar::Settings::SettingId id;
+    u8 value;
+};
+static const MenuSetting menuSettings[] = {SS8_MENU_SETTINGS};
+#endif
+
 static void OnSectionLoad() {
     racePlayersReported = false;
     memset(reportedSkins, 0, sizeof(reportedSkins));
+    OS::Report("ss8 section %#x frame %u locals %u\n", SectionMgr::sInstance->curSection->sectionId, menuFrames, menuLocalCount);
+#ifdef SS8_MENU_SETTINGS
+    for (u32 i = 0; Pulsar::Settings::Mgr::IsCreated() && i < sizeof(menuSettings) / sizeof(menuSettings[0]); ++i)
+        Pulsar::Settings::Mgr::Get().SetSettingValue(menuSettings[i].id, menuSettings[i].value);
+#endif
 #ifdef SS8_MENU_PICKS
     for (u32 i = 0; menuLocalCount > kGameLocal && i < sizeof(menuPicks) / sizeof(menuPicks[0]); ++i) {
         ExtPick &pick = extPicks[menuPicks[i].slot];

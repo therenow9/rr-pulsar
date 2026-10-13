@@ -1,4 +1,4 @@
-#ifdef SS8_DEBUG_BOOT
+#if defined(SS8_DEBUG_BOOT) || defined(SS8_MENU_SCRIPT)
 #include <kamek.hpp>
 #include <core/rvl/PAD.hpp>
 #include <core/rvl/OS/OS.hpp>
@@ -19,6 +19,27 @@
 
 namespace SplitScreen8 {
 
+// Every local drives as a finished player does (RaceinfoPlayer::EndRace, 0x80534904): AI holder, CPU flag, post-race
+// AI (0x8058F0E8, 0x8058F1D0). Run a second in: AI::Player::Init clears the AI's flag at the race's start.
+
+void AutodriveLocals() {
+    Input::Manager *input = Input::Manager::sInstance;
+    Raceinfo *raceinfo = Raceinfo::sInstance;
+    Kart::Manager *karts = Kart::Manager::sInstance;
+    if (input == nullptr || raceinfo == nullptr || raceinfo->players == nullptr || karts == nullptr)
+        return;
+    const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
+    for (int id = 0; id < scenario.playerCount; ++id) {
+        if (scenario.players[id].playerType != PLAYER_REAL_LOCAL)
+            continue;
+        Kart::Player *kart = karts->GetKartPlayer(id);
+        raceinfo->players[id]->realControllerHolder = reinterpret_cast<Input::RealControllerHolder *>(&input->virtualControllerHolders[id]);
+        kart->pointers.kartStatus->bitfield4 |= 1;
+        kart->kartSub->aiController->StartPostRaceAI();
+    }
+}
+
+#ifdef SS8_DEBUG_BOOT
 const int kBootGCLocals = SS8_BOOT_LOCALS < kGameLocal ? SS8_BOOT_LOCALS : kGameLocal;
 
 #if SS8_BOOT_LOCALS > 4
@@ -94,7 +115,7 @@ SectionId DebugBootPrepare(SectionId section) {
     params->vsRaceLimit = 4;
 
     // RR gives offline CPUs custom skins only outside local multiplayer, at full LOD only, while a widened 1-local
-    // boot loads the 4-screen LOD (+7 = 4): show the default skins a multi-local race would. RAM only, never saved.
+    // boot loads the 4-screen LOD (+7 = 4): show the default skins a multi-local race would. RR's next settings save keeps it.
     if (Pulsar::Settings::Mgr::IsCreated())
         Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_DISPLAYCUSTOMSKINS, Pulsar::DISPLAYCUSTOMSKINS_DISABLED);
 #if SS8_BOOT_SPEEDO
@@ -133,27 +154,6 @@ static void BindBootPad(SectionPad &pad, u32 slot) {
 // Races loaded since boot, and pad reads since the latest one; the scripted presses count from them.
 static u32 bootRaces;
 static u32 raceFrames;
-
-#if SS8_BOOT_AUTODRIVE
-// Every local drives as a finished player does (RaceinfoPlayer::EndRace, 0x80534904): AI holder, CPU flag, post-race
-// AI (0x8058F0E8, 0x8058F1D0). Run a second in: AI::Player::Init clears the AI's flag at the race's start.
-typedef void (*StartPostRaceAIFn)(void *kartAIController);
-static const StartPostRaceAIFn startPostRaceAI = reinterpret_cast<StartPostRaceAIFn>(0x807263a8);
-
-static void AutodriveLocals() {
-    Input::Manager *input = Input::Manager::sInstance;
-    Raceinfo *raceinfo = Raceinfo::sInstance;
-    Kart::Manager *karts = Kart::Manager::sInstance;
-    if (input == nullptr || raceinfo == nullptr || raceinfo->players == nullptr || karts == nullptr)
-        return;
-    for (int id = 0; id < SS8_BOOT_LOCALS; ++id) {
-        Kart::Player *kart = karts->GetKartPlayer(id);
-        raceinfo->players[id]->realControllerHolder = reinterpret_cast<Input::RealControllerHolder *>(&input->virtualControllerHolders[id]);
-        kart->pointers.kartStatus->bitfield4 |= 1;
-        startPostRaceAI(*reinterpret_cast<void **>(reinterpret_cast<u8 *>(kart->kartSub) + 0x20));
-    }
-}
-#endif
 
 #if SS8_BOOT_RESPAWN
 // Players respawn one by one through a squish respawn's fall path (ApplySquishRespawnDamage+0xA0), so the wipe,
@@ -368,6 +368,7 @@ asmFunc NoCentreMap() {
         blr;)
 }
 kmCall(0x808562b8, NoCentreMap);
+#endif
 #endif
 
 }  // namespace SplitScreen8
