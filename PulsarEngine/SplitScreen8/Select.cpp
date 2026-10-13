@@ -577,7 +577,7 @@ void SelectPage::AfterControlUpdate() {
     const u32 count = menuLocalCount;
     u32 readyCount = 0;
     for (u32 player = 0; player < count; ++player) {
-        const Input::RealControllerHolder *holder = this->rolling >= 0 ? static_cast<Input::RealControllerHolder *>(nullptr) : PlayerHolder(player);
+        const Input::RealControllerHolder *holder = this->rolling >= 0 || SectionMgr::sInstance->curSection->skipsActions ? static_cast<Input::RealControllerHolder *>(nullptr) : PlayerHolder(player);
         const s32 step = holder != nullptr ? this->Direction(player, *holder, !this->kartStep) : 0;
         if (holder != nullptr && UIPressed(*holder, FORWARD_PRESS) && !this->ready[player]) {
             this->Ready(player);

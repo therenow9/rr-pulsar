@@ -1,6 +1,8 @@
 #ifdef SS8_MENU_SCRIPT
 #include <kamek.hpp>
 #include <core/rvl/PAD.hpp>
+#include <core/rvl/KPAD.hpp>
+#include <core/rvl/WPAD.hpp>
 #include <core/rvl/OS/OS.hpp>
 #include <core/nw4r/snd/BasicSound.hpp>
 #include <core/nw4r/snd/WsdFile.hpp>
@@ -26,7 +28,7 @@ namespace SplitScreen8 {
 struct MenuStep {
     u32 frame;  // channel 0's pad reads since boot
     u32 port;  // 0-3 GC ports, 4-7 Wii channels 0-3
-    u32 buttons;  // PAD::PAD_BUTTON_* on a GC port, WPAD_CL_BUTTON_* on a Wii channel
+    u32 buttons;  // PAD::PAD_BUTTON_* on a GC port, WPAD_CL_BUTTON_* on a Wii channel; 0 unplugs the port
     u32 hold;  // frames
 };
 static const MenuStep menuSteps[] = {SS8_MENU_STEPS};
@@ -40,9 +42,9 @@ static void ReportHeaps(const char *when);
 static void ReportSkins();
 
 // GCNController::UpdateImpl+0x70 calls Input::Manager::CopyPADStatus(manager, channel, &padStatus) for each
-// plugged-in port every frame, and reads padStatus after it.
+// plugged-in port every frame, and reads padStatus after it; a result of 2 (no controller) disconnects it (+0x514).
 static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Status *status) {
-    const u32 result = input->CopyPADStatus(channel, status);
+    u32 result = input->CopyPADStatus(channel, status);
     if (status == nullptr)
         return result;
     for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
@@ -52,6 +54,10 @@ static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Stat
         if (menuFrames == step.frame)
             OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, channel + 1, step.buttons);
         status->buttons |= step.buttons;
+        if (step.buttons == 0) {
+            status->error = PAD::PAD_ERR_NO_CONTROLLER;
+            result = 2;
+        }
     }
     if (channel == 0)
         ReportSkins();
@@ -76,6 +82,30 @@ static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *stat
     updateStatesClassic(controller, status, state, uiState);
 }
 kmCall(0x8051fe6c, UpdateStatesClassicMenuScript);
+
+// An unplug step on a Wii channel: WiiController::UpdateImpl+0x44 probes the channel and +0xAC reads it; a failed probe
+// and no reads take the game's own disconnect path (the controller's +0x50 cleared, its type -1).
+static bool Unplugged(u32 port, bool report) {
+    for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
+        const MenuStep &step = menuSteps[i];
+        if (step.port != port || step.buttons != 0 || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
+            continue;
+        if (report && menuFrames == step.frame)
+            OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, port + 1, step.buttons);
+        return true;
+    }
+    return false;
+}
+
+static s32 ProbeMenuScript(s32 channel, u32 *type) {
+    return Unplugged(4 + channel, true) ? -1 : WPAD::Probe(channel, type);
+}
+kmCall(0x8051fcc8, ProbeMenuScript);
+
+static s32 ReadMenuScript(s32 channel, KPAD::Status *status, u32 count) {
+    return Unplugged(4 + channel, false) ? 0 : KPAD::Read(channel, status, count);
+}
+kmCall(0x8051fd30, ReadMenuScript);
 
 // Every EGG heap (EGG's list, 0x80384320) at each section load and every 300 frames. "free" is an ExpHeap's total
 // free or another heap's largest block; "largest" is every heap's largest block, the one a skin load needs.
@@ -167,7 +197,8 @@ static void ReportRacePlayers() {
     for (u32 i = 0; i < sizeof(scenario.players) / sizeof(scenario.players[0]); ++i) {
         const RacedataPlayer &player = scenario.players[i];
         const u32 slot = Pulsar::Race::GetPlayerCustomCharacterSlot(i, player.characterId);
-        OS::Report("ss8 race player %u: type %d character %#x kart %#x skin %u voice %d\n", i, player.playerType, player.characterId, player.kartId, slot, Pulsar::Race::GetPlayerVoiceAlias(i));
+        OS::Report("ss8 race player %u: type %d hud %d character %#x kart %#x skin %u voice %d\n", i, player.playerType, player.hudSlotId, player.characterId, player.kartId, slot,
+          Pulsar::Race::GetPlayerVoiceAlias(i));
     }
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).

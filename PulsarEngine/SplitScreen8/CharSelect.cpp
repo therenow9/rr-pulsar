@@ -942,7 +942,7 @@ void CharSelectPage::AfterControlUpdate() {
     const bool roulette = this->rolling >= 0;
     if (roulette)
         this->Roulette();
-    const bool input = this->miiPlayer == kNoPlayer && !this->miiResumed && !roulette;
+    const bool input = this->miiPlayer == kNoPlayer && !this->miiResumed && !roulette && !SectionMgr::sInstance->curSection->skipsActions;
     this->miiResumed = false;
     for (u32 p = 0; input && p < count; ++p) {
         const Input::RealControllerHolder *holder = PlayerHolder(p);

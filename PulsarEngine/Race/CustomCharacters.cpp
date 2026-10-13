@@ -43,15 +43,20 @@ u32 GetPlayerCustomCharacterSlot(u32 playerId, CharacterId character, bool isAwa
 
 void RandomizeCPUCharacterTables(const RacedataScenario &scenario) {
     Random random;
+    u32 locals = 0;
     for (u32 player = 0; player < scenario.playerCount; ++player) {
         const RacedataPlayer &entry = scenario.players[player];
+        // SplitScreen8: in the race's one-screen first pass locals 5-8 have no hud; their row is their place among the locals.
+        const s32 row = entry.hudSlotId >= 0 ? entry.hudSlotId : locals >= SplitScreen8::kGameLocal ? static_cast<s32>(locals) : -1;
+        if (entry.playerType == PLAYER_REAL_LOCAL)
+            ++locals;
         const u32 character = static_cast<u32>(entry.characterId);
         if (character >= Driver::CHARACTER_COUNT)
             continue;
         if (entry.playerType == PLAYER_REAL_ONLINE)
             continue;
         if (entry.playerType != PLAYER_CPU) {
-            racePlayerSlots[player] = entry.playerType == PLAYER_REAL_LOCAL && entry.hudSlotId >= 0 ? Driver::selectedSlots[entry.hudSlotId][character] : 0;
+            racePlayerSlots[player] = entry.playerType == PLAYER_REAL_LOCAL && row >= 0 ? Driver::selectedSlots[row][character] : 0;
             continue;
         }
         if (scenario.settings.raceNumber != 0)

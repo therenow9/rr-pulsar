@@ -496,6 +496,8 @@ DeleteRKSYS2ndInst__7NandMgrFUib = 0x8052c7e8
 
 #KPAD
 Read__4KPADFiPQ24KPAD6StatusUi = 0x80197380
+#WPAD
+Probe__4WPADFiPUi = 0x801c0990
 
 #PSVEC
 PSVECAdd__3MTXFPC3VecPC3VecP3Vec = 0x8019abe4
@@ -2712,6 +2714,10 @@ RequestTask__10ArchiveMgrFPFPv_vPvUi = 0x80541cbc
 ResetAllPads__10SectionPadFv = 0x8061bcc8
 ResetPad__10SectionPadFUi = 0x8061b7c4
 ResetPadsStatus__10SectionPadFv = 0x8061b9a0
+SetPadDisconnected__10SectionPadFUi = 0x8061b89c
+GetFirstDeactivatedPad__10SectionPadFv = 0x8061b9bc
+RequestPad__10SectionPadFUc = 0x8061b6ec
+HasAController__10SectionPadCFUc = 0x8061b3cc
 SetDriftType__Q25Input20RealControllerHolderFUs = 0x80520f2c
 SetExpression__13MiiHeadsModelFUi = 0x807dc3e8
 SetKartActor__Q25Audio7RaceMgrFPQ25Audio9KartActor = 0x80713754

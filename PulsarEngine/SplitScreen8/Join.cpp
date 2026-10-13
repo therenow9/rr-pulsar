@@ -6,6 +6,7 @@
 #include <MarioKartWii/UI/Ctrl/ModelControl.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
+#include <MarioKartWii/Scene/GameScene.hpp>
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
@@ -28,12 +29,8 @@ static const PadSetIdFn padSetId = reinterpret_cast<PadSetIdFn>(0x80601564);
 static const PadFn padRegister = reinterpret_cast<PadFn>(0x8060156c);
 
 typedef void (*TrySetControllerFn)(Input::Manager *, u32, u32);
-typedef void (*SectionPadSlotFn)(SectionPad *, u32);
-typedef bool (*HasAControllerFn)(const SectionPad *, u32);
 typedef void (*RequestBackModelFn)(BackGroundModelControl *, s32);
 static const TrySetControllerFn trySetController = reinterpret_cast<TrySetControllerFn>(0x80523ebc);
-static const SectionPadSlotFn requestPad = reinterpret_cast<SectionPadSlotFn>(0x8061b6ec);
-static const HasAControllerFn hasAController = reinterpret_cast<HasAControllerFn>(0x8061b3cc);
 static const RequestBackModelFn requestBackModel = reinterpret_cast<RequestBackModelFn>(0x805f2e84);
 
 const u32 kTitleBmg = 0x961;  // RegisterPad's title, "Controller Registration"
@@ -127,9 +124,7 @@ public:
     void AfterControlUpdate() override;
 
 private:
-    bool Joined(u32 slot) const;
     u32 SlotId(u32 slot) const;
-    void Request(u32 slot);
     void Release(u32 slot);
     void Prompt(s32 slot);
     void PlaceSlots();
@@ -225,15 +220,15 @@ void JoinPage::OnActivate() {
     }
 }
 
-bool JoinPage::Joined(u32 slot) const {
+static bool Joined(u32 slot) {
     if (slot < kGameLocal)
-        return hasAController(&SectionMgr::sInstance->pad, slot);
+        return SectionMgr::sInstance->pad.HasAController(slot);
     const ExtPad &pad = extPads[slot - kGameLocal];
     return !pad.waiting && pad.id != 0 && pad.id == calculateID(&SlotHolder(slot));
 }
 
 u32 JoinPage::SlotId(u32 slot) const {
-    if (!this->Joined(slot))
+    if (!Joined(slot))
         return 0;
     if (slot < kGameLocal)
         return SectionMgr::sInstance->pad.GetCurrentID(slot);
@@ -241,15 +236,28 @@ u32 JoinPage::SlotId(u32 slot) const {
 }
 
 // The slot waits for an A on any controller no holder has; its holder drops to the dummy controller.
-void JoinPage::Request(u32 slot) {
+static void Request(u32 slot) {
     if (slot < kGameLocal) {
-        requestPad(&SectionMgr::sInstance->pad, slot);
+        SectionMgr::sInstance->pad.RequestPad(slot);
         return;
     }
     Input::Manager *input = Input::Manager::sInstance;
     SlotHolder(slot).SetController(&input->dummyController, nullptr);
     extPads[slot - kGameLocal].id = 0;
     extPads[slot - kGameLocal].waiting = true;
+}
+
+// A waiting P5-8 slot takes the controller that presses A, as SectionPad::Update does for P2-4 (TrySetController).
+static void TakePad(u32 slot) {
+    ExtPad &pad = extPads[slot - kGameLocal];
+    if (!pad.waiting)
+        return;
+    trySetController(Input::Manager::sInstance, slot, 0);
+    const u32 id = calculateID(&SlotHolder(slot));
+    if (id == 0)
+        return;
+    pad.id = id;
+    pad.waiting = false;
 }
 
 // The slot empties and stops waiting; its holder drops to the dummy controller.
@@ -323,7 +331,7 @@ void JoinPage::OpenConfirm() {
 
 void JoinPage::AfterControlUpdate() {
     // PadControl::OnUpdate dims every P5-8 slot each frame, asking SectionPad about their hud 4; this runs in every state.
-    for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) this->pads[slot]->animator.GetAnimationGroupById(3).PlayAnimationAtFrame(this->Joined(slot) ? 0 : 1, 0.0f);
+    for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) this->pads[slot]->animator.GetAnimationGroupById(3).PlayAnimationAtFrame(Joined(slot) ? 0 : 1, 0.0f);
     if (this->currentState != STATE_ACTIVE || this->leaving)
         return;
     const u32 frame = this->confirming ? kConfirmFrames : 0;
@@ -336,19 +344,9 @@ void JoinPage::AfterControlUpdate() {
         return;
     }
     const u32 count = menuLocalCount;
-    for (u32 slot = kGameLocal; slot < count; ++slot) {
-        ExtPad &pad = extPads[slot - kGameLocal];
-        if (!pad.waiting)
-            continue;
-        trySetController(Input::Manager::sInstance, slot, 0);
-        const u32 id = calculateID(&SlotHolder(slot));
-        if (id == 0)
-            continue;
-        pad.id = id;
-        pad.waiting = false;
-    }
+    for (u32 slot = kGameLocal; slot < count; ++slot) TakePad(slot);
     for (u32 slot = 1; slot < count; ++slot) {
-        if (!this->Joined(slot))
+        if (!Joined(slot))
             continue;
         const Input::RealControllerHolder *holder = PlayerHolder(slot);
         if (holder != nullptr && UIPressed(*holder, BACK_PRESS)) {
@@ -359,14 +357,14 @@ void JoinPage::AfterControlUpdate() {
     }
     s32 next = -1;
     for (u32 slot = 0; slot < count && next < 0; ++slot) {
-        if (!this->Joined(slot))
+        if (!Joined(slot))
             next = slot;
     }
     if (next != this->requested) {
-        if (this->requested >= 0 && !this->Joined(this->requested))
+        if (this->requested >= 0 && !Joined(this->requested))
             this->Release(this->requested);
         if (next >= 0)
-            this->Request(next);
+            Request(next);
         this->requested = next;
     }
     for (u32 slot = 0; slot < count; ++slot) {
@@ -436,6 +434,62 @@ asmFunc ConfirmChangeNextPage() {
         blr;)
 }
 kmCall(0x80605234, ConfirmChangeNextPage);
+
+// The reconnect box (RecognizePad) scans SectionPad's slots 0-4. In a 5-8 player game's menus it scans P5-8 too wherever
+// the top page scans all of P1-4; a race's box stays P1-4's.
+static bool ExtBoxSlot(u32 slot) {
+    return slot >= kGameLocal && slot < menuLocalCount && GameScene::GetCurrent()->id != SCENE_ID_RACE;
+}
+
+// RecognizePad::OnActivate+0x74 and CheckForConditions+0x2C, "bl GetFirstDeactivatedPad".
+static s32 FirstDeactivatedPad(SectionPad *pad) {
+    const s32 slot = pad->GetFirstDeactivatedPad();
+    if (slot >= 0 || (pad->localPlayerBitfield & ((1 << kGameLocal) - 1)) != (1 << kGameLocal) - 1 || !ExtBoxSlot(kGameLocal))
+        return slot;
+    for (u32 ext = kGameLocal; ext < menuLocalCount; ++ext) {
+        if (!Joined(ext))
+            return ext;
+    }
+    return -1;
+}
+kmCall(0x8061c234, FirstDeactivatedPad);
+kmCall(0x8061c438, FirstDeactivatedPad);
+
+// The box's reads of the slot it shows (OnActivate+0x84, AfterControlUpdate+0x4C); P5-8 have no PadInfo.
+static u32 BoxCurrentID(const SectionPad *pad, u32 slot) {
+    return ExtBoxSlot(slot) ? extPads[slot - kGameLocal].id : pad->GetCurrentID(slot);
+}
+kmCall(0x8061c244, BoxCurrentID);
+kmCall(0x8061c330, BoxCurrentID);
+
+// AfterControlUpdate+0x38 closes the box once the slot has its pad again; a P5-8 slot waits there for its A.
+static bool BoxHasAController(const SectionPad *pad, u32 slot) {
+    if (!ExtBoxSlot(slot))
+        return pad->HasAController(slot);
+    TakePad(slot);
+    return Joined(slot);
+}
+kmCall(0x8061c31c, BoxHasAController);
+
+// RecognizePadMenu::AfterEntranceAnimations+0x40 and +0x44 tail-call SetPadDisconnected or RequestPad, both indexing
+// padInfos[5] by the slot; a P5-8 slot waits for an A on any free controller in both cases.
+static void BoxPadDisconnected(SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        Request(slot);
+    else
+        pad->SetPadDisconnected(slot);
+}
+kmBranch(0x8061c760, BoxPadDisconnected);
+
+// BeforeControlUpdate+0x8C requests the slot's pad again once a changed controller leaves its channel.
+static void BoxRequestPad(SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        Request(slot);
+    else
+        pad->RequestPad(slot);
+}
+kmBranch(0x8061c764, BoxRequestPad);
+kmCall(0x8061c850, BoxRequestPad);
 
 // Every 5-8 player game starts at the main menu; its pads go when the main menu comes back (Entry.cpp).
 void ClearExtPads() {
