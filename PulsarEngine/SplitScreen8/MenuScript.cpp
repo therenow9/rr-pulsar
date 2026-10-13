@@ -13,6 +13,7 @@
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/UI/Section/SectionParams.hpp>
 #include <PulsarSystem.hpp>
+#include <IO/IO.hpp>
 #include <Settings/Settings.hpp>
 #include <UI/ExtendedTeamSelect/ExtendedTeamManager.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -27,7 +28,8 @@
 #error "a menu script and the debug boot both hook Input::Manager::CopyPADStatus's call (0x80520220)"
 #endif
 
-// Presses scripted GC buttons on ports 1-4 and Classic Controller buttons on Wii channels 1-4 at fixed frames from boot.
+// Presses scripted GC buttons on ports 1-4 and Classic Controller buttons on Wii channels 1-4 at fixed frames from boot,
+// as the copy's ss8-menu.bin says (install_8p.py script writes it into the NAND's mod folder).
 
 namespace SplitScreen8 {
 
@@ -37,13 +39,34 @@ struct MenuStep {
     u32 buttons;  // PAD::PAD_BUTTON_* on a GC port, WPAD_CL_BUTTON_* on a Wii channel; 0 unplugs the port
     u32 hold;  // frames
 };
-static const MenuStep menuSteps[] = {SS8_MENU_STEPS};
+// A script's "pick" lines fill P5-8's extPicks at each section load; the main menu clears them (Entry.cpp).
+struct MenuPick {
+    u32 slot;  // 0-3 for P5-8
+    u32 character;
+    u32 kart;
+};
+// A script's "setting ID VALUE" lines, set at each section load; RR's next settings save writes them to the copy's file.
+struct MenuSetting {
+    u32 id;  // Pulsar::Settings::SettingId
+    u32 value;
+};
+enum MenuFlags {
+    MENU_OPEN_MII_C = 1,  // Mii C open on the 8-player character page whatever the license's VR
+    MENU_AUTODRIVE = 2  // every local's kart to the AI a second into each race
+};
+// The file's layout, big-endian, whole: install_8p.py's script subcommand packs the same fields.
+struct MenuScript {
+    u32 stepCount;
+    u32 pickCount;
+    u32 settingCount;
+    u32 flags;
+    MenuStep steps[1024];
+    MenuPick picks[4];
+    MenuSetting settings[8];
+};
+static alignas(0x20) MenuScript menuScript;
 static u32 menuFrames;
-#ifdef SS8_MENU_OPEN_MII_C
-bool menuOpenMiiC = true;
-#else
-bool menuOpenMiiC = false;
-#endif
+bool menuOpenMiiC;
 static void ReportHeaps(const char *when);
 static void ReportSkins();
 
@@ -53,8 +76,8 @@ static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Stat
     u32 result = input->CopyPADStatus(channel, status);
     if (status == nullptr)
         return result;
-    for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
-        const MenuStep &step = menuSteps[i];
+    for (u32 i = 0; i < menuScript.stepCount; ++i) {
+        const MenuStep &step = menuScript.steps[i];
         if (step.port != channel || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
             continue;
         if (menuFrames == step.frame)
@@ -77,8 +100,8 @@ kmCall(0x80520220, CopyPADStatusMenuScript);
 // from the status's +0x2A (WPADCLStatus). The controller's +0x8D4 is its channel, +0x8F8 the last frame's buttons.
 static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *state, void *uiState) {
     const u32 port = 4 + *reinterpret_cast<const u32 *>(controller + 0x8d4);
-    for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
-        const MenuStep &step = menuSteps[i];
+    for (u32 i = 0; i < menuScript.stepCount; ++i) {
+        const MenuStep &step = menuScript.steps[i];
         if (step.port != port || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
             continue;
         if (menuFrames == step.frame)
@@ -92,8 +115,8 @@ kmCall(0x8051fe6c, UpdateStatesClassicMenuScript);
 // An unplug step on a Wii channel: WiiController::UpdateImpl+0x44 probes the channel and +0xAC reads it; a failed probe
 // and no reads take the game's own disconnect path (the controller's +0x50 cleared, its type -1).
 static bool Unplugged(u32 port, bool report) {
-    for (u32 i = 0; i < sizeof(menuSteps) / sizeof(menuSteps[0]); ++i) {
-        const MenuStep &step = menuSteps[i];
+    for (u32 i = 0; i < menuScript.stepCount; ++i) {
+        const MenuStep &step = menuScript.steps[i];
         if (step.port != port || step.buttons != 0 || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
             continue;
         if (report && menuFrames == step.frame)
@@ -181,16 +204,6 @@ static bool LogReadWaveInfo(void *reader, int waveIndex, void *info, const void 
 }
 kmCall(0x800a2d60, LogReadWaveInfo);
 
-// A script's "pick" lines fill P5-8's extPicks at each section load; the main menu clears them (Entry.cpp).
-#ifdef SS8_MENU_PICKS
-struct MenuPick {
-    u32 slot;  // 0-3 for P5-8
-    u32 character;
-    u32 kart;
-};
-static const MenuPick menuPicks[] = {SS8_MENU_PICKS};
-#endif
-
 // Every race scenario player, CPUs included, once per race at its first frame (after InitRace), with the skin slot
 // RR's race readers get and the character whose voice groups RR lends it (-1 for none).
 static bool racePlayersReported;
@@ -224,40 +237,41 @@ static RaceFrameHook reportRacePlayers(ReportRacePlayers);
 
 // A script's "autodrive" line: every local's kart goes to the AI a second into each race, so a lane reaches the
 // results; the awards and the one-screen "Next Race" scene are other gametypes.
-#ifdef SS8_MENU_AUTODRIVE
 static void AutodriveMenuRace() {
     const Raceinfo *raceinfo = Raceinfo::sInstance;
-    if (raceinfo != nullptr && raceinfo->raceFrames == 60 && Racedata::sInstance->racesScenario.settings.gametype == GAMETYPE_DEFAULT)
+    if ((menuScript.flags & MENU_AUTODRIVE) != 0 && raceinfo != nullptr && raceinfo->raceFrames == 60 && Racedata::sInstance->racesScenario.settings.gametype == GAMETYPE_DEFAULT)
         AutodriveLocals();
 }
 static RaceFrameHook autodriveMenuRace(AutodriveMenuRace);
-#endif
 
-// A script's "setting ID VALUE" lines, set at each section load; RR's next settings save writes them to the copy's file.
-#ifdef SS8_MENU_SETTINGS
-struct MenuSetting {
-    Pulsar::Settings::SettingId id;
-    u8 value;
-};
-static const MenuSetting menuSettings[] = {SS8_MENU_SETTINGS};
-#endif
+// The first section load is past System::Init's IO setup and long before the first scripted press (frame ~900).
+// A missing or short file reads as no script.
+static bool menuScriptRead;
 
 static void OnSectionLoad() {
+    if (!menuScriptRead) {
+        menuScriptRead = true;
+        char path[IOS::ipcMaxPath];
+        snprintf(path, IOS::ipcMaxPath, "%s/ss8-menu.bin", Pulsar::System::sInstance->GetModFolder());
+        if (Pulsar::IO::sInstance->ReadFolderFileFromPath(&menuScript, path, sizeof(menuScript)) != sizeof(menuScript)) {
+            memset(&menuScript, 0, sizeof(menuScript));
+            OS::Report("ss8 menu: no script at %s frame %u\n", path, menuFrames);
+        } else
+            OS::Report(
+              "ss8 menu: script %s steps %u picks %u settings %u flags %#x frame %u\n", path, menuScript.stepCount, menuScript.pickCount, menuScript.settingCount, menuScript.flags, menuFrames);
+        menuOpenMiiC = (menuScript.flags & MENU_OPEN_MII_C) != 0;
+    }
     racePlayersReported = false;
     memset(reportedSkins, 0, sizeof(reportedSkins));
     OS::Report("ss8 section %#x frame %u locals %u\n", SectionMgr::sInstance->curSection->sectionId, menuFrames, menuLocalCount);
-#ifdef SS8_MENU_SETTINGS
-    for (u32 i = 0; Pulsar::Settings::Mgr::IsCreated() && i < sizeof(menuSettings) / sizeof(menuSettings[0]); ++i)
-        Pulsar::Settings::Mgr::Get().SetSettingValue(menuSettings[i].id, menuSettings[i].value);
-#endif
-#ifdef SS8_MENU_PICKS
-    for (u32 i = 0; menuLocalCount > kGameLocal && i < sizeof(menuPicks) / sizeof(menuPicks[0]); ++i) {
-        ExtPick &pick = extPicks[menuPicks[i].slot];
-        pick.character = static_cast<CharacterId>(menuPicks[i].character);
-        pick.kart = static_cast<KartId>(menuPicks[i].kart);
+    for (u32 i = 0; Pulsar::Settings::Mgr::IsCreated() && i < menuScript.settingCount; ++i)
+        Pulsar::Settings::Mgr::Get().SetSettingValue(static_cast<Pulsar::Settings::SettingId>(menuScript.settings[i].id), menuScript.settings[i].value);
+    for (u32 i = 0; menuLocalCount > kGameLocal && i < menuScript.pickCount; ++i) {
+        ExtPick &pick = extPicks[menuScript.picks[i].slot];
+        pick.character = static_cast<CharacterId>(menuScript.picks[i].character);
+        pick.kart = static_cast<KartId>(menuScript.picks[i].kart);
         pick.picked = true;
     }
-#endif
     ReportHeaps("section");
 }
 static SectionLoadHook menuScriptSectionLoad(OnSectionLoad);
