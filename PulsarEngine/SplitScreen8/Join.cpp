@@ -322,6 +322,8 @@ void JoinPage::OpenConfirm() {
 }
 
 void JoinPage::AfterControlUpdate() {
+    // PadControl::OnUpdate dims every P5-8 slot each frame, asking SectionPad about their hud 4; this runs in every state.
+    for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) this->pads[slot]->animator.GetAnimationGroupById(3).PlayAnimationAtFrame(this->Joined(slot) ? 0 : 1, 0.0f);
     if (this->currentState != STATE_ACTIVE || this->leaving)
         return;
     const u32 frame = this->confirming ? kConfirmFrames : 0;
@@ -380,9 +382,6 @@ void JoinPage::AfterControlUpdate() {
             }
             this->shownIds[slot] = id;
         }
-        // PadControl::OnUpdate asks SectionPad about its hud, 4 for every P5-8 slot.
-        if (slot >= kGameLocal)
-            this->pads[slot]->animator.GetAnimationGroupById(3).PlayAnimationAtFrame(id != 0 ? 0 : 1, 0.0f);
     }
     this->Prompt(next);
     if (next < 0)

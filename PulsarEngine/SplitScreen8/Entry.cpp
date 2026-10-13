@@ -19,6 +19,7 @@ u8 menuLocalCount;
 
 const s32 kEntryButtonId = 8;  // 5-8 Players; the main menu's own ids are 0-7
 const u32 kEntryButtons = kMaxLocal - kGameLocal;
+const s32 kFourPlayersBmg = 2304;  // ButtonMulti4P's "4\nPlayers"
 // The 5-8 Players button last clicked, for the focus when the main menu comes back.
 static u32 lastEntryCount;
 static PushButton *entryButtons[kEntryButtons];
@@ -39,6 +40,8 @@ const float kButtonWidth = 50.6f;
 const float kButtonGap = 3.4f;
 const float kButtonScaleX = 1.05f;
 const u32 kRowButtons = 3 + kEntryButtons;
+// The multiplayer clip is top_menu.thp's top-right quadrant: vanilla splits it across three buttons, this across seven.
+const float kMovieStrip = 0.5f / kRowButtons;
 
 // A CtrlMenuMovieButton built as CreateControl builds its own (0x80850750): handler, PushButton at +0x18, both vtables.
 static PushButton *NewMovieButton() {
@@ -52,14 +55,25 @@ static PushButton *NewMovieButton() {
     return reinterpret_cast<PushButton *>(raw + 0x18);
 }
 
-// BMG_TEXT's string is redrawn every frame, so it must outlive the call; the tag processor reads the
-// font-scale escape (0x1A, size 8, type 0, 50%) whole, so its zero word does not end the string.
-static wchar_t buttonLabels[kEntryButtons][14];
+// BMG_TEXT's string is redrawn every frame, so it must outlive the call. It is the 4 Players button's own
+// message with its digit swapped, so the font-scale escape is the one the loaded BMG gives 2-4 Players.
+static wchar_t buttonLabels[kEntryButtons][32];
 
 static void SetButtonDigit(PushButton &button, wchar_t digit) {
+    const BMGHolder &bmg = button.curFileBmgs;
+    const wchar_t *text = bmg.GetMsgByMsgId(bmg.GetMsgId(kFourPlayersBmg));
+    if (text == nullptr)
+        return;
     wchar_t *label = buttonLabels[digit - L'5'];
-    const wchar_t text[] = {digit, L'\n', 0x1a, 0x0800, 0x0000, 50, L'P', L'l', L'a', L'y', L'e', L'r', L's', 0};
-    for (u32 i = 0; i < sizeof(text) / sizeof(text[0]); ++i) label[i] = text[i];
+    const u32 max = sizeof(buttonLabels[0]) / sizeof(buttonLabels[0][0]) - 1;
+    u32 i = 0;
+    // An escape is copied whole: its size in bytes is its second unit's high byte, and it may hold a zero word.
+    for (u32 escapeEnd = 0; i < max && (text[i] != 0 || i < escapeEnd); ++i) {
+        if (i >= escapeEnd && text[i] == 0x1a)
+            escapeEnd = i + (text[i + 1] >> 9);
+        label[i] = i >= escapeEnd && text[i] == L'4' ? digit : text[i];
+    }
+    label[i] = 0;
     Text::Info info;
     info.strings[0] = label;
     button.SetMessage(Pulsar::UI::BMG_TEXT, &info);
@@ -72,6 +86,7 @@ static void PlaceInRow(PushButton &button, u32 index) {
     base.position.x = (static_cast<float>(index) - (kRowButtons - 1) / 2.0f) * (width + kButtonGap);
     base.scale.x = kButtonScaleX * width / kButtonWidth;
     button.PositionFromBasePosition();
+    cropMovie(&button, "black_base", 0.0f, 0.5f, 0.5f + index * kMovieStrip, 0.5f + (index + 1) * kMovieStrip);
 }
 
 // TopMenuMultiWaku is all picture panes but its heading; widening the pictures keeps the text's size.
@@ -92,7 +107,6 @@ static void AddEntryButtons(Pages::MainMenu *page, LayoutUIControl *panel) {
         button->Load("button", "TopMenuMulti", "ButtonMulti4P", 1, 0, false);
         static_cast<Pages::MenuInteractable *>(page)->SetButtonHandlers(*button);
         button->buttonId = kEntryButtonId + i;
-        cropMovie(button, "black_base", 0.0f, 0.5f, 0.8333333f, 1.0f);
         entryButtons[i] = button;
     }
     // MainMenu.hpp keeps them private: topMenuMulti2P, 3P and 4P at +0xC98, +0xC9C and +0xCA0.
