@@ -21,10 +21,12 @@ const u32 kPadControlSize = 0x184;
 const u32 kDummyBackSize = 0x184;
 typedef void (*PadCtorFn)(LayoutUIControl *);
 typedef void (*PadLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32, u8, u32, u32);
+typedef void (*PadSetParamsFn)(LayoutUIControl *, u32, u8, u32);
 typedef void (*PadSetIdFn)(LayoutUIControl *, u32);
 typedef void (*PadFn)(LayoutUIControl *);
 static const PadCtorFn padCtor = reinterpret_cast<PadCtorFn>(0x806012bc);
 static const PadLoadFn padLoad = reinterpret_cast<PadLoadFn>(0x80601350);
+static const PadSetParamsFn padSetParams = reinterpret_cast<PadSetParamsFn>(0x80601554);
 static const PadSetIdFn padSetId = reinterpret_cast<PadSetIdFn>(0x80601564);
 static const PadFn padRegister = reinterpret_cast<PadFn>(0x8060156c);
 
@@ -188,7 +190,7 @@ void JoinPage::OnInit() {
         LayoutUIControl &pad = *this->pads[slot];
         this->AddControl(3 + slot, pad, 0);
         const bool game = slot < kGameLocal;
-        padLoad(&pad, "pad_recognize", "EntryPlayerPad", "Pad1P_Div4", game ? slot : kGameLocal, game, 0, 0);
+        padLoad(&pad, "pad_recognize", "EntryPlayerPad", "Pad1P_Div4", slot, game, 0, 0);
         if (!game)
             ColourSlot(pad, slot);
     }
@@ -330,8 +332,6 @@ void JoinPage::OpenConfirm() {
 }
 
 void JoinPage::AfterControlUpdate() {
-    // PadControl::OnUpdate dims every P5-8 slot each frame, asking SectionPad about their hud 4; this runs in every state.
-    for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) this->pads[slot]->animator.GetAnimationGroupById(3).PlayAnimationAtFrame(Joined(slot) ? 0 : 1, 0.0f);
     if (this->currentState != STATE_ACTIVE || this->leaving)
         return;
     const u32 frame = this->confirming ? kConfirmFrames : 0;
@@ -371,9 +371,6 @@ void JoinPage::AfterControlUpdate() {
         const u32 id = this->SlotId(slot);
         if (id != this->shownIds[slot]) {
             padSetId(this->pads[slot], id);
-            // The lamp row, "{arg border|0}", draws hud 0-3 only; P5-8's slots (hud 4) show "???".
-            if (slot >= kGameLocal)
-                this->pads[slot]->ResetMsg();
             if (id != 0 && this->shownIds[slot] != ~0u) {
                 padRegister(this->pads[slot]);
                 this->PlaySound(kJoinSound, slot);
@@ -455,12 +452,14 @@ static s32 FirstDeactivatedPad(SectionPad *pad) {
 kmCall(0x8061c234, FirstDeactivatedPad);
 kmCall(0x8061c438, FirstDeactivatedPad);
 
-// The box's reads of the slot it shows (OnActivate+0x84, AfterControlUpdate+0x4C); P5-8 have no PadInfo.
+// The box's reads of the slot it shows (OnActivate+0x84, AfterControlUpdate+0x4C), and the lamp row's, which lights the
+// lamp of that slot's port or channel (SetMessage_case14+0x2C, "{arg border}"); P5-8 have no PadInfo.
 static u32 BoxCurrentID(const SectionPad *pad, u32 slot) {
     return ExtBoxSlot(slot) ? extPads[slot - kGameLocal].id : pad->GetCurrentID(slot);
 }
 kmCall(0x8061c244, BoxCurrentID);
 kmCall(0x8061c330, BoxCurrentID);
+kmCall(0x805ce65c, BoxCurrentID);
 
 // AfterControlUpdate+0x38 closes the box once the slot has its pad again; a P5-8 slot waits there for its A.
 static bool BoxHasAController(const SectionPad *pad, u32 slot) {
@@ -470,6 +469,26 @@ static bool BoxHasAController(const SectionPad *pad, u32 slot) {
     return Joined(slot);
 }
 kmCall(0x8061c31c, BoxHasAController);
+
+// PadControl::OnUpdate+0x98 dims the pad of a slot with no controller, every frame on the join page and in the box. The
+// join page's hidden slots past the player count still update, and SectionPad has no slot past 4.
+static bool SlotHasAController(const SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        return Joined(slot);
+    return slot <= kGameLocal && pad->HasAController(slot);
+}
+kmCall(0x80601514, SlotHasAController);
+
+// RecognizePadMenu::BeforeEntranceAnimations+0x50, "bl PadControl::SetParams". The "Player" group binds its colour tracks
+// again only when its animation changes, so a 5-8 player game's box first plays P1's, undoing a P5-8 box's ColourSlot.
+static void BoxPadParams(LayoutUIControl *pad, u32 hud, u8 coloured, u32 mode) {
+    if (menuLocalCount > kGameLocal)
+        pad->animator.GetAnimationGroupById(1).PlayAnimationAtFrame(0, 0.0f);
+    padSetParams(pad, hud, coloured, mode);
+    if (ExtBoxSlot(hud))
+        ColourSlot(*pad, hud);
+}
+kmCall(0x8061c678, BoxPadParams);
 
 // RecognizePadMenu::AfterEntranceAnimations+0x40 and +0x44 tail-call SetPadDisconnected or RequestPad, both indexing
 // padInfos[5] by the slot; a P5-8 slot waits for an A on any free controller in both cases.

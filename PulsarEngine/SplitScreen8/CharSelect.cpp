@@ -461,7 +461,8 @@ void CharSelectPage::OnInit() {
     this->LoadExtMiis();
 
     // Nothing to select: every player's input is read from the holders, and SectionPad's reconnect overlay watches P1-4.
-    this->manager.Init(1, false);
+    // Multiplayer, as vanilla's 2-4P page is, so the overlay draws each player's colour (RecognizePad::OnActivate+0x98).
+    this->manager.Init(1, true);
     this->SetManipulatorManager(this->manager);
     this->manager.UpdatePlayerBitfield2((1 << kGameLocal) - 1);
 }

@@ -238,8 +238,8 @@ void SelectPage::OnInit() {
     this->titleText->SetMessage(Pulsar::UI::BMG_TEXT, &info);
     for (u32 p = 0; p < kMaxLocal; ++p) this->LoadCell(p);
     // No control to select, so A and B are read from the holders. The bitfield keeps SectionPad's reconnect
-    // overlay on P1-4, as the vanilla pages' mask does with the game's count of 4.
-    this->manager.Init(1, false);
+    // overlay on P1-4, as the vanilla pages' mask does with the game's count of 4; multiplayer, so it draws their colours.
+    this->manager.Init(1, true);
     this->SetManipulatorManager(this->manager);
     this->manager.UpdatePlayerBitfield2((1 << kGameLocal) - 1);
 }
