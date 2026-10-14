@@ -8,6 +8,7 @@
 #include <Network/PacketExpansion.hpp>
 #include <MarioKartWii/UI/Page/Other/SELECTStageMgr.hpp>
 #include <Network/Network.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace UI {
@@ -221,6 +222,12 @@ void SettingsPanel::LoadCurrentValues() {
     }
 }
 
+// Battle Royale's settings, which a 5-8 player game cannot play: greyed, and the cursor skips them.
+static bool IsGreyed(Settings::SettingId id) {
+    return SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal
+      && (id == Settings::SETTING_KOROYALEENABLED || id == Settings::SETTING_KOROYALEBALLOONS || id == Settings::SETTING_KOROYALELAPMULTIPLIER);
+}
+
 void SettingsPanel::OnActivate() {
     const Settings::SettingsPageDef &page = Settings::Params::GetPageDef(settingsPageId);
     titleBmg = page.nameBmg + 0x1F;
@@ -283,15 +290,21 @@ void SettingsPanel::OnActivate() {
     for (u32 i = 0; i < Settings::Params::maxRadioCount; ++i) {
         const bool hidden = i >= page.radioCount;
         radioButtonControls[i].isHidden = hidden;
-        radioButtonControls[i].manipulator.inaccessible = hidden || s_votingSettingsPreviewActive;
+        radioButtonControls[i].manipulator.inaccessible = hidden || s_votingSettingsPreviewActive || IsGreyed(page.radioSettings[i]);
         if (s_votingSettingsPreviewActive && !hidden)
             radioButtonControls[i].Init();
+        if (!hidden && SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal)  // one panel shows every page
+            SplitScreen8::Fade(radioButtonControls[i], IsGreyed(page.radioSettings[i]));
     }
     for (u32 i = 0; i < Settings::Params::maxScrollerCount; ++i) {
         const bool hidden = i >= page.scrollerCount;
         upDownControls[i].isHidden = hidden;
-        upDownControls[i].manipulator.inaccessible = hidden || s_votingSettingsPreviewActive;
+        upDownControls[i].manipulator.inaccessible = hidden || s_votingSettingsPreviewActive || IsGreyed(page.scrollerSettings[i]);
         textUpDown[i].isHidden = hidden;
+        if (!hidden && SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal) {
+            SplitScreen8::Fade(upDownControls[i], IsGreyed(page.scrollerSettings[i]));
+            SplitScreen8::Fade(textUpDown[i], IsGreyed(page.scrollerSettings[i]));
+        }
     }
 }
 
@@ -315,12 +328,12 @@ void SettingsPanel::SetControlsHidden(bool hidden) {
     for (u32 i = 0; i < Settings::Params::maxRadioCount; ++i) {
         const bool rowHidden = hidden || i >= page.radioCount;
         radioButtonControls[i].isHidden = rowHidden;
-        radioButtonControls[i].manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive;
+        radioButtonControls[i].manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive || IsGreyed(page.radioSettings[i]);
     }
     for (u32 i = 0; i < Settings::Params::maxScrollerCount; ++i) {
         const bool rowHidden = hidden || i >= page.scrollerCount;
         upDownControls[i].isHidden = rowHidden;
-        upDownControls[i].manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive;
+        upDownControls[i].manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive || IsGreyed(page.scrollerSettings[i]);
         textUpDown[i].isHidden = rowHidden;
     }
 }

@@ -92,4 +92,25 @@ asmFunc ResultRowColourHook() {
 }
 kmCall(0x807f63a8, ResultRowColourHook);
 
+void Fade(LayoutUIControl &control, bool faded) {
+    typedef nw4r::ut::LinkList<nw4r::lyt::Pane, offsetof(nw4r::lyt::detail::PaneBase, link)> Panes;
+    const u8 alpha = faded ? 100 : 255;
+    // LayoutUIControl::Update gives the root [3]'s opacity each frame; SetPositionAnim makes [3] from [1] while the page animates.
+    control.positionAndscale[1].opacity = alpha;
+    control.positionAndscale[3].opacity = alpha;
+    nw4r::lyt::Pane &root = *control.layout.layout.rootPane;
+    root.alpha = alpha;
+    root.flag |= 2;  // influenced alpha: the panes below take the root's
+    // A control drawn at a parent's pane (SetRootPane) never computes its root, so its root's alpha reaches no child.
+    if (control.rootPane != nullptr) {
+        for (Panes::Iterator it = root.childList.GetBeginIter(); it != root.childList.GetEndIter(); ++it) {
+            it->alpha = alpha;
+            it->flag |= 2;
+        }
+    }
+    for (u32 i = 0; i < control.childrenGroup.controlCount; ++i)
+        if (control.childrenGroup.controlArray[i] != nullptr)
+            Fade(*static_cast<LayoutUIControl *>(control.childrenGroup.controlArray[i]), faded);
+}
+
 }  // namespace SplitScreen8

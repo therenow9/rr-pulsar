@@ -154,6 +154,8 @@ extern bool menuOpenMiiC;
 bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary);
 // Player slot 4-7's colour pair; slots 0-3 are out of range.
 void SlotPalette(u32 slot, RGBA16 *primary, RGBA16 *secondary);
+// Fades a control and its children to the look of one a 5-8 player game cannot use, or back.
+void Fade(LayoutUIControl &control, bool faded);
 
 #if defined(SS8_DEBUG_BOOT) || defined(SS8_MENU_SCRIPT)
 // Every local's kart to the AI, a second into a race: --boot-autodrive and a menu script's "autodrive" line.

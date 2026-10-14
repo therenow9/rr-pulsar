@@ -6,6 +6,7 @@
 #include <MarioKartWii/UI/Page/Menu/VSSettings.hpp>
 #include <MarioKartWii/UI/Page/Other/SELECTStageMgr.hpp>
 #include <MarioKartWii/UI/Ctrl/CountDown.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace UI {
@@ -121,6 +122,14 @@ void SettingsPageSelect::OnActivate() {
         pageButtons[0].Select(0);
     bottomText->SetMessage(BMG_SETTINGS_BOTTOM);
     MenuInteractable::OnActivate();
+    if (SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal) {
+        for (u32 i = 0; i < contextDef.pageCount; ++i) {
+            if (contextDef.pages[i] != Settings::SETTINGS_PAGE_KO)
+                continue;
+            pageButtons[i].manipulator.inaccessible = true;
+            SplitScreen8::Fade(pageButtons[i], true);
+        }
+    }
 }
 
 const ut::detail::RuntimeTypeInfo *SettingsPageSelect::GetRuntimeTypeInfo() const {

@@ -139,7 +139,7 @@ void ResetExtPreviews() {
     extPassCount = 0;
 }
 
-// Built once a section on the scene's MEM2 structs heap, before any load fragments it: the textures as
+// Built once a section on a scene structs heap, before any load fragments it: the textures as
 // MenuModelMgr::Init builds its own (0x8059E460), then each player's arena, then each Mii player's head.
 bool ExtPreviewsShow(u32 count) {
     GameScene *scene = const_cast<GameScene *>(GameScene::GetCurrent());
@@ -149,6 +149,16 @@ bool ExtPreviewsShow(u32 count) {
         ResetExtPreviews();
     previewScene = scene;
     EGG::Heap *parentHeap = scene->structsHeaps.heaps[1];
+    u32 needed = 0x1000;
+    for (u32 i = 0; i < kExtPlayers; ++i)
+        if (textures[i] == nullptr)
+            needed += kTextureSize * kTextureSize * 2;  // format 5, RGB5A3: 16 bits a texel
+    for (u32 i = 0; i + kGameLocal < count; ++i)
+        if (arenas[i] == nullptr)
+            needed += kArenaSize;
+    // The next-course section (0x4B) leaves MEM2 too little for eight players' set; its MEM1 holds it there.
+    if (parentHeap->getAllocatableSize(4) < needed)
+        parentHeap = scene->structsHeaps.heaps[0];
     const u16 heapFlags = parentHeap->dameFlag;
     parentHeap->dameFlag &= ~1;
     bool built = true;

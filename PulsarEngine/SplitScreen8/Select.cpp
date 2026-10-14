@@ -91,7 +91,6 @@ const float kTeamButtonScale = 0.6f;
 const u32 kTeamMessages[2] = {0xdb3, 0xdb2};  // "Red Team", "Blue Team" (0x8084C2C4)
 const char *const kTeamFlags[2] = {"flag_red", "flag_blue"};
 const u32 kTeamFull = 6;
-const u8 kTeamFullAlpha = 100;
 // SectionParams+0x174's last team per hud for P5-8, seeded as ResetLicenseParams seeds P1-4's (0x805E4184): odd huds Blue.
 static u8 extLastTeam[kMaxLocal - kGameLocal] = {TEAM_RED, TEAM_BLUE, TEAM_RED, TEAM_BLUE};
 
@@ -413,10 +412,7 @@ void SelectPage::UpdateTeamCap(bool moveOff) {
             continue;
         for (u32 side = 0; side < 2; ++side) {
             const bool full = this->teamFull[side];
-            // With influenced alpha (flag bit 1) every pane of the button takes its layout root's.
-            nw4r::lyt::Pane *root = this->sides[player][side]->layout.layout.rootPane;
-            root->alpha = full ? kTeamFullAlpha : 255;
-            root->flag |= 2;
+            Fade(*this->sides[player][side], full);
             if (moveOff && full && this->buttons[player] == side) {
                 SelectControl(*this->sides[player][side], false);
                 SelectControl(*this->sides[player][side ^ 1], true);
@@ -740,6 +736,85 @@ void SelectPage::Leave(u32 next, u32 animDirection) {
     OS::Report("ss8 select: %s page -> %#x\n", this->step.name, next);
     this->EndStateAnimated(animDirection, 0.0f);
 }
+
+// P5-8's karts on the cup and course pages: the page's model control (NoteModelControl::Load, 0x805F4348) showing
+// their preview, as the character and kart pages do.
+class CupKart : public LayoutUIControl {
+public:
+    void InitSelf() override;
+    void OnUpdate() override;
+    u32 player;
+};
+
+// One column of four a side, P1 and P2 at the top, at one size per page.
+const float kCupKartX[2][2] = {{-101.0f, 229.0f}, {-240.0f, 240.0f}};  // [course page][odd player]
+const float kCupKartY[2][4] = {{55.0f, 5.0f, -45.0f, -95.0f}, {110.0f, 40.0f, -30.0f, -100.0f}};
+const float kCupKartSize[2] = {0.4f, 0.55f};
+
+static void PlaceCupKart(LayoutUIControl &control, u32 player, bool course) {
+    nw4r::lyt::Pane *model = control.layout.GetPaneByName("model_null");
+    model->trans.x = 0.0f;
+    model->trans.y = 0.0f;
+    PositionAndScale &at = control.positionAndscale[1];
+    at.position.x = kCupKartX[course][player & 1];
+    at.position.y = kCupKartY[course][player / 2];
+    at.scale.x = kCupKartSize[course] / model->scale.x;
+    at.scale.z = at.scale.x;
+    // [3] as SetPositionAnim (0x8063D194) makes it, which the course page runs only while it animates.
+    const PositionAndScale &slide = control.positionAndscale[2];
+    PositionAndScale &shown = control.positionAndscale[3];
+    shown.position.x = at.position.x + slide.position.x;
+    shown.position.y = at.position.y + slide.position.y;
+    shown.scale.x = at.scale.x * slide.scale.x;
+    shown.scale.z = at.scale.z * slide.scale.z;
+}
+
+void CupKart::InitSelf() {
+    this->isHidden = true;
+    // Page::Init runs this too, as the section is built (0x80601A8C): the karts belong to the page's activation only.
+    if (this->parentGroup->parentPage->currentState != STATE_ACTIVATING)
+        return;
+    // ExtKartsShow clears every pose, so P5's control, initialised first, shows them all.
+    if (this->player == kGameLocal && !(ExtPreviewsShow(menuLocalCount) && ExtKartsShow(menuLocalCount)))
+        OS::Report("ss8 cup: P5-8 previews failed\n");
+    const CharacterId character = ExtCharacter(this->player);
+    const u32 slot = SkinSlot(this->player, character);
+    ExtPreviewLoad(this->player, character, slot);
+    ExtKartRequest(this->player, character, slot, extPicks[this->player - kGameLocal].kart);
+    ExtKartPose(this->player, true);
+}
+
+void CupKart::OnUpdate() {
+    const GX::TexObj *texObj = ExtPreviewTexObj(this->player);
+    SetPreviewTexture(*this, texObj);
+    this->isHidden = texObj == nullptr;
+    Pages::Menu *page = static_cast<Pages::Menu *>(this->parentGroup->parentPage);
+    const bool course = page->pageId == PAGE_COURSE_SELECT;
+    PlaceCupKart(*this, this->player, course);
+    if (this->player == kGameLocal)  // P1-4's each frame, over RR's one-time place (ExpansionUIMisc.cpp)
+        for (u32 i = 0; i < kGameLocal; ++i) PlaceCupKart(page->modelPosition[i], i, course);
+}
+
+// Menu::OnInit's "bl Page::InitControlGroup" (0x80836CFC, 0x80836DC8); r3-r4 are the call's own. On the cup and
+// course pages of a 5-8 player game, P5-8's karts go after the count the code after it fills.
+static void MenuControlGroup(Page &page, u32 count) {
+    const bool karts = (page.pageId == PAGE_CUP_SELECT || page.pageId == PAGE_COURSE_SELECT) && menuLocalCount > kGameLocal;
+    const u32 extra = karts ? menuLocalCount - kGameLocal : 0;
+    page.InitControlGroup(count + extra);
+    for (u32 i = 0; i < extra; ++i) {
+        static const char *const kVariants[] = {"1P_4Div", "2P_4Div", "3P_4Div", "4P_4Div"};
+        static const char *kAnims[] = {"Ghost", "Player", "Ghost", nullptr, nullptr};  // NoteModelControl::Load's
+        CupKart *kart = new CupKart;
+        kart->player = kGameLocal + i;
+        page.AddControl(count + i, *kart, 0);
+        ControlLoader loader(kart);
+        loader.Load("model", "PadEasyModel", kVariants[i], kAnims);
+        kart->animator.GetAnimationGroupById(0).PlayAnimationAtFrame(0, 0.0f);
+        kart->drawPriority = -11.0f;
+    }
+}
+kmCall(0x80836cfc, MenuControlGroup);
+kmCall(0x80836dc8, MenuControlGroup);
 
 // VSModeSelect::OnButtonClick's "bl Menu::LoadNextPageById" for Team VS (0x80852A6C) and VS (0x80852A90); r3-r5 are
 // the call's own arguments, and the code after it sets r0 and r3 before reading them.
