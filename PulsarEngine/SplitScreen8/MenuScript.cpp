@@ -222,7 +222,8 @@ static void ReportRacePlayers() {
     }
     // RR's race modes as UpdateContext set them for this race, and the series length a KO race forces.
     const Pulsar::System *system = Pulsar::System::sInstance;
-    OS::Report("ss8 context: gametype %d ko %d lapko %d kofinal %d royale %d extteams %d vsRaceCount %u\n", scenario.settings.gametype, system->IsContext(Pulsar::PULSAR_MODE_KO),
+    OS::Report("ss8 context: gamemode %d gametype %d battle %d ffa %d elim %d ko %d lapko %d kofinal %d royale %d extteams %d vsRaceCount %u\n", scenario.settings.gamemode, scenario.settings.gametype,
+      scenario.settings.battleType, system->IsContext(Pulsar::PULSAR_FFA), system->IsContext(Pulsar::PULSAR_ELIMINATION), system->IsContext(Pulsar::PULSAR_MODE_KO),
       system->IsContext(Pulsar::PULSAR_MODE_LAPKO), system->IsContext(Pulsar::PULSAR_KOFINAL), system->IsContext(Pulsar::PULSAR_MODE_BATTLEROYALE), system->IsContext(Pulsar::PULSAR_EXTENDEDTEAMS),
       SectionMgr::sInstance->sectionParams->vsRaceCount);
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
@@ -234,6 +235,21 @@ static void ReportRacePlayers() {
     }
 }
 static RaceFrameHook reportRacePlayers(ReportRacePlayers);
+
+// Every racer's battle score and team once the round has ended.
+static bool battleScoresReported;
+
+static void ReportBattleScores() {
+    const Raceinfo *raceinfo = Raceinfo::sInstance;
+    const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
+    if (battleScoresReported || raceinfo == nullptr || raceinfo->stage != RACESTAGE_FINISHED || scenario.settings.gamemode != MODE_BATTLE)
+        return;
+    battleScoresReported = true;
+    for (u32 i = 0; i < scenario.playerCount; ++i)
+        OS::Report("ss8 battle player %u: type %d hud %d team %d score %u frame %u\n", i, scenario.players[i].playerType, scenario.players[i].hudSlotId, scenario.players[i].team,
+          raceinfo->players[i]->battleScore, menuFrames);
+}
+static RaceFrameHook reportBattleScores(ReportBattleScores);
 
 // A script's "autodrive" line: every local's kart goes to the AI a second into each race, so a lane reaches the
 // results; the awards and the one-screen "Next Race" scene are other gametypes.
@@ -262,6 +278,7 @@ static void OnSectionLoad() {
         menuOpenMiiC = (menuScript.flags & MENU_OPEN_MII_C) != 0;
     }
     racePlayersReported = false;
+    battleScoresReported = false;
     memset(reportedSkins, 0, sizeof(reportedSkins));
     OS::Report("ss8 section %#x frame %u locals %u\n", SectionMgr::sInstance->curSection->sectionId, menuFrames, menuLocalCount);
     for (u32 i = 0; Pulsar::Settings::Mgr::IsCreated() && i < menuScript.settingCount; ++i)

@@ -593,7 +593,7 @@ static void ReleaseUnpackHolder(void *) {
         holder->UnmountArchives();
 }
 
-// The path as RR's LoadKartArchive makes it (Driver/CustomCharacters.cpp), always VS's: 5-8 players have no Battle.
+// The path as RR's LoadKartArchive makes it (Driver/CustomCharacters.cpp), always VS's: RR's menus' IsBattle returns 0.
 static bool RequestUnpack(CharacterId character, u32 slot) {
     ArchiveMgr *archives = ArchiveMgr::sInstance;
     if (archives == nullptr || archives->allkartModelDumpHeap == nullptr)

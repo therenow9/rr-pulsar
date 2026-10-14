@@ -276,6 +276,8 @@ kmCall(0x8084db8c, RegisteredPadsOrJoin);
 static void MultiActivate(Pages::MultiPlayer *page) {
     if (menuLocalCount <= kGameLocal)
         return;
+#ifndef SS8_PAGES
+    // Only the 8-player pages can carry a 5-8 player Battle.
     for (int i = 0; i < page->externControlCount; ++i) {
         PushButton *button = page->externControls[i];
         if (button == nullptr || button->buttonId != 1)
@@ -283,6 +285,7 @@ static void MultiActivate(Pages::MultiPlayer *page) {
         button->isHidden = true;
         button->manipulator.inaccessible = true;
     }
+#endif
     if (page->titleText == nullptr)
         return;
     static const wchar_t *const titles[kEntryButtons] = {
