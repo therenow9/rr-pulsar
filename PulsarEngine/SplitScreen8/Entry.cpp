@@ -343,10 +343,10 @@ u32 SkinLoadReserve(u32 reserve) {
     return menuLocalCount > kGameLocal ? kSkinLoadReserve : reserve;
 }
 
-// The menus set every player's type from the game's count of 4 and CPU-fill slots 4+ with random picks:
-// players 5..N are made local here, with their pick or default, before RacedataScenario::Init counts locals.
+// The menus CPU-fill slots 4+: players 5..N are made local here, with their pick or default, before RacedataScenario::Init
+// counts locals. Not for the awards, whose InitAwards has already given every local a slot, in finish order.
 static void MenuLocalsLocal(Racedata *racedata) {
-    if (menuLocalCount <= kGameLocal)
+    if (menuLocalCount <= kGameLocal || racedata->menusScenario.settings.gamemode == MODE_AWARD)
         return;
     for (u32 i = kGameLocal; i < menuLocalCount; ++i) {
         RacedataPlayer &player = racedata->menusScenario.players[i];
