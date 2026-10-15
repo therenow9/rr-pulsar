@@ -11,8 +11,10 @@
 #include <MarioKartWii/RKSYS/RKSYSMgr.hpp>
 #include <MarioKartWii/System/Random.hpp>
 #include <MarioKartWii/UI/Page/Page.hpp>
+#include <MarioKartWii/UI/Page/Menu/BattleKartSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/KartSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/Menu.hpp>
+#include <MarioKartWii/UI/Page/Menu/MultiPlayerTeamSelect.hpp>
 #include <MarioKartWii/UI/Page/Other/ModelRenderer.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuText.hpp>
 #include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
@@ -45,6 +47,14 @@ static const SelectStep kSteps[] = {
 // VSModeSelect's Team VS sets bit 1 (0x80852A64); Battle sets it too (0x8083B96C).
 bool MenuTeamVS() {
     return (Racedata::sInstance->menusScenario.settings.modeFlags & 2) != 0;
+}
+
+void WithMenuLocalCount(void (*fill)()) {
+    SectionParams *params = SectionMgr::sInstance->sectionParams;
+    const u32 gameCount = params->localPlayerCount;
+    params->localPlayerCount = menuLocalCount;
+    fill();
+    params->localPlayerCount = gameCount;
 }
 
 // MultiKartSelect::OnTextChange's kart name (0x8084A338) and OnUpDownClick's confirm voice (0x8084A1C4), which
@@ -113,9 +123,12 @@ static void WriteKarts() {
         RacedataPlayer &player = Racedata::sInstance->menusScenario.players[i];
         player.kartId = KartForCharacter(player.characterId, params->karts[i]);
     }
-    // The kart page's last confirm (0x8084745C, no arguments) gives every CPU from the game's local count of 4 a random
-    // kart, P5-8 included until InitRace makes them local (MenuLocalsLocal, Entry.cpp).
-    Pages::KartSelect::func_8084745c();
+    // The kart page's last confirm gives every slot from the game's local count of 4 a kart, P5-8 included until InitRace
+    // makes them local (MenuLocalsLocal, Entry.cpp): in Battle a standard one, else a CPU's random one (0x8084A22C).
+    if (Racedata::sInstance->menusScenario.settings.gamemode == MODE_BATTLE)
+        Pages::BattleKartSelect::func_8083ad54();
+    else
+        Pages::KartSelect::func_8084745c();
 }
 
 // As MultiKartSelect::FillPossibleKarts lists them (0x8084A3F8): the weight class in KartId order, unlocked with its
@@ -716,6 +729,8 @@ void SelectPage::AfterControlUpdate() {
         return;
     if (this->kartStep)
         WriteKarts();
+    if (this->teamStep)  // MultiTeamSelect's confirm balances the CPUs against the locals' teams (0x8084CA78)
+        WithMenuLocalCount(Pages::MultiTeamSelect::AssignCPUTeams);
     this->Leave(this->step.next, 0);
 }
 
@@ -816,13 +831,15 @@ static void MenuControlGroup(Page &page, u32 count) {
 kmCall(0x80836cfc, MenuControlGroup);
 kmCall(0x80836dc8, MenuControlGroup);
 
-// VSModeSelect::OnButtonClick's "bl Menu::LoadNextPageById" for Team VS (0x80852A6C) and VS (0x80852A90); r3-r5 are
-// the call's own arguments, and the code after it sets r0 and r3 before reading them.
-static void VSModeNextPage(Pages::Menu &page, PageId id, PushButton &button) {
+// VSModeSelect's (0x80852A6C, 0x80852A90) and BattleModeSelect's (0x8083B924, 0x8083B944) bl Menu::LoadNextPageById to
+// the character page; r3-r5 are its arguments, and the code after each sets the registers it reads.
+static void ModeNextPage(Pages::Menu &page, PageId id, PushButton &button) {
     page.LoadNextPageById(menuLocalCount > kGameLocal ? static_cast<PageId>(Pulsar::UI::PULPAGE_SS8CHARSELECT) : id, button);
 }
-kmCall(0x80852a6c, VSModeNextPage);
-kmCall(0x80852a90, VSModeNextPage);
+kmCall(0x80852a6c, ModeNextPage);
+kmCall(0x80852a90, ModeNextPage);
+kmCall(0x8083b924, ModeNextPage);
+kmCall(0x8083b944, ModeNextPage);
 
 }  // namespace SplitScreen8
 #endif

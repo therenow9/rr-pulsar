@@ -29,12 +29,13 @@ static u32 LocalPlayerCount(const RacedataScenario &scenario) {
     return locals;
 }
 
-// A VS race of 5-6 local players races on 6 screens and 7-8 on 8; 4 or fewer keep the game's count.
+// A VS race or a Battle of 5-6 local players races on 6 screens and 7-8 on 8; 4 or fewer keep the game's count.
 static u32 WideScreenCount(const RacedataScenario &scenario) {
-    if (scenario.settings.gamemode != MODE_VS_RACE)
+    const GameMode mode = scenario.settings.gamemode;
+    if (mode != MODE_VS_RACE && mode != MODE_BATTLE)
         return 0;
     const u32 locals = LocalPlayerCount(scenario);
-    if (locals > kMaxLocal)
+    if (locals > kMaxLocal || (mode == MODE_BATTLE && locals <= kGameLocal))  // a debug build widens only a VS below 5
         return 0;
     if (locals > 6)
         return 8;

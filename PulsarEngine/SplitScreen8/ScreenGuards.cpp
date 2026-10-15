@@ -1,5 +1,6 @@
 #include <kamek.hpp>
 #include <MarioKartWii/3D/Model/ModelDirector.hpp>
+#include <MarioKartWii/KMP/KMPManager.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
 namespace SplitScreen8 {
@@ -175,5 +176,12 @@ asmFunc KartSoundHud() {
         blr;)
 }
 kmCall(0x807075a0, KartSoundHud);
+
+// A Battle round's end moves each local's kart to its screen's MSPT (0x805847B0), and an arena has 4: screens 4-7 share
+// screens 0-3's spots.
+static KMP::Holder<MSPT> *ScreenMspt(const KMP::Manager &kmp, u16 index) {
+    return kmp.GetHolder<MSPT>(IsWideHud(index) ? index - kGameLocal : index);
+}
+kmCall(0x805847b0, ScreenMspt);
 
 }  // namespace SplitScreen8

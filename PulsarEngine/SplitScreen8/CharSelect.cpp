@@ -996,13 +996,9 @@ void CharSelectPage::AfterControlUpdate() {
 // For the fill's one call SectionParams' count is the true one and P5-8's picks sit in their scenario slots, so no CPU
 // takes a local's character. InitRace makes slots 4-7 local with the same picks.
 void CharSelectPage::FillCpus() {
-    SectionParams *params = SectionMgr::sInstance->sectionParams;
     RacedataScenario &scenario = Racedata::sInstance->menusScenario;
     for (u32 p = kGameLocal; p < menuLocalCount; ++p) scenario.players[p].characterId = ExtCharacter(p);
-    const u32 gameCount = params->localPlayerCount;
-    params->localPlayerCount = menuLocalCount;
-    fillCpuCharacters();
-    params->localPlayerCount = gameCount;
+    WithMenuLocalCount(fillCpuCharacters);
 }
 
 // RR's GetRandomEnabledCharacter, file-static and finding a Mii by hud, so copied over this page's buttons: the character
