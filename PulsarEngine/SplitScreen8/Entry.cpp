@@ -11,7 +11,7 @@
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The main menu's added buttons show at every player count; everything after them acts only while menuLocalCount is set.
+// The main menu's local-player buttons and hidden WFC panel apply at every player count.
 
 namespace SplitScreen8 {
 
@@ -28,7 +28,6 @@ typedef void (*PushButtonCtorFn)(PushButton *);
 typedef void (*CropMovieFn)(LayoutUIControl *, const char *, float, float, float, float);
 typedef void (*SoundIdFn)(PushButton *, u32);
 typedef void (*ResetParamsFn)(Pages::MainMenu *, u8);
-typedef void (*SelectButtonFn)(Pages::MainMenu *, PushButton *);
 static const PushButtonCtorFn pushButtonCtor = reinterpret_cast<PushButtonCtorFn>(0x805bd3a8);
 static const CropMovieFn cropMovie = reinterpret_cast<CropMovieFn>(0x8063e5c4);
 static const SoundIdFn setSelectionSoundId = reinterpret_cast<SoundIdFn>(0x805be430);
@@ -109,8 +108,7 @@ static void AddEntryButtons(Pages::MainMenu *page, LayoutUIControl *panel) {
         button->buttonId = kEntryButtonId + i;
         entryButtons[i] = button;
     }
-    // MainMenu.hpp keeps them private: topMenuMulti2P, 3P and 4P at +0xC98, +0xC9C and +0xCA0.
-    PushButton *const *multi = reinterpret_cast<PushButton *const *>(reinterpret_cast<u8 *>(page) + 0xc98);
+    PushButton *const multi[] = {page->topMenuMulti2P, page->topMenuMulti3P, page->topMenuMulti4P};
     for (u32 i = 0; i < 3; ++i) PlaceInRow(*multi[i], i);
     for (u32 i = 0; i < kEntryButtons; ++i) PlaceInRow(*entryButtons[i], 3 + i);
     WidenPanel(*panel);
@@ -217,6 +215,15 @@ kmBranch(0x808515a0, EntryDeselectStub);
 // Every game starts here, so a 5-8 player game's state ends here, holders 4-7 on the dummy that TrySetController's
 // scans read; focus returns to the button last clicked, as OnActivate does for ids 0-7 (vtable 0x78).
 static void EntryActivate(Pages::MainMenu *page) {
+    page->buttonTitles[2].isHidden = true;
+    PushButton *const wifi[] = {page->topMenuWifi1P, page->topMenuWifi2P};
+    for (u32 i = 0; i < sizeof(wifi) / sizeof(wifi[0]); ++i) {
+        wifi[i]->isHidden = true;
+        wifi[i]->manipulator.inaccessible = true;
+    }
+    // Vanilla can restore WFC focus from the previous section or the last clicked button.
+    if (page->curSelect == page->topMenuWifi1P || page->curSelect == page->topMenuWifi2P)
+        page->SelectButton(*page->topMenuSingle);
     menuLocalCount = 0;
     ClearExtPads();
     for (u32 i = 0; i < kMaxLocal - kGameLocal; ++i) extPicks[i].picked = false;
@@ -231,8 +238,7 @@ static void EntryActivate(Pages::MainMenu *page) {
     lastEntryCount = 0;
     if (button == nullptr)
         return;
-    const SelectButtonFn select = reinterpret_cast<SelectButtonFn>((*reinterpret_cast<void ***>(page))[0x78 / 4]);
-    select(page, button);
+    page->SelectButton(*button);
 }
 
 // OnActivate's shared exit, "lwz r0, 0x24(r1)" (r30 = the page); the prologue saved LR.

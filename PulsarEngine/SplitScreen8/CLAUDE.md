@@ -2,7 +2,7 @@
 
 The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except four things the owner wants (root `CLAUDE.md` has the decisions). Same-character select and each player's own skin and model are RR's own since upstream `2794b039`, so they are vanilla. The four, each in an RR file:
 - same-character select's OK markers offline, and the awards' Mii head only on a Mii (`UI/SameCharacterSelect.cpp`, `Race/CustomCharacters.cpp`);
-- the main menu's seven Multiplayer buttons (`Entry.cpp`);
+- the main menu's seven Multiplayer buttons and removal of Retro WFC (`Entry.cpp`);
 - a race name balloon's portrait read once per player per race (`UI/CustomCharacters.cpp`);
 - the menu voices following each player's skin, 1P and online included (`Race/CustomCharacterVoice.cpp`).
 
