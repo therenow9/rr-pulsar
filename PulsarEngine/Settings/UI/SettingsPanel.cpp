@@ -297,6 +297,7 @@ void SettingsPanel::SetControlsHidden(bool hidden) {
         RadioButtonControl &radio = radioButtonControls[i];
         const bool rowHidden = hidden || i >= radioCount;
         radio.id = firstRow + i;
+        bool greyed = false;
         if (!rowHidden) {
             const Settings::SettingId id = page.radioSettings[radio.id];
             const Settings::SettingDef &def = Settings::Params::GetSettingDef(id);
@@ -311,24 +312,33 @@ void SettingsPanel::SetControlsHidden(bool hidden) {
                     radio.optionButtonsArray[option].SetMessage(Settings::Params::GetOptionBmg(id, option));
             }
             radio.Init();
+            greyed = IsGreyed(id);
+            if (SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal)  // a row shows another setting on each page
+                SplitScreen8::Fade(radio, greyed);
         }
         radio.isHidden = rowHidden;
-        radio.manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive;
+        radio.manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive || greyed;
     }
     for (u32 i = 0; i < Settings::Params::maxScrollerCount; ++i) {
         UpDownControl &scroller = upDownControls[i];
         TextUpDownValueControl &value = textUpDown[i];
         const bool rowHidden = hidden || i >= scrollerCount;
         scroller.id = firstScroller + i;
+        bool greyed = false;
         if (!rowHidden) {
             const Settings::SettingId id = page.scrollerSettings[scroller.id];
             const Settings::SettingDef &def = Settings::Params::GetSettingDef(id);
             scroller.SetMessage(id);
             scroller.SelectInitial(def.optionCount, scrollerValues[scroller.id]);
             scroller.Init();
+            greyed = IsGreyed(id);
+            if (SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal) {
+                SplitScreen8::Fade(scroller, greyed);
+                SplitScreen8::Fade(value, greyed);
+            }
         }
         scroller.isHidden = rowHidden;
-        scroller.manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive;
+        scroller.manipulator.inaccessible = rowHidden || s_votingSettingsPreviewActive || greyed;
         value.isHidden = rowHidden;
     }
 }

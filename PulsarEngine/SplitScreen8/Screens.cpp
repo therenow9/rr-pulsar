@@ -3,8 +3,6 @@
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/3D/Scn/GameScreen.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
-#include <MarioKartWii/Scene/GameScene.hpp>
-#include <core/rvl/gx/GX.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
 namespace SplitScreen8 {
@@ -128,15 +126,6 @@ static void InitScreensWide(RacedataScenario &scenario, u8 screenCount) {
     }
 }
 kmCall(0x8052fe04, InitScreensWide);
-
-// GameScene::reinit+0x1C, "bl GameScene::Reset", before it frees the structs heaps: the outgoing scene's light textures
-// still have EFB copies queued into them, so drain the GPU first, as EGG::SceneManager::destroyScene does.
-static void ResetAndDrainGpu(GameScene &scene) {
-    scene.Reset();
-    GX::Flush();
-    GX::DrawDone();
-}
-kmCall(0x8051b7cc, ResetAndDrainGpu);
 
 // Kart::BRRESHandle::__ct+0xDC, "cmpwi r30, 0" (r30 = vanilla 3P), whose bne skips +0x12, the second kart archive OnEnter loads
 // only for locals: a spare-tile CPU (+0x14 "is local" clear) takes 3P's spare-tile flag +0x11 and the bne. r5 dead; LR saved.
