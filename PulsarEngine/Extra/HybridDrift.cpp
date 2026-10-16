@@ -1,16 +1,12 @@
 #include <RetroRewind.hpp>
 #include <runtimeWrite.hpp>
-#include <core/rvl/OS/OSCache.hpp>
 #include <MarioKartWii/RKNet/RKNetController.hpp>
+#include <MarioKartWii/3D/Camera/RaceCamera.hpp>
 
 namespace HybridDrift {
 
 static bool isHybridDriftDisabled = false;
 
-kmRuntimeUse(0x8059450C);
-kmRuntimeUse(0x80594A60);
-kmRuntimeUse(0x805A35BC);
-kmRuntimeUse(0x80745AB0);
 kmRuntimeUse(0x808CB70A);
 
 static void UpdateHybridDrift() {
@@ -20,29 +16,62 @@ static void UpdateHybridDrift() {
     isHybridDriftDisabled = controller != nullptr && controller->connectionState != RKNet::CONNECTIONSTATE_SHUTDOWN
       && (system->IsVanillaMode() || (isFroom && (system->netMgr.hostContext2 & (1 << Pulsar::PULSAR_NOHYBRIDDRIFT))));
 
-    u32 *patch = reinterpret_cast<u32 *>(kmRuntimeAddr(0x8059450C));
-    *patch = isHybridDriftDisabled ? 0x60000010 : 0x60002010;
-    OS::DCFlushRange(patch, sizeof(u32));
-    OS::ICInvalidateRange(patch, sizeof(u32));
-    patch = reinterpret_cast<u32 *>(kmRuntimeAddr(0x80594A60));
-    *patch = isHybridDriftDisabled ? 0x40820048 : 0x60000000;
-    OS::DCFlushRange(patch, sizeof(u32));
-    OS::ICInvalidateRange(patch, sizeof(u32));
-    patch = reinterpret_cast<u32 *>(kmRuntimeAddr(0x805A35BC));
-    // The original relative call displacement differs between game regions.
-    static const u32 originalCall = *patch;
-    *patch = isHybridDriftDisabled ? originalCall : 0x38600000;
-    OS::DCFlushRange(patch, sizeof(u32));
-    OS::ICInvalidateRange(patch, sizeof(u32));
-    patch = reinterpret_cast<u32 *>(kmRuntimeAddr(0x80745AB0));
-    *patch = isHybridDriftDisabled ? 0x41820008 : 0x48000008;
-    OS::DCFlushRange(patch, sizeof(u32));
-    OS::ICInvalidateRange(patch, sizeof(u32));
     u16 *data = reinterpret_cast<u16 *>(kmRuntimeAddr(0x808CB70A));
     data[0] = isHybridDriftDisabled ? 0x0400 : 0;
     data[1] = isHybridDriftDisabled ? 0x0003 : 0;
 }
 static SectionLoadHook HybridDriftHook(UpdateHybridDrift);
+
+asmFunc GetHybridDriftStatusFlags() {
+    ASM(
+        lis r12, isHybridDriftDisabled @ha;
+        lbz r12, isHybridDriftDisabled @l(r12);
+        cmpwi r12, 0;
+        beq + hybrid;
+        ori r0, r0, 0x10;
+        blr;
+
+    hybrid:
+        ori r0, r0, 0x2010;
+        blr;
+    )
+}
+kmCall(0x8059450C, GetHybridDriftStatusFlags);
+
+asmFunc GetHybridDriftInputCheck() {
+    ASM(
+        lis r12, isHybridDriftDisabled @ha;
+        lbz r12, isHybridDriftDisabled @l(r12);
+        cmpwi r12, 0;
+        beq + hybrid;
+        rlwinm.r0, r0, 0, 27, 27;
+        blr;
+
+    hybrid:
+        rlwinm r0, r0, 0, 27, 27;
+        blr;
+    )
+}
+kmCall(0x80594A5C, GetHybridDriftInputCheck);
+
+static bool IsAutomaticCamera(const Kart::Player &kartPlayer) {
+    return isHybridDriftDisabled && RaceCamera::IsAutomatic(kartPlayer);
+}
+kmCall(0x805A35BC, IsAutomaticCamera);
+
+asmFunc GetHybridDriftMotionValue() {
+    ASM(
+        lis r12, isHybridDriftDisabled @ha;
+        lbz r12, isHybridDriftDisabled @l(r12);
+        cmpwi r12, 0;
+        beq + hybrid;
+        lhz r3, 0xC(r31);
+
+    hybrid:
+        blr;
+    )
+}
+kmCall(0x80745AB4, GetHybridDriftMotionValue);
 
 // original code by Ismy and CLF78, with fixes by Ro.
 asmFunc GetHybridDrift1() {
