@@ -1,4 +1,3 @@
-#ifdef SS8_PAGES
 #include <kamek.hpp>
 #include <core/rvl/OS/OS.hpp>
 #include <core/rvl/PAD.hpp>
@@ -1265,4 +1264,3 @@ void CharSelectPage::Leave(u32 next, u32 animDirection) {
 }
 
 }  // namespace SplitScreen8
-#endif

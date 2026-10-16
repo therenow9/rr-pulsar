@@ -222,10 +222,10 @@ static void ReportRacePlayers() {
     }
     // RR's race modes as UpdateContext set them for this race, and the series length a KO race forces.
     const Pulsar::System *system = Pulsar::System::sInstance;
-    OS::Report("ss8 context: gamemode %d gametype %d battle %d ffa %d elim %d ko %d lapko %d kofinal %d royale %d extteams %d vsRaceCount %u\n", scenario.settings.gamemode, scenario.settings.gametype,
-      scenario.settings.battleType, system->IsContext(Pulsar::PULSAR_FFA), system->IsContext(Pulsar::PULSAR_ELIMINATION), system->IsContext(Pulsar::PULSAR_MODE_KO),
-      system->IsContext(Pulsar::PULSAR_MODE_LAPKO), system->IsContext(Pulsar::PULSAR_KOFINAL), system->IsContext(Pulsar::PULSAR_MODE_BATTLEROYALE), system->IsContext(Pulsar::PULSAR_EXTENDEDTEAMS),
-      SectionMgr::sInstance->sectionParams->vsRaceCount);
+    OS::Report("ss8 context: gamemode %d gametype %d battle %d ffa %d elim %d ko %d lapko %d kofinal %d royale %d ott %d extteams %d vsRaceCount %u\n", scenario.settings.gamemode,
+      scenario.settings.gametype, scenario.settings.battleType, system->IsContext(Pulsar::PULSAR_FFA), system->IsContext(Pulsar::PULSAR_ELIMINATION), system->IsContext(Pulsar::PULSAR_MODE_KO),
+      system->IsContext(Pulsar::PULSAR_MODE_LAPKO), system->IsContext(Pulsar::PULSAR_KOFINAL), system->IsContext(Pulsar::PULSAR_MODE_BATTLEROYALE), system->IsContext(Pulsar::PULSAR_MODE_OTT),
+      system->IsContext(Pulsar::PULSAR_EXTENDEDTEAMS), SectionMgr::sInstance->sectionParams->vsRaceCount);
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).
     for (u32 i = 0; Input::Manager::sInstance != nullptr && i < kMaxLocal; ++i) {

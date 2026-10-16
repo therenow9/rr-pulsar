@@ -160,13 +160,11 @@ void ExpSection::CreatePulPages() {
             this->CreateAndInitPage(*this, SettingsPanel::id);
             if (SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal) {
                 this->CreateAndInitPage(*this, PULPAGE_SS8JOIN);
-#ifdef SS8_PAGES
                 this->CreateAndInitPage(*this, PULPAGE_SS8CHARSELECT);
                 this->CreateAndInitPage(*this, PULPAGE_SS8KARTSELECT);
                 this->CreateAndInitPage(*this, PULPAGE_SS8TRANSMISSIONSELECT);
                 this->CreateAndInitPage(*this, PULPAGE_SS8DRIFTSELECT);
                 this->CreateAndInitPage(*this, PULPAGE_SS8TEAMSELECT);
-#endif
             }
             this->CreateAndInitPage(*this, SettingsPageSelect::id);
             this->CreateAndInitPage(*this, CustomItemPage::id);
@@ -339,7 +337,6 @@ void ExpSection::CreateAndInitPage(ExpSection &self, u32 id) {
         case PULPAGE_SS8JOIN:
             page = SplitScreen8::NewJoinPage();
             break;
-#ifdef SS8_PAGES
         case PULPAGE_SS8CHARSELECT:
         case PULPAGE_SS8KARTSELECT:
         case PULPAGE_SS8TRANSMISSIONSELECT:
@@ -347,7 +344,6 @@ void ExpSection::CreateAndInitPage(ExpSection &self, u32 id) {
         case PULPAGE_SS8TEAMSELECT:
             page = SplitScreen8::NewSelectPage(id);
             break;
-#endif
         default:
             page = self.CreatePageById(initId);
     }

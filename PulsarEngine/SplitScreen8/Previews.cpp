@@ -1,4 +1,3 @@
-#ifdef SS8_PAGES
 #include <kamek.hpp>
 #include <core/egg/3D/Scn.hpp>
 #include <core/egg/DVD/DvdRipper.hpp>
@@ -878,4 +877,3 @@ static void UpdateModels(MenuKartModelMgr *kartModels) {
 kmCall(0x8059e4d4, UpdateModels);
 
 }  // namespace SplitScreen8
-#endif

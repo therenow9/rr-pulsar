@@ -74,7 +74,7 @@ CharacterId ExtCharacter(u32 player);
 // Hud 0-7's skin slot for a character in RR's selectedSlots; 0 for a Mii.
 u32 SkinSlot(u32 hud, u32 character);
 void SetSkinSlot(u32 hud, u32 character, u32 slot);
-// P5-8's preview models out of the ScnMgr before RR's ResetScnMgr resets it; empty outside --ss8-pages builds.
+// P5-8's preview models out of the ScnMgr before RR's ResetScnMgr resets it.
 void ResetExtPreviews();
 // A menu skin model's load reserve: RR's 0xE1000 outside a 5-8 player game, else sized to what a model keeps.
 u32 SkinLoadReserve(u32 reserve);
@@ -82,7 +82,6 @@ u32 SkinLoadReserve(u32 reserve);
 Page *NewJoinPage();
 // Clears P5-8's join state and puts holders 4-7 back on the dummy controller.
 void ClearExtPads();
-#ifdef SS8_PAGES
 // The character, kart or drift page of a 5-8 player game, by its PulPageId.
 Page *NewSelectPage(u32 id);
 Page *NewCharSelectPage();
@@ -147,7 +146,6 @@ bool MenuTeamVS();
 void WithMenuLocalCount(void (*fill)());
 // The holder menu input slot 4 answers, null for none; Pause.cpp's proxy, cleared at every section load.
 void SetMenuSlotProxy(Input::RealControllerHolder *holder);
-#endif
 #ifdef SS8_MENU_SCRIPT
 // A menu script's "open-mii-c" line: Mii C open on the 8-player page whatever the license's VR.
 extern bool menuOpenMiiC;

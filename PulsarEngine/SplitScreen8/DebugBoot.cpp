@@ -15,7 +15,8 @@
 #include <SlotExpansion/CupsConfig.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// Boots past the menus into a VS race: SS8_BOOT_LOCALS locals on GC ports 1-4, then Wii channels 1-4, then CPUs.
+// Boots past the menus into a VS race, or with SS8_BOOT_BATTLE a team Balloon round: SS8_BOOT_LOCALS locals on GC
+// ports 1-4, then Wii channels 1-4, then CPUs.
 
 namespace SplitScreen8 {
 
@@ -78,14 +79,16 @@ SectionId DebugBootPrepare(SectionId section) {
     racedata->ResetScenarios();
     RacedataScenario &scenario = racedata->menusScenario;
     RacedataSettings &settings = scenario.settings;
-    settings.gamemode = MODE_VS_RACE;
+    settings.gamemode = SS8_BOOT_BATTLE ? MODE_BATTLE : MODE_VS_RACE;
+    settings.battleType = BATTLE_BALLOON;
     settings.gametype = GAMETYPE_DEFAULT;
     settings.engineClass = CC_150;
     settings.cpuMode = CPU_NORMAL;
     settings.itemMode = SS8_BOOT_ITEMS ? ITEMS_BALANCED : ITEMS_NONE;
     settings.lapCount = 3;
     settings.raceNumber = 0;
-    settings.modeFlags &= ~3;  // mirror, teams
+    // Mirror off; a Battle has teams, as BattleModeSelect sets them (0x8083B96C).
+    settings.modeFlags = (settings.modeFlags & ~3) | (SS8_BOOT_BATTLE ? 2 : 0);
 
     // Characters 0-11 are distinct non-Mii drivers, and KartIds 0-2 are the three weight classes' Standard Karts.
     for (int i = 0; i < 12; ++i) {
@@ -94,6 +97,8 @@ SectionId DebugBootPrepare(SectionId section) {
         player.playerType = i < SS8_BOOT_LOCALS ? PLAYER_REAL_LOCAL : PLAYER_CPU;
         player.characterId = character;
         player.kartId = static_cast<KartId>(GetCharacterWeightClass(character));
+        if (SS8_BOOT_BATTLE)
+            player.team = static_cast<Team>(i % 2);
     }
     // Player 0 keeps the pad RR's BootIntoSection registered; players 1-3 take GC ports 2-4 as GCN controller IDs.
     // SectionPad has no pad for players 5-8.
@@ -122,8 +127,13 @@ SectionId DebugBootPrepare(SectionId section) {
     if (Pulsar::Settings::Mgr::IsCreated())
         Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_SPEEDOMETER, Pulsar::SOM_DIGITS_0);
 #endif
+#if SS8_BOOT_BATTLE
+    // RR's value 1 leaves PULSAR_FFA off (PulsarSystem.cpp), so the round is Red vs Blue.
+    if (Pulsar::Settings::Mgr::IsCreated())
+        Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_BATTLETEAMS, Pulsar::BATTLE_FFA_ENABLED);
+#endif
     // 5-8 locals race in the 4P section: the scenario's local count stops at 4.
-    return static_cast<SectionId>(SECTION_P1VS + kBootGCLocals - 1);
+    return static_cast<SectionId>((SS8_BOOT_BATTLE ? SECTION_P1BATTLE : SECTION_P1VS) + kBootGCLocals - 1);
 }
 
 // The boot skips the title's and menus' pad binding, and RR's SetUpCorrectController binds pad 0 only to a leftover
@@ -239,6 +249,20 @@ static void BindBootPads() {
 }
 static RaceLoadHook bindBootPads(BindBootPads);
 
+#if SS8_BOOT_BATTLE
+// A round's end, once a race: page 0x33 parks the karts at their round-end spots, and 0x34 then waits for an A.
+static u32 roundEndRace;
+
+static void ReportRoundEnd() {
+    const Raceinfo *raceinfo = Raceinfo::sInstance;
+    if (raceinfo == nullptr || raceinfo->stage != RACESTAGE_FINISHED || roundEndRace == bootRaces)
+        return;
+    roundEndRace = bootRaces;
+    OS::Report("ss8 boot: race %u round end at %u\n", bootRaces, raceFrames);
+}
+static RaceFrameHook reportRoundEnd(ReportRoundEnd);
+#endif
+
 // RecognizePad::CheckForConditions, reached only from its pages' vtables, returns 0 (li r3, 0; blr over its prologue):
 // "controller interrupted" never opens in a debug boot, so a boot with no live pad reaches the race.
 kmWrite32(0x8061C40C, 0x38600000);
@@ -264,6 +288,9 @@ static bool InPauseSteps(u32 frame) {
 }
 
 static u16 ScriptedButtons(u32 frame) {
+    // A Battle boot presses nothing, so the round runs to its end and the scoreboard stays up.
+    if (SS8_BOOT_BATTLE)
+        return 0;
     const u16 *steps;
     const u32 count = PauseSteps(&steps);
     // An autodrive boot only presses A once a second: through the results into the next race.

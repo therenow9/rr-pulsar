@@ -1,4 +1,3 @@
-#ifdef SS8_PAGES
 #include <kamek.hpp>
 #include <core/rvl/OS/OS.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
@@ -842,4 +841,3 @@ kmCall(0x8083b924, ModeNextPage);
 kmCall(0x8083b944, ModeNextPage);
 
 }  // namespace SplitScreen8
-#endif

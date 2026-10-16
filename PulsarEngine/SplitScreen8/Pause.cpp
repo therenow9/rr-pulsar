@@ -92,12 +92,10 @@ static void ClearPauseProxy() {
     pauseProxy = nullptr;
 }
 
-#ifdef SS8_PAGES
 // The 8-player character page opens MiiSelect for a P5-8 on slot 4 the same way, clearing the proxy as it closes.
 void SetMenuSlotProxy(Input::RealControllerHolder *holder) {
     pauseProxy = holder;
 }
-#endif
 static RaceLoadHook clearPauseProxyOnRace(ClearPauseProxy);
 static SectionLoadHook clearPauseProxyOnSection(ClearPauseProxy);
 

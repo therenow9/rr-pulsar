@@ -277,21 +277,10 @@ kmCall(0x80630984, RegisteredPadsOrJoin);
 kmCall(0x8084d52c, RegisteredPadsOrJoin);
 kmCall(0x8084db8c, RegisteredPadsOrJoin);
 
-// OnInit titles the page from the game's count of 4 (0x7EC + count). Section 0x54 is built again for every game,
-// so a page that hid Battle never serves a 1-4 player one.
+// OnInit titles the page from the game's count of 4 (0x7EC + count).
 static void MultiActivate(Pages::MultiPlayer *page) {
     if (menuLocalCount <= kGameLocal)
         return;
-#ifndef SS8_PAGES
-    // Only the 8-player pages can carry a 5-8 player Battle.
-    for (int i = 0; i < page->externControlCount; ++i) {
-        PushButton *button = page->externControls[i];
-        if (button == nullptr || button->buttonId != 1)
-            continue;  // Battle
-        button->isHidden = true;
-        button->manipulator.inaccessible = true;
-    }
-#endif
     if (page->titleText == nullptr)
         return;
     static const wchar_t *const titles[kEntryButtons] = {
@@ -338,11 +327,6 @@ void SetSkinSlot(u32 hud, u32 character, u32 slot) {
     if (hud < kMaxLocal && character < Pulsar::Driver::CHARACTER_COUNT)
         Pulsar::Driver::selectedSlots[hud][character] = slot;
 }
-
-#ifndef SS8_PAGES
-void ResetExtPreviews() {
-}
-#endif
 
 // A 5-8 player section 0x54 has ~1.2 MB less MEM1 free, too little for RR's 0xE1000 per skin load. A load keeps its file
 // plus at most 51,628 bytes (Rosalina's 6th skin, 244,948); a model that outgrows the reserve faults inside game code.
