@@ -290,7 +290,7 @@ void System::UpdateContext() {
     const bool isOfflineTeamVS = isOfflineVS && (racedataSettings.modeFlags & UI::ExtendedTeamManager::TEAM_MODE_FLAG);
     bool isExtendedTeams =
       (settings.GetSettingValue(Pulsar::Settings::SETTING_EXTENDEDTEAMSENABLED) == EXTENDEDTEAMS_ENABLED || isOfflineTeamVS) && (!isOfflineVS || isOfflineTeamVS) && !isOfflineGrandPrix;
-    // SplitScreen8: KO, LapKO and Battle Royale stay off in a 5-8 player game; Battle Royale's race faults there.
+    // SplitScreen8: KO, LapKO, Battle Royale and Elimination stay off in a 5-8 player game; Battle Royale's race faults there.
     const bool isSplitScreen8 = SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal;
     const bool disableOfflineKO = (isExtendedTeams && isOfflineVS) || isSplitScreen8;
     bool isKO = settings.GetSettingValue(Pulsar::Settings::SETTING_KOENABLED) == KOSETTING_ENABLED && isOfflineVS && !disableOfflineKO;
@@ -322,7 +322,7 @@ void System::UpdateContext() {
     bool isVanillaMode = settings.GetSettingValue(Pulsar::Settings::SETTING_VANILLAMODE) == VANILLAMODE_ENABLED && isFroom;
     bool isMirrorMode = settings.GetSettingValue(Pulsar::Settings::SETTING_MIRROR) == MIRRORMODE_ENABLED && isFroom;
     bool isTeamBattle = settings.GetSettingValue(Pulsar::Settings::SETTING_BATTLETEAMS) == BATTLE_FFA_DISABLED && isBattle;
-    bool isElimination = settings.GetSettingValue(Pulsar::Settings::SETTING_BATTLEELIMINATION) && isBalloonBattle;
+    bool isElimination = settings.GetSettingValue(Pulsar::Settings::SETTING_BATTLEELIMINATION) && isBalloonBattle && !isSplitScreen8;
     bool isVR = settings.GetSettingValue(Pulsar::Settings::SETTING_VR) == VR_ENABLED && isNotPublic;
     bool isBattleRoyale = settings.GetSettingValue(Pulsar::Settings::SETTING_KOROYALEENABLED) == KOROYALESETTING_ENABLED && isNotPublic && !isBattle && !isTimeTrial && !isSplitScreen8;
     const u8 koRoyaleBalloons = settings.GetSettingValue(Pulsar::Settings::SETTING_KOROYALEBALLOONS);

@@ -202,7 +202,7 @@ static u32 Quadrant(u32 tile) {
 }
 
 // The bl snprintf of "<Ctrl>_%d_%d" (screens, slot) would ask for _8_5, so a widened race loads _4_<quadrant>. RankNum, Lap,
-// ItemWindow and CountGO in InitCtrlRaceBase's per-player loop, and map_%d after it (count only).
+// ItemWindow, BattlePoint, BattleAddPoint and CountGO in InitCtrlRaceBase's per-player loop; Time and map_%d after it (count only).
 static int HudVariantName(char *buf, u32 size, const char *format, u32 screens, u32 slot) {
     if (raceScreenCount != 0) {
         screens = kGameLocal;
@@ -213,7 +213,10 @@ static int HudVariantName(char *buf, u32 size, const char *format, u32 screens, 
 kmCall(0x80857ddc, HudVariantName);
 kmCall(0x80857e50, HudVariantName);
 kmCall(0x80857ec4, HudVariantName);
+kmCall(0x80857f38, HudVariantName);
+kmCall(0x80857fa4, HudVariantName);
 kmCall(0x80857fe4, HudVariantName);
+kmCall(0x80858178, HudVariantName);
 kmCall(0x808581f8, HudVariantName);
 
 // The name balloon's "balloon_%d_%d" (screens, screen) and the item balloon's "chase_icon_%d"
@@ -228,12 +231,13 @@ static int BalloonVariantName(char *buf, u32 size, const char *format, u32 scree
 kmCall(0x807efda8, BalloonVariantName);
 kmCall(0x807f1fd8, BalloonVariantName);
 
-// VSMultiHUD::GetCtrlRaceNameBalloonCount ("li r3, 4; blr"): one name balloon per local screen, as AddNameBalloon gives
-// balloon i to RaceBalloons[i % locals]. RR's kmBranch at 0x80633A00 is the next function.
-static u32 VSMultiNameBalloonCount(const Pages::RaceHUD *) {
+// VSMultiHUD's and BattleMultiHUD's GetCtrlRaceNameBalloonCount ("li r3, 4; blr"): one name balloon per local screen, as
+// AddNameBalloon gives balloon i to RaceBalloons[i % locals]. RR's kmBranches at 0x80633A00 and 0x80633880 are the next functions.
+static u32 NameBalloonCount(const Pages::RaceHUD *) {
     return raceScreenCount != 0 && raceLocalCount > kGameLocal ? raceLocalCount : kGameLocal;
 }
-kmBranch(0x806339f8, VSMultiNameBalloonCount);
+kmBranch(0x80633878, NameBalloonCount);
+kmBranch(0x806339f8, NameBalloonCount);
 
 // Layout units: 832 x 456 at 16:9, 608 x 456 at 4:3, centred on 0, y up; a tile row is centred 114 above or below 0, as in 4P.
 static float LayoutWidth() {
@@ -270,6 +274,8 @@ static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
 const u32 kRankNumVtable = 0x808d3e98;
 const u32 kLapVtable = 0x808d3d18;
 const u32 kItemWindowVtable = 0x808d3cc8;
+const u32 kBattlePointVtable = 0x808d3b38;
+const u32 kBattleAddPointVtable = 0x808d3b88;
 
 typedef char CtrlRaceCountIs0x198[sizeof(CtrlRaceCount) == 0x198 ? 1 : -1];
 
@@ -363,12 +369,16 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
     if (raceScreenCount == 0 || raceLocalCount == 0)
         return;
     const ControlGroup &group = page->controlGroup;
+    u32 addPoints = 0;
     for (u32 i = 0; i < group.controlCount; ++i) {
         UIControl *control = group.controlArray[i];
         if (control == nullptr)
             continue;
         const u32 vtable = *reinterpret_cast<const u32 *>(control);
-        if (vtable != kRankNumVtable && vtable != kLapVtable && vtable != kItemWindowVtable)
+        if (vtable != kRankNumVtable && vtable != kLapVtable && vtable != kItemWindowVtable && vtable != kBattlePointVtable && vtable != kBattleAddPointVtable)
+            continue;
+        // RR's FFA mask (0x2000) adds one BattleAddPoint after the per-player ones, from a fixed 1P name: it keeps its place.
+        if (vtable == kBattleAddPointVtable && addPoints++ >= raceLocalCount)
             continue;
         const u8 slot = static_cast<CtrlRaceBase *>(control)->hudSlotId;
         if (slot < raceLocalCount)

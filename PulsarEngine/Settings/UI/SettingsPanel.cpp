@@ -232,10 +232,10 @@ void SettingsPanel::LoadCurrentValues() {
     }
 }
 
-// Battle Royale's settings, which a 5-8 player game cannot play: greyed, and the cursor skips them.
+// Battle Royale's and Elimination's settings, which a 5-8 player game cannot play: greyed, and the cursor skips them.
 static bool IsGreyed(Settings::SettingId id) {
     return SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal
-      && (id == Settings::SETTING_KOROYALEENABLED || id == Settings::SETTING_KOROYALEBALLOONS || id == Settings::SETTING_KOROYALELAPMULTIPLIER);
+      && (id == Settings::SETTING_KOROYALEENABLED || id == Settings::SETTING_KOROYALEBALLOONS || id == Settings::SETTING_KOROYALELAPMULTIPLIER || id == Settings::SETTING_BATTLEELIMINATION);
 }
 
 void SettingsPanel::OnActivate() {
