@@ -80,6 +80,12 @@ void ResetExtPreviews();
 u32 SkinLoadReserve(u32 reserve);
 // The join page of a 5-8 player game, built by Pulsar's ExpSection in that game's section 0x54.
 Page *NewJoinPage();
+// P5-8's pads, as SectionPad's PadInfo holds P2-4's: the id bound at join (0 for none), and whether the slot awaits an A.
+struct ExtPad {
+    u32 id;
+    bool waiting;
+};
+extern ExtPad extPads[kMaxLocal - kGameLocal];
 // Clears P5-8's join state and puts holders 4-7 back on the dummy controller.
 void ClearExtPads();
 // The character, kart or drift page of a 5-8 player game, by its PulPageId.

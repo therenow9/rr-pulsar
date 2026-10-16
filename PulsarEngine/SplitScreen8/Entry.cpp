@@ -8,6 +8,7 @@
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/UI/Section/SectionParams.hpp>
 #include <Driver/CustomCharacters.hpp>
+#include <Gamemodes/KO/KOMgr.hpp>
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
@@ -337,9 +338,10 @@ u32 SkinLoadReserve(u32 reserve) {
 }
 
 // The menus CPU-fill slots 4+: players 5..N are made local here, with their pick or default, before RacedataScenario::Init
-// counts locals. Not for the awards, whose InitAwards has already given every local a slot, in finish order.
+// counts locals. Not for the awards (InitAwards has given every local a slot) nor a field KO has compacted.
 static void MenuLocalsLocal(Racedata *racedata) {
-    if (menuLocalCount <= kGameLocal || racedata->menusScenario.settings.gamemode == MODE_AWARD)
+    const Pulsar::KO::Mgr *ko = Pulsar::System::sInstance->koMgr;
+    if (menuLocalCount <= kGameLocal || racedata->menusScenario.settings.gamemode == MODE_AWARD || (ko != nullptr && ko->IsFieldCompacted()))
         return;
     for (u32 i = kGameLocal; i < menuLocalCount; ++i) {
         RacedataPlayer &player = racedata->menusScenario.players[i];

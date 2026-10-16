@@ -50,12 +50,7 @@ const float kConfirmButtonScale = 0.8f;
 const float kConfirmButtonX = 210.0f;
 const u32 kConfirmFrames = 10;
 
-// P5-8's pads, as SectionPad's PadInfo holds P2-4's: the id bound at join (0 for none), and whether the slot awaits an A.
-struct ExtPad {
-    u32 id;
-    bool waiting;
-};
-static ExtPad extPads[kMaxLocal - kGameLocal];
+ExtPad extPads[kMaxLocal - kGameLocal];
 
 static Input::RealControllerHolder &SlotHolder(u32 slot) {
     return Holder(*Input::Manager::sInstance, slot);

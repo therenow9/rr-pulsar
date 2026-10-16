@@ -136,6 +136,10 @@ static s32 ReadMenuScript(s32 channel, KPAD::Status *status, u32 count) {
 }
 kmCall(0x8051fd30, ReadMenuScript);
 
+// Script presses never reach WPAD, so its 5-minute idle sleep would disconnect every scripted remote mid-lane:
+// WPADiCheckContInputs loads the sleep minutes here (lbz r0, -0x5fc6(r13)) and skips the sleep on 0.
+kmWrite32(0x801be8a8, 0x38000000);
+
 // Every EGG heap (EGG's list, 0x80384320) at each section load and every 300 frames. "free" is an ExpHeap's total
 // free or another heap's largest block; "largest" is every heap's largest block, the one a skin load needs.
 static nw4r::ut::List *const heapList = reinterpret_cast<nw4r::ut::List *>(0x80384320);
@@ -217,21 +221,22 @@ static void ReportRacePlayers() {
     for (u32 i = 0; i < sizeof(scenario.players) / sizeof(scenario.players[0]); ++i) {
         const RacedataPlayer &player = scenario.players[i];
         const u32 slot = Pulsar::Race::GetPlayerCustomCharacterSlot(i, player.characterId);
-        OS::Report("ss8 race player %u: type %d hud %d character %#x kart %#x skin %u voice %d team %d ext %d\n", i, player.playerType, player.hudSlotId, player.characterId, player.kartId, slot,
-          Pulsar::Race::GetPlayerVoiceAlias(i), player.team, teams != nullptr ? static_cast<s32>(teams->GetPlayerTeam(i)) : -1);
+        OS::Report("ss8 race player %u: type %d hud %d ch %d character %#x kart %#x skin %u voice %d team %d ext %d\n", i, player.playerType, player.hudSlotId, player.realControllerChannel,
+          player.characterId, player.kartId, slot, Pulsar::Race::GetPlayerVoiceAlias(i), player.team, teams != nullptr ? static_cast<s32>(teams->GetPlayerTeam(i)) : -1);
     }
     // RR's race modes as UpdateContext set them for this race, and the series length a KO race forces.
     const Pulsar::System *system = Pulsar::System::sInstance;
-    OS::Report("ss8 context: gamemode %d gametype %d battle %d ffa %d elim %d ko %d lapko %d kofinal %d royale %d ott %d extteams %d vsRaceCount %u\n", scenario.settings.gamemode,
+    OS::Report("ss8 context: gamemode %d gametype %d battle %d ffa %d elim %d ko %d lapko %d kofinal %d royale %d ott %d extteams %d vsRaceCount %u komgr %d race %u\n", scenario.settings.gamemode,
       scenario.settings.gametype, scenario.settings.battleType, system->IsContext(Pulsar::PULSAR_FFA), system->IsContext(Pulsar::PULSAR_ELIMINATION), system->IsContext(Pulsar::PULSAR_MODE_KO),
       system->IsContext(Pulsar::PULSAR_MODE_LAPKO), system->IsContext(Pulsar::PULSAR_KOFINAL), system->IsContext(Pulsar::PULSAR_MODE_BATTLEROYALE), system->IsContext(Pulsar::PULSAR_MODE_OTT),
-      system->IsContext(Pulsar::PULSAR_EXTENDEDTEAMS), SectionMgr::sInstance->sectionParams->vsRaceCount);
+      system->IsContext(Pulsar::PULSAR_EXTENDEDTEAMS), SectionMgr::sInstance->sectionParams->vsRaceCount, system->koMgr != nullptr, scenario.settings.raceNumber);
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).
     for (u32 i = 0; Input::Manager::sInstance != nullptr && i < kMaxLocal; ++i) {
         const Input::RealControllerHolder &holder = Holder(*Input::Manager::sInstance, i);
         const u8 *controller = reinterpret_cast<const u8 *>(holder.curController);
-        OS::Report("ss8 holder %u: drift %u controller %d transmission %d\n", i, holder.isDriftAuto, controller != nullptr ? controller[0x51] : -1, Pulsar::UI::GetSelectedTransmission(i));
+        OS::Report("ss8 holder %u: drift %u controller %d transmission %d pad %#x\n", i, holder.isDriftAuto, controller != nullptr ? controller[0x51] : -1, Pulsar::UI::GetSelectedTransmission(i),
+          calculateID(&holder));
     }
 }
 static RaceFrameHook reportRacePlayers(ReportRacePlayers);

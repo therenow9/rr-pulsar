@@ -290,9 +290,9 @@ void System::UpdateContext() {
     const bool isOfflineTeamVS = isOfflineVS && (racedataSettings.modeFlags & UI::ExtendedTeamManager::TEAM_MODE_FLAG);
     bool isExtendedTeams =
       (settings.GetSettingValue(Pulsar::Settings::SETTING_EXTENDEDTEAMSENABLED) == EXTENDEDTEAMS_ENABLED || isOfflineTeamVS) && (!isOfflineVS || isOfflineTeamVS) && !isOfflineGrandPrix;
-    // SplitScreen8: KO, LapKO, Battle Royale and Elimination stay off in a 5-8 player game; Battle Royale's race faults there.
+    const bool disableOfflineKO = isExtendedTeams && isOfflineVS;
+    // SplitScreen8: Battle Royale and Elimination stay off in a 5-8 player game; Battle Royale's race faults there.
     const bool isSplitScreen8 = SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal;
-    const bool disableOfflineKO = (isExtendedTeams && isOfflineVS) || isSplitScreen8;
     bool isKO = settings.GetSettingValue(Pulsar::Settings::SETTING_KOENABLED) == KOSETTING_ENABLED && isOfflineVS && !disableOfflineKO;
     bool isOTT = false;
     bool is200 = Race::Is200cc() && this->info.Has200cc();
@@ -589,8 +589,10 @@ s32 System::OnSceneEnter(Random &random) {
         OTT::AddGhostToVS();
     if (self->IsContext(PULSAR_MODE_KO) && self->koMgr != nullptr && self->koMgr->IsOfflineVS()) {
         self->koMgr->ForceOfflineVSRaceCount();
-        if (GameScene::GetCurrent()->id == SCENE_ID_RACE)
+        const bool isRace = GameScene::GetCurrent()->id == SCENE_ID_RACE;
+        if (isRace)
             self->koMgr->PrepareOfflineVSNextRace();
+        self->koMgr->ArrangeLocals(isRace);
     }
     if (self->IsContext(PULSAR_HAW) && self->IsContext(PULSAR_MODE_KO) && GameScene::GetCurrent()->id == SCENE_ID_RACE && SectionMgr::sInstance->sectionParams->onlineParams.currentRaceNumber > 0) {
         KO::HAWChangeData();

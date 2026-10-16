@@ -6,6 +6,7 @@
 #include <MarioKartWii/UI/Page/Leaderboard/GPVSLeaderboardTotal.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <PulsarSystem.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace KO {
@@ -137,12 +138,23 @@ public:
     void AdvanceOfflineRaceNumber();
     void FinishOfflineVSIfAllLocalPlayersAreOut();
     void PrepareOfflineVSNextRace();
+    void ArrangeLocals(bool inRace);
+    bool IsFieldCompacted() const {
+        return this->fieldSize != 0;
+    }
 
 private:
     void SetStatus(u8 playerId, Status status) {
         u32 aidSlot = this->GetAidAndSlotFromPlayerId(playerId);
         this->status[aidSlot & 0xFFFF][aidSlot >> 16] = status;
     }
+    void MoveLocals(const u8 *from);
+
+    // Offline, the local slot whose pad, skins and transmission each slot takes in a race once knockouts have moved
+    // the survivors down; the menus keep every slot's own.
+    u8 localOrder[SplitScreen8::kMaxLocal];
+    u8 fieldSize;  // Racers the last knockout left, 0 for the menus' field
+    bool localsArranged;
 
     u8 status[12][2];  // Indexed by [aid][hudslot]
     bool wouldBeOut[12];
