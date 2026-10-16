@@ -251,11 +251,13 @@ kmBranch(0x80531ff0, IsLiveViewHudPlayerId);
 kmPatchExitPoint(IsLiveViewHudPlayerId, 0x80531ff8);
 
 // io holds the view's [w, h] on entry and the tile's [x, y, w, h] on return; tiles run left to right, then top to bottom.
+// WiiCompiled widens the view past the 2D layout on a window wider than 16:9, so the tiles stay in its centred width.
 static void GridRect(const GameScreen &screen, u32 screenCount, float *io) {
     const u32 cols = screenCount / 2;
-    const float w = io[0] / cols;
+    const float band = LayoutWidth();
+    const float w = band / cols;
     const float h = io[1] / 2;
-    io[0] = w * (screen.idx % cols);
+    io[0] = (io[0] - band) / 2 + w * (screen.idx % cols);
     io[1] = h * (screen.idx / cols);
     io[2] = w;
     io[3] = h;

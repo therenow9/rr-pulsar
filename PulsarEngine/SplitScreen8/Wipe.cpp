@@ -1,5 +1,4 @@
 #include <kamek.hpp>
-#include <core/System/SystemManager.hpp>
 #include <MarioKartWii/UI/Layout/ControlLoader.hpp>
 #include <MarioKartWii/UI/Page/Other/Wipe.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -107,10 +106,10 @@ asmFunc WipeGroupSizeStub() {
 }
 kmCall(0x80652114, WipeGroupSizeStub);
 
-// The 2D screen is 832 x 456 at 16:9 and 608 x 456 at 4:3, centred on 0, y up, and the wipe pane 832 x 456 at scale 1.
+// The wipe pane is 832 x 456 at scale 1.
 // Tiles are numbered as Screens.cpp's GridRect numbers them, so a hud slot's wipe sits on its own tile.
 static void PlaceOnTile(UIControl &control, u32 tile) {
-    const float width = SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f;
+    const float width = LayoutWidth();
     const u32 cols = raceScreenCount / 2;
     const float tileWidth = width / cols;
     PositionAndScale &base = control.positionAndscale[0];
@@ -126,7 +125,7 @@ static const char **const wipeAnims = reinterpret_cast<const char **>(0x80899f18
 // The game's vertical line stays between the middle columns at 8 screens and is hidden at 6; the two
 // extra lines are vertical only, between the outer columns.
 static void PlaceLines(Pages::Wipe &page, u32 firstIdx) {
-    const float width = SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f;
+    const float width = LayoutWidth();
     page.partition_line.SetPaneVisibility("tate_line", raceScreenCount == 8);
     page.partition_line.SetPaneVisibility("yoko_line", true);
     for (u32 i = 0; i < kExtLines; ++i) {

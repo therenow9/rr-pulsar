@@ -239,12 +239,12 @@ static u32 NameBalloonCount(const Pages::RaceHUD *) {
 kmBranch(0x80633878, NameBalloonCount);
 kmBranch(0x806339f8, NameBalloonCount);
 
-// Layout units: 832 x 456 at 16:9, 608 x 456 at 4:3, centred on 0, y up; a tile row is centred 114 above or below 0, as in 4P.
-static float LayoutWidth() {
+float LayoutWidth() {
     return SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f;
 }
 
 // Moves a control loaded from its tile's 4P variant onto the tile, keeping its distances from the outer edge and the row, scaled.
+// A tile row is centred 114 above or below 0, as in 4P.
 static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
     const float width = LayoutWidth();
     const float factor = raceScreenCount == 8 ? 0.5f : 0.65f;

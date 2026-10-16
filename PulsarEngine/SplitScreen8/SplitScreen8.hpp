@@ -28,6 +28,8 @@ const int kGameLocal = 4;
 
 // Screens of the current race: 0 while it uses the game's own count, else 6 or 8.
 extern u8 raceScreenCount;
+// The 2D layout's width: 832 x 456 units at 16:9, 608 x 456 at 4:3, centred on 0, y up.
+float LayoutWidth();
 // A hud 4-7 of a widened race, which the game's 4-wide per-hud state cannot hold. Compared in the caller's type: a signed
 // hud of -1 is not wide, an unsigned one is.
 template <typename Hud>
