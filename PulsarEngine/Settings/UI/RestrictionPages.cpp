@@ -6,6 +6,7 @@
 #include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuKartModel.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
+#include <core/rvl/VI/VI.hpp>
 
 namespace Pulsar {
 namespace UI {
@@ -38,8 +39,8 @@ void CharacterRestrictionPage::OnInit() {
 
 void CharacterRestrictionPage::OnActivate() {
     Restrictions::SetCharacterRestrictionConfigActive(true);
+    for (u32 player = 0; player < localPlayerCount; ++player) models[player].RequestModel(models[player].curCharacter);
     Pages::CharacterSelect::OnActivate();
-    Restrictions::SetCharacterRestrictionConfigActive(false);
     BindButtons();
     UpdateButtonVisuals();
 }
@@ -51,6 +52,11 @@ void CharacterRestrictionPage::OnDeactivate() {
 
 void CharacterRestrictionPage::AfterControlUpdate() {
     Pages::CharacterSelect::AfterControlUpdate();
+    for (u32 player = 0; player < localPlayerCount; ++player) {
+        MenuDriverModel *driverModel = MenuModelMgr::sInstance->driverModels->players[player].playerModel;
+        if (driverModel->state != MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE)
+            driverModel->SwitchState(player, MenuDriverModel::MENUDRIVERMODEL_STATE_IDLE);
+    }
     UpdateButtonVisuals();
 }
 
@@ -217,6 +223,7 @@ void VehicleRestrictionPage::OnInit() {
 }
 
 void VehicleRestrictionPage::OnActivate() {
+    Restrictions::SetVehicleRestrictionConfigActive(true);
     static const CharacterId displayCharacters[3] = {BABY_MARIO, MARIO, WARIO};
     if (weight >= Restrictions::VEHICLE_WEIGHT_COUNT)
         weight = 0;
@@ -243,16 +250,15 @@ void VehicleRestrictionPage::OnActivate() {
             if (driverModel != nullptr)
                 driverModel->SwitchState(0, MenuDriverModel::MENUDRIVERMODEL_STATE_ONCHARSELECT);
         }
-        archiveMgr->WaitForLoad();
+        // WaitForLoad draws only the fader; keep the current menu frame while loading here.
+        while (archiveMgr->taskThread->isTaskExist()) VI::WaitForRetrace();
         modelMgr->ResetKartModels(0);
         archiveMgr->RequestLoadKartArchives(0, displayCharacters[weight], 2);
-        archiveMgr->WaitForLoad();
+        while (archiveMgr->taskThread->isTaskExist()) VI::WaitForRetrace();
         modelMgr->kartModels->Load();
     }
 
-    Restrictions::SetVehicleRestrictionConfigActive(true);
     Pages::KartSelect::OnActivate();
-    Restrictions::SetVehicleRestrictionConfigActive(false);
     BindButtons();
     UpdateButtonVisuals();
 }
