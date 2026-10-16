@@ -958,7 +958,7 @@ void CharSelectPage::AfterControlUpdate() {
             if (cursor.confirmed) {
                 this->Unconfirm(p);
             } else if (p == 0) {
-                this->Leave(PAGE_VS_MODE_SELECT, 1);
+                this->Leave(Racedata::sInstance->menusScenario.settings.gamemode == MODE_BATTLE ? PAGE_BATTLE_MODE_SELECT : PAGE_VS_MODE_SELECT, 1);
                 return;
             }
         } else if (!cursor.confirmed && UIPressed(*holder, FORWARD_PRESS)) {

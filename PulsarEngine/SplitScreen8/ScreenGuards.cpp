@@ -1,6 +1,7 @@
 #include <kamek.hpp>
 #include <MarioKartWii/3D/Model/ModelDirector.hpp>
 #include <MarioKartWii/KMP/KMPManager.hpp>
+#include <core/nw4r/math/Triangular.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
 namespace SplitScreen8 {
@@ -177,10 +178,23 @@ asmFunc KartSoundHud() {
 }
 kmCall(0x807075a0, KartSoundHud);
 
-// A Battle round's end moves each local's kart to its screen's MSPT (0x805847B0), and an arena has 4: screens 4-7 share
-// screens 0-3's spots.
+// A Battle round's end moves each local's kart to its screen's MSPT (0x805847B0), and an arena has 4: screens 4-7 park
+// beside screens 0-3's, along the spot's sideways axis. The caller copies the spot before the next kart asks.
+static const float kBesideSpot = 400.0f;
+
 static KMP::Holder<MSPT> *ScreenMspt(const KMP::Manager &kmp, u16 index) {
-    return kmp.GetHolder<MSPT>(IsWideHud(index) ? index - kGameLocal : index);
+    KMP::Holder<MSPT> *holder = kmp.GetHolder<MSPT>(IsWideHud(index) ? index - kGameLocal : index);
+    if (!IsWideHud(index))
+        return holder;
+    static MSPT beside;
+    static KMP::Holder<MSPT> besideHolder = {&beside};
+    beside = *holder->raw;
+    float sin = 0.0f;
+    float cos = 0.0f;
+    nw4r::math::SinCosFIdx(&sin, &cos, beside.angle.y * (256.0f / 360.0f));
+    beside.position.x += kBesideSpot * cos;
+    beside.position.z -= kBesideSpot * sin;
+    return &besideHolder;
 }
 kmCall(0x805847b0, ScreenMspt);
 

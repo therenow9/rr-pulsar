@@ -251,6 +251,19 @@ static void ReportBattleScores() {
 }
 static RaceFrameHook reportBattleScores(ReportBattleScores);
 
+// Each change of a Battle race's top page, so a lane can shoot the scoreboards (0x33, 0x34) and the round's menu
+// (0x23, or 0x24 after the last round): they are pages, not sections.
+static PageId battleTopPage;
+
+static void ReportBattlePages() {
+    const Page *page = SectionMgr::sInstance->curSection->GetTopLayerPage();
+    if (page == nullptr || page->pageId == battleTopPage || Racedata::sInstance->racesScenario.settings.gamemode != MODE_BATTLE)
+        return;
+    battleTopPage = page->pageId;
+    OS::Report("ss8 battle page %#x frame %u\n", battleTopPage, menuFrames);
+}
+static RaceFrameHook reportBattlePages(ReportBattlePages);
+
 // A script's "autodrive" line: every local's kart goes to the AI a second into each race, so a lane reaches the
 // results; the awards and the one-screen "Next Race" scene are other gametypes.
 static void AutodriveMenuRace() {
@@ -279,6 +292,7 @@ static void OnSectionLoad() {
     }
     racePlayersReported = false;
     battleScoresReported = false;
+    battleTopPage = PAGE_NONE;
     memset(reportedSkins, 0, sizeof(reportedSkins));
     OS::Report("ss8 section %#x frame %u locals %u\n", SectionMgr::sInstance->curSection->sectionId, menuFrames, menuLocalCount);
     for (u32 i = 0; Pulsar::Settings::Mgr::IsCreated() && i < menuScript.settingCount; ++i)
