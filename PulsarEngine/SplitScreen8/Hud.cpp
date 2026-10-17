@@ -2,6 +2,8 @@
 #include <include/c_stdio.h>
 #include <core/System/SystemManager.hpp>
 #include <core/nw4r/lyt/TextBox.hpp>
+#include <MarioKartWii/3D/GameScreenEffects/GameScreenEffects.hpp>
+#include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/Scene/GameScene.hpp>
 #include <MarioKartWii/UI/Page/RaceHUD/RaceHUD.hpp>
 #include <Settings/Settings.hpp>
@@ -244,9 +246,10 @@ float LayoutWidth() {
 }
 
 // Moves a control loaded from its tile's 4P variant onto the tile, keeping its distances from the outer edge and the row, scaled.
-// A tile row is centred 114 above or below 0, as in 4P.
+// A tile row is centred 114 above or below 0, as in 4P; the tiles split the screen record, wider than the layout under WiiCompiled.
 static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
-    const float width = LayoutWidth();
+    const float width = GameScreenEffectsMgr::GetRootScreenWidth();
+    const float layoutWidth = LayoutWidth();
     const float factor = raceScreenCount == 8 ? 0.5f : 0.65f;
     const u32 cols = raceScreenCount / 2;
     const float tileWidth = width / cols;
@@ -259,7 +262,7 @@ static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
         base.position.x = left + tileWidth / 2;
         base.position.y = rowMid;
     } else {
-        const float fromEdge = rightSide ? width / 2 - base.position.x : base.position.x + width / 2;
+        const float fromEdge = rightSide ? layoutWidth / 2 - base.position.x : base.position.x + layoutWidth / 2;
         base.position.x = rightSide ? left + tileWidth - fromEdge * factor : left + fromEdge * factor;
         const float quadrantMid = q < 2 ? 114.0f : -114.0f;
         base.position.y = rowMid + (base.position.y - quadrantMid) * (factor > 0.6f ? factor : 0.6f);
@@ -276,6 +279,8 @@ const u32 kLapVtable = 0x808d3d18;
 const u32 kItemWindowVtable = 0x808d3cc8;
 const u32 kBattlePointVtable = 0x808d3b38;
 const u32 kBattleAddPointVtable = 0x808d3b88;
+const u32 kNameBalloonVtable = 0x808d3e58;
+const u32 kItemBalloonVtable = 0x808d3e1c;
 
 typedef char CtrlRaceCountIs0x198[sizeof(CtrlRaceCount) == 0x198 ? 1 : -1];
 
@@ -328,7 +333,7 @@ static void ZoomFromTile(CtrlRaceCount &count, u32 index) {
         float fit = 228.0f / (text->fontSizeY * controlScale);  // a tile is 228 high
         const float width = TextWidth(*text);
         // FINISH! draws about 15% wider than the estimate at 8 screens, so the width fits 80% of the tile.
-        const float fitWidth = 0.8f * LayoutWidth() / (raceScreenCount / 2) / (width * controlScale);
+        const float fitWidth = 0.8f * GameScreenEffectsMgr::GetRootScreenWidth() / (raceScreenCount / 2) / (width * controlScale);
         if (width > 0.0f && fitWidth < fit)
             fit = fitWidth;
         if (fit < countSettledScale)
@@ -366,9 +371,24 @@ static void UseCountDraw(CtrlRaceCount *counts, u32 count) {
 static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
     for (u32 i = 0; i < kMaxLocal; ++i) hudHasPlayerExt[i] = 0;
     page->InitCtrlRaceBase(bitField);
+    const ControlGroup &group = page->controlGroup;
+    // The game's 2-4 screen layouts fill the layout width; a wider screen record (WiiCompiled) spreads them over it. The
+    // balloons place themselves on their tile each frame.
+    const float stretch = GameScreenEffectsMgr::GetRootScreenWidth() / LayoutWidth();
+    if (raceScreenCount == 0 && Racedata::sInstance->racesScenario.screenCount > 1 && stretch > 1.0f) {
+        for (u32 i = 0; i < group.controlCount; ++i) {
+            UIControl *control = group.controlArray[i];
+            if (control == nullptr)
+                continue;
+            const u32 vtable = *reinterpret_cast<const u32 *>(control);
+            if (vtable == kNameBalloonVtable || vtable == kItemBalloonVtable)
+                continue;
+            control->positionAndscale[0].position.x *= stretch;
+            control->PositionFromBasePosition();
+        }
+    }
     if (raceScreenCount == 0 || raceLocalCount == 0)
         return;
-    const ControlGroup &group = page->controlGroup;
     u32 addPoints = 0;
     for (u32 i = 0; i < group.controlCount; ++i) {
         UIControl *control = group.controlArray[i];

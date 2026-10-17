@@ -989,6 +989,7 @@ mInstance__13ScreensHolder = 0x809C1868
 
 #GameScreenEffects
 Update__20GameScreenEffectsMgrFv = 0x8054f1b0
+GetRootScreenWidth__20GameScreenEffectsMgrFv = 0x8054adb4
 
 #Camera
 SetInstance__9CameraMgrFP9CameraMgr = 0x805a1a64

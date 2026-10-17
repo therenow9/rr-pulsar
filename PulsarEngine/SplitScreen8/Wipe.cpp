@@ -1,4 +1,5 @@
 #include <kamek.hpp>
+#include <MarioKartWii/3D/GameScreenEffects/GameScreenEffects.hpp>
 #include <MarioKartWii/UI/Layout/ControlLoader.hpp>
 #include <MarioKartWii/UI/Page/Other/Wipe.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -109,7 +110,7 @@ kmCall(0x80652114, WipeGroupSizeStub);
 // The wipe pane is 832 x 456 at scale 1.
 // Tiles are numbered as Screens.cpp's GridRect numbers them, so a hud slot's wipe sits on its own tile.
 static void PlaceOnTile(UIControl &control, u32 tile) {
-    const float width = LayoutWidth();
+    const float width = GameScreenEffectsMgr::GetRootScreenWidth();
     const u32 cols = raceScreenCount / 2;
     const float tileWidth = width / cols;
     PositionAndScale &base = control.positionAndscale[0];
@@ -125,7 +126,7 @@ static const char **const wipeAnims = reinterpret_cast<const char **>(0x80899f18
 // The game's vertical line stays between the middle columns at 8 screens and is hidden at 6; the two
 // extra lines are vertical only, between the outer columns.
 static void PlaceLines(Pages::Wipe &page, u32 firstIdx) {
-    const float width = LayoutWidth();
+    const float width = GameScreenEffectsMgr::GetRootScreenWidth();
     page.partition_line.SetPaneVisibility("tate_line", raceScreenCount == 8);
     page.partition_line.SetPaneVisibility("yoko_line", true);
     for (u32 i = 0; i < kExtLines; ++i) {
@@ -141,10 +142,19 @@ static void PlaceLines(Pages::Wipe &page, u32 firstIdx) {
     }
 }
 
-// Runs after OnInit has loaded the game's wipes (idx = hud slot) and line.
+// Runs after OnInit has loaded the game's wipes (idx = hud slot) and line. The game's 2-4 screen wipes fill the layout width,
+// so a wider screen record (WiiCompiled) stretches them over it; the partition line's yoko_line already spans it.
 static void WideWipeInit(Pages::Wipe *page, u32 gameWipes) {
-    if (page != widePage)
+    if (page != widePage) {
+        const float stretch = GameScreenEffectsMgr::GetRootScreenWidth() / LayoutWidth();
+        for (u32 i = 0; gameWipes > 1 && stretch > 1.0f && i < gameWipes; ++i) {
+            PositionAndScale &base = page->wipeControls[i].positionAndscale[0];
+            base.position.x *= stretch;
+            base.scale.x *= stretch;
+            page->wipeControls[i].PositionFromBasePosition();
+        }
         return;
+    }
     const u32 ext = ExtWipeCount(gameWipes);
     for (u32 i = 0; i < ext; ++i) {
         WipeControl &wipe = ExtWipe(*page, i);
