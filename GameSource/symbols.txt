@@ -532,6 +532,7 @@ CancelThread__2OSFPQ22OS6Thread = 0x801aa1d4
 DetachThread__2OSFPQ22OS6Thread = 0x801aa4ec
 OSResumeThread = 0x801aa58c
 SleepThread__2OSFPQ22OS11ThreadQueue = 0x801aa9b8
+SetThreadPriority__2OSFPQ22OS6Threadi = 0x801aab98
 GetTime__2OSFv = 0x801aad5c
 OSGetTime = 0x801aad5c
 GetTick__2OSFv = 0x801aad74

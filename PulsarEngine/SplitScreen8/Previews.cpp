@@ -595,11 +595,28 @@ static void ReleaseUnpackHolder(void *) {
         holder->UnmountArchives();
 }
 
+// While an unpack is queued the load thread runs above THP::VideoDecoder's 20, which with the main thread takes nearly
+// every frame on Next Race's cup page. Set from the main thread: the load thread lowering itself yielded for a minute.
+static u32 loadThreadPriority;  // the load thread's own while raised, else 0
+
+static void RaiseLoadThread(bool raise) {
+    ArchiveMgr *archives = ArchiveMgr::sInstance;
+    if (archives == nullptr || raise == (loadThreadPriority != 0))
+        return;
+    OS::Thread *thread = archives->taskThread->osThread;
+    if (raise)
+        loadThreadPriority = thread->priority;
+    OS::SetThreadPriority(thread, raise ? 19 : loadThreadPriority);
+    if (!raise)
+        loadThreadPriority = 0;
+}
+
 // The path as RR's LoadKartArchive makes it (Driver/CustomCharacters.cpp), always VS's: RR's menus' IsBattle returns 0.
 static bool RequestUnpack(CharacterId character, u32 slot) {
     ArchiveMgr *archives = ArchiveMgr::sInstance;
     if (archives == nullptr || archives->allkartModelDumpHeap == nullptr)
         return false;
+    RaiseLoadThread(true);
     const char *name = ArchiveMgr::GetKartArchivePostfix(character);
     char skinPath[0x80];
     snprintf(skinPath, sizeof(skinPath), "/Scene/Model/Kart/%s-%u-allkart.szs", name, slot);
@@ -716,6 +733,7 @@ static void ServiceKarts() {
         else if (RequestUnpack(kart.wantCharacter, kart.wantSlot))
             return;
     }
+    RaiseLoadThread(false);
     for (u32 i = 0; i < kExtPlayers; ++i) {
         ExtKart &kart = karts[i];
         MenuDriverModel *driver = Own(previews[i]);
@@ -747,6 +765,7 @@ static void UpdateKart(ExtKart &kart, MenuKartModelMgr *kartModels) {
 // removal queued behind it, and its area is freed at the next reset; models leave the scene only while it is theirs.
 static void ResetExtKarts(bool destroy) {
     for (u32 wait = 0; unpackState == UNPACK_BUSY && wait < 2000; ++wait) sleepTicks(static_cast<s64>(*reinterpret_cast<const u32 *>(0x800000f8) / 4 / 1000));  // a millisecond (OSMillisecondsToTicks)
+    RaiseLoadThread(false);
     ArchiveMgr *archives = ArchiveMgr::sInstance;
     if (unpackState == UNPACK_BUSY && unpackHeap != nullptr) {
         const bool queued = archives->RequestTask(ReleaseUnpackHolder, nullptr, 0x10000003);

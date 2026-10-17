@@ -213,8 +213,8 @@ asmFunc EntryDeselectStub() {
 }
 kmBranch(0x808515a0, EntryDeselectStub);
 
-// Every game starts here, so a 5-8 player game's state ends here, holders 4-7 on the dummy that TrySetController's
-// scans read; focus returns to the button last clicked, as OnActivate does for ids 0-7 (vtable 0x78).
+// Every game starts here, so a 5-8 player game's picks end here and holders 4-7 go to the dummy (joined P5-8 keep their
+// pads, ClearExtPads); focus returns to the button last clicked, as OnActivate does for ids 0-7 (vtable 0x78).
 static void EntryActivate(Pages::MainMenu *page) {
     page->buttonTitles[2].isHidden = true;
     PushButton *const wifi[] = {page->topMenuWifi1P, page->topMenuWifi2P};

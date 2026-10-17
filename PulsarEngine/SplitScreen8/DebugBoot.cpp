@@ -44,23 +44,12 @@ void AutodriveLocals() {
 const int kBootGCLocals = SS8_BOOT_LOCALS < kGameLocal ? SS8_BOOT_LOCALS : kGameLocal;
 
 #if SS8_BOOT_LOCALS > 4
-// Players 5..N hold Wii channels 0..N-5, bound as TrySetController binds a pad (0x80523FCC):
-// current and previous controller, the +0xC copy InitControllers restores each race, and params.
-typedef void (*FillParamsFn)(Input::ControllerParams *, const Input::Controller *);
-static const FillParamsFn fillParams = reinterpret_cast<FillParamsFn>(0x80522364);
-
+// Players 5..N hold Wii channels 0..N-5.
 static void BindBootWiiHolders() {
     Input::Manager *input = Input::Manager::sInstance;
     if (input == nullptr)
         return;
-    for (u32 id = kGameLocal; id < SS8_BOOT_LOCALS; ++id) {
-        Input::RealControllerHolder &holder = Holder(*input, id);
-        Input::Controller *controller = &input->wiiControllers[id - kGameLocal];
-        if (holder.curController != controller)
-            holder.SetController(controller, nullptr);
-        holder.controller3 = holder.curController;
-        fillParams(&holder.params, holder.curController);
-    }
+    for (u32 id = kGameLocal; id < SS8_BOOT_LOCALS; ++id) BindPad(Holder(*input, id), &input->wiiControllers[id - kGameLocal]);
 }
 #endif
 

@@ -14,6 +14,7 @@ struct TexObj;
 }  // namespace GX
 namespace Input {
 class Manager;
+class Controller;
 class RealControllerHolder;
 }  // namespace Input
 namespace Pages {
@@ -89,14 +90,18 @@ void ResetExtPreviews();
 u32 SkinLoadReserve(u32 reserve);
 // The join page of a 5-8 player game, built by Pulsar's ExpSection in that game's section 0x54.
 Page *NewJoinPage();
-// P5-8's pads, as SectionPad's PadInfo holds P2-4's: the id bound at join (0 for none), and whether the slot awaits an A.
+// P5-8's pads, as SectionPad's PadInfo holds P2-4's: the id bound at join (0 for none), whether the slot awaits an A, and
+// the controller its holder gave up at the main menu, which the next 5-8 player join page gives back.
 struct ExtPad {
     u32 id;
     bool waiting;
+    Input::Controller *controller;
 };
 extern ExtPad extPads[kMaxLocal - kGameLocal];
-// Clears P5-8's join state and puts holders 4-7 back on the dummy controller.
+// Puts holders 4-7 back on the dummy controller, each joined P5-8 keeping its pad for the next 5-8 player game.
 void ClearExtPads();
+// Binds a controller to a holder as TrySetController does (0x80523FCC).
+void BindPad(Input::RealControllerHolder &holder, Input::Controller *controller);
 // The character, kart or drift page of a 5-8 player game, by its PulPageId.
 Page *NewSelectPage(u32 id);
 Page *NewCharSelectPage();

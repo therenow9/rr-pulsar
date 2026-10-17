@@ -31,8 +31,10 @@ static const PadSetIdFn padSetId = reinterpret_cast<PadSetIdFn>(0x80601564);
 static const PadFn padRegister = reinterpret_cast<PadFn>(0x8060156c);
 
 typedef void (*TrySetControllerFn)(Input::Manager *, u32, u32);
+typedef void (*FillParamsFn)(Input::ControllerParams *, const Input::Controller *);
 typedef void (*RequestBackModelFn)(BackGroundModelControl *, s32);
 static const TrySetControllerFn trySetController = reinterpret_cast<TrySetControllerFn>(0x80523ebc);
+static const FillParamsFn fillParams = reinterpret_cast<FillParamsFn>(0x80522364);  // ControllerParams::Fill, private
 static const RequestBackModelFn requestBackModel = reinterpret_cast<RequestBackModelFn>(0x805f2e84);
 
 const u32 kTitleBmg = 0x961;  // RegisterPad's title, "Controller Registration"
@@ -214,6 +216,28 @@ void JoinPage::OnActivate() {
     for (u32 slot = 0; slot < kMaxLocal; ++slot) {
         this->shownIds[slot] = ~0u;
         this->pads[slot]->isHidden = slot >= menuLocalCount;
+    }
+    // As SectionPad keeps P1-4's, each P5-8 gets back the pad it gave up at the main menu, unless another holder has it
+    // now or it no longer gives the id the slot joined with.
+    Input::Manager *input = Input::Manager::sInstance;
+    for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) {
+        ExtPad &pad = extPads[slot - kGameLocal];
+        Input::Controller *controller = pad.controller;
+        pad.controller = nullptr;
+        if (controller == nullptr)
+            continue;
+        bool held = false;
+        for (u32 h = 0; h < kMaxLocal; ++h) held |= Holder(*input, h).curController == controller;
+        Input::RealControllerHolder &holder = SlotHolder(slot);
+        if (!held) {
+            holder.SetController(controller, nullptr);
+            if (calculateID(&holder) == pad.id) {
+                BindPad(holder, controller);
+                continue;
+            }
+            holder.SetController(&input->dummyController, nullptr);
+        }
+        pad.id = 0;
     }
 }
 
@@ -505,15 +529,30 @@ static void BoxRequestPad(SectionPad *pad, u32 slot) {
 kmBranch(0x8061c764, BoxRequestPad);
 kmCall(0x8061c850, BoxRequestPad);
 
-// Every 5-8 player game starts at the main menu; its pads go when the main menu comes back (Entry.cpp).
+// Every 5-8 player game starts at the main menu (Entry.cpp), where holders 4-7 go back to the dummy that TrySetController's
+// scans read in a 1-4 player game too; a joined P5-8 keeps its pad for JoinPage::OnActivate.
 void ClearExtPads() {
     Input::Manager *input = Input::Manager::sInstance;
     for (u32 slot = kGameLocal; slot < kMaxLocal; ++slot) {
-        extPads[slot - kGameLocal].id = 0;
-        extPads[slot - kGameLocal].waiting = false;
+        ExtPad &pad = extPads[slot - kGameLocal];
+        pad.controller = nullptr;
+        if (input != nullptr && Joined(slot))
+            pad.controller = SlotHolder(slot).curController;
+        else
+            pad.id = 0;
+        pad.waiting = false;
         if (input != nullptr)
             SlotHolder(slot).SetController(&input->dummyController, nullptr);
     }
+}
+
+// As TrySetController binds a pad (0x80523FCC): current and previous controller, the +0xC copy InitControllers restores
+// each race, and params.
+void BindPad(Input::RealControllerHolder &holder, Input::Controller *controller) {
+    if (holder.curController != controller)
+        holder.SetController(controller, nullptr);
+    holder.controller3 = holder.curController;
+    fillParams(&holder.params, holder.curController);
 }
 
 }  // namespace SplitScreen8
