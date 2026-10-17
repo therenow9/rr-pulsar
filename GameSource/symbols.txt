@@ -994,7 +994,6 @@ GetRootScreenWidth__20GameScreenEffectsMgrFv = 0x8054adb4
 #Camera
 SetInstance__9CameraMgrFP9CameraMgr = 0x805a1a64
 __ct__10RaceCameraFUcR10GameScreenP3BCPUc = 0x805a1d10
-IsAutomatic__10RaceCameraFRCQ24Kart6Player = 0x805a3334
 HasEveryOpeningPanEnded__13RaceCameraMgrCFv = 0x805a8fbc
 ChangeFocusedPlayer__13RaceCameraMgrFUc = 0x805a9b04
 sInstance__13RaceCameraMgr = 0x809c19b8
