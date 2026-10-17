@@ -69,10 +69,8 @@ Input::RealControllerHolder *PlayerHolder(u32 player);
 bool UIPressed(const Input::RealControllerHolder &holder, u32 action);
 // Local players of the 5-8 player game the menus are setting up, else 0; SectionParams' own count stays 4 in it.
 extern u8 menuLocalCount;
-// Battle Royale's race faults as it loads on 8 screens (7-8 locals), so a game that big keeps it off.
-inline bool RoyaleOff() {
-    return menuLocalCount > 6;
-}
+// The race scene's MEM2 heap in a 5-8 player race, else null: the race's MEM1 cannot also hold that race's layouts and items.
+EGG::ExpHeap *RaceMem2();
 // P5-8's character and kart, read at InitRace once picked and cleared at the main menu; SectionParams' picks are 4 wide.
 struct ExtPick {
     CharacterId character;
@@ -171,8 +169,6 @@ extern bool menuOpenMiiC;
 bool HudSlotColour(u8 hud, RGBA16 *primary, RGBA16 *secondary);
 // Player slot 4-7's colour pair; slots 0-3 are out of range.
 void SlotPalette(u32 slot, RGBA16 *primary, RGBA16 *secondary);
-// Fades a control and its children to the look of one a 5-8 player game cannot use, or back.
-void Fade(LayoutUIControl &control, bool faded);
 
 #if defined(SS8_DEBUG_BOOT) || defined(SS8_MENU_SCRIPT)
 // Every local's kart to the AI, a second into a race: --boot-autodrive and a menu script's "autodrive" line.

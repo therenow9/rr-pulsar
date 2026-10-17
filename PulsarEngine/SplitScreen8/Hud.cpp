@@ -412,13 +412,18 @@ static void SpeedoCreate(Page &page, u32 index, u32 count) {
 }
 static Pulsar::UI::CustomCtrlBuilder wideSpeedos(SpeedoCount, SpeedoCreate);
 
-// RR builds every section's layout allocator on the scene's MEM1 heap (SectionChanges.cpp, 0x80621F4C); a 5-8 player race's
-// MEM1 then runs out at the race's load, so its race sections keep the game's MEM2 heap.
-static EGG::Heap *RaceLayoutHeap(EGG::Heap *heap) {
+EGG::ExpHeap *RaceMem2() {
     const GameScene *scene = GameScene::GetCurrent();
     if (menuLocalCount <= kGameLocal || scene->id != SCENE_ID_RACE)
-        return heap;
+        return nullptr;
     return scene->structsHeaps.heaps[1];
+}
+
+// RR builds every section's layout allocator on the scene's MEM1 heap (SectionChanges.cpp, 0x80621F4C); a 5-8 player race's
+// race sections keep the game's MEM2 heap.
+static EGG::Heap *RaceLayoutHeap(EGG::Heap *heap) {
+    EGG::Heap *mem2 = RaceMem2();
+    return mem2 != nullptr ? mem2 : heap;
 }
 
 // Section::Init+0x150, "li r5, 4" before EGG::Allocator::__ct(r3, r4 heap, r5): r3 is r28 again after the call; LR was saved.

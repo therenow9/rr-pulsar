@@ -1,7 +1,30 @@
 #include <kamek.hpp>
+#include <core/egg/mem/ExpHeap.hpp>
+#include <MarioKartWii/3D/Scn/ScnMgr.hpp>
+#include <MarioKartWii/Item/ItemManager.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
 namespace SplitScreen8 {
+
+// RaceScene::CreateAndInitInstances+0x310: every item object's models load per screen on the ScnMgr's heap, 2.6 MB of MEM1
+// at 8 screens under RR's Royale limits, which leaves Lakitu's none; a 5-8 player race loads them on MEM2.
+static Item::Manager *CreateItemManager() {
+    EGG::ExpHeap *mem2 = RaceMem2();
+    if (mem2 == nullptr)
+        return Item::Manager::CreateInstance();
+    ScnMgr *scnMgr = ScnMgr::sInstance[0];
+    EGG::Heap *oldHeap = scnMgr->curHeap;
+    EGG::Allocator *oldAllocator = scnMgr->curAllocator;
+    scnMgr->curHeap = mem2;
+    scnMgr->curAllocator = scnMgr->mem2Allocator;
+    EGG::Heap *oldCurrentHeap = mem2->BecomeCurrentHeap();
+    Item::Manager *mgr = Item::Manager::CreateInstance();
+    oldCurrentHeap->BecomeCurrentHeap();
+    scnMgr->curHeap = oldHeap;
+    scnMgr->curAllocator = oldAllocator;
+    return mgr;
+}
+kmCall(0x80554518, CreateItemManager);
 
 // GessoMgr::CreateInstance+0x8 replaces "li r3, 0x54", new's size: gessoScreens[4] at +0x44, indexed by
 // every camera kart's screen, becomes 8 wide. r0 holds the caller's LR for the stw after, so stays untouched.

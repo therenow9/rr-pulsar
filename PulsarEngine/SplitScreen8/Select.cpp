@@ -169,6 +169,17 @@ static void SetPaneColours(LayoutUIControl &control, const char *name, const RGB
     }
 }
 
+// Fades a control to the look of one a 5-8 player game cannot use, or back.
+static void Fade(LayoutUIControl &control, bool faded) {
+    const u8 alpha = faded ? 100 : 255;
+    // LayoutUIControl::Update gives the root [3]'s opacity each frame; SetPositionAnim makes [3] from [1] while the page animates.
+    control.positionAndscale[1].opacity = alpha;
+    control.positionAndscale[3].opacity = alpha;
+    nw4r::lyt::Pane &root = *control.layout.layout.rootPane;
+    root.alpha = alpha;
+    root.flag |= 2;  // influenced alpha: the panes below take the root's
+}
+
 // A control loaded with kButtonAnims, placed and in the player's colours as UpDownControl::Update and PushButton::Update
 // (0x805BDE2C) colour them; a button has no color_yajirushi.
 static void PlaceControl(LayoutUIControl &control, u32 player, float x, float y, float scale) {

@@ -2307,6 +2307,7 @@ UseBlooper__Q24Item6PlayerFv = 0x807a81b4
 UseMegaMushroom__Q24Item6PlayerFv = 0x807a9e50
 
 #ItemManager
+CreateInstance__Q24Item7ManagerFv = 0x80799138
 Update__Q24Item7ManagerFv = 0x80799850
 sInstance__Q24Item7Manager = 0x809c3618
 IsThereCapacityForItem__Q24Item7ManagerF6ItemId = 0x80799be8
