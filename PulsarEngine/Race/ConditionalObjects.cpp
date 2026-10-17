@@ -15,6 +15,7 @@
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/Race/RaceInfo/RaceInfo.hpp>
 #include <Race/ConditionalTrackState.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace Race {
@@ -44,11 +45,11 @@ struct ConditionalState {
     bool isActive;
     bool isCollisionActive;
     u8 localScreenCount;
-    bool screenIsActive[4];
+    bool screenIsActive[SplitScreen8::kMaxLocal];
 };
 
-static void FillScreenState(bool (&screenIsActive)[4], bool value) {
-    for (u8 i = 0; i < 4; ++i) screenIsActive[i] = value;
+static void FillScreenState(bool (&screenIsActive)[SplitScreen8::kMaxLocal], bool value) {
+    for (u8 i = 0; i < SplitScreen8::kMaxLocal; ++i) screenIsActive[i] = value;
 }
 
 static bool IsModelDirectorReadyForPerScreenVisibility(const ModelDirector *director) {
@@ -416,7 +417,10 @@ static void EvaluateConditionalState(const Object &object, ConditionalState &sta
         return;
     }
 
-    const u8 localScreenCount = (scenario.localPlayerCount > 4) ? 4 : scenario.localPlayerCount;
+    u8 localScreenCount = (scenario.localPlayerCount > 4) ? 4 : scenario.localPlayerCount;
+    // A 5-8 player race draws 6 or 8 screens, while its local count stays 4.
+    if (SplitScreen8::raceScreenCount != 0)
+        localScreenCount = SplitScreen8::raceScreenCount;
     if (localScreenCount == 0)
         return;
 
@@ -425,7 +429,7 @@ static void EvaluateConditionalState(const Object &object, ConditionalState &sta
     state.isActive = false;
     state.isCollisionActive = false;
     for (u8 i = 0; i < localScreenCount; ++i) {
-        const u8 playerId = scenario.settings.hudPlayerIds[i];
+        const u8 playerId = SplitScreen8::HudRacePlayer(i);
         const bool playerActive = EvaluateConditionalForPlayer(config, playerId);
         state.screenIsActive[i] = playerActive;
         if (playerActive) {

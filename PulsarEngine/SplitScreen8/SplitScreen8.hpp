@@ -63,6 +63,8 @@ extern u8 raceLocalCount;
 inline u8 RaceLocals(u8 scenarioLocals) {
     return raceScreenCount != 0 && raceLocalCount != 0 ? raceLocalCount : scenarioLocals;
 }
+// A race hud's player id: huds 0-3 read hudPlayerIds as RR does, 4-7 go through GetPlayerIdOfLocalPlayer and its hooks.
+u8 HudRacePlayer(u32 hud);
 // Real controller holder of controller id 0..7; ids 4+ live past the manager's own holders.
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id);
 // A local player's holder in the menus, and whether an Action is newly pressed on a holder this frame.

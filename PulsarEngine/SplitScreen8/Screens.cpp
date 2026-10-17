@@ -232,6 +232,11 @@ asmFunc HudPlayerIdWrapper() {
 kmBranch(0x80531f70, HudPlayerIdWrapper);
 kmPatchExitPoint(HudPlayerIdWrapper, 0x80531f7c);
 
+u8 HudRacePlayer(u32 hud) {
+    const Racedata *racedata = Racedata::sInstance;
+    return hud < kGameLocal ? racedata->racesScenario.settings.hudPlayerIds[hud] : racedata->GetPlayerIdOfLocalPlayer(hud);
+}
+
 // isLiveView (MAP: LoadNextGPTrack)+0x28, "add r4, r3, r4; lbz r0, 0xb84(r4)": a spare tile follows its CPU, not a TV camera, so a
 // hud below the count reads -1, "not live". A leaf, so branch out and back; only r0 and r3 are read after it, and r5 is free.
 asmFunc IsLiveViewHudPlayerId() {
