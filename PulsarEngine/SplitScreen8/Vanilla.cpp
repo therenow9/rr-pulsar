@@ -172,9 +172,6 @@ kmBranch(0x805f8d2c, GetFontIndex);
 // and track is open from the start, as RR writes it; nothing is saved.
 kmWrite32(0x80549974, 0x38600001);  // li r3, 1
 
-// Pages::MainMenu::__ct+0x7C (li r4, 4): three controls, no Mario Kart Channel button (owner).
-kmWrite32(0x80625e1c, 0x38800003);  // li r4, 3
-
 // CtrlMenuCharacterSelect::LoadButton+0xD4 (srwi r8, r0, 5): no character button is exclusive, as RR writes it.
 kmWrite32(0x807e29fc, 0x39000000);  // li r8, 0
 

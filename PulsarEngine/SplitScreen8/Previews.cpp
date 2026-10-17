@@ -176,13 +176,16 @@ bool ExtPreviewsShow(u32 count) {
         built = arenas[i] != nullptr;
     }
     parentHeap->dameFlag = heapFlags;
-    if (!built)
+    if (!built) {
+        OS::Report("ss8 preview: P5-8 set not built, needed %u largest %u\n", needed, parentHeap->getAllocatableSize(4));
         return false;
+    }
     MiiGroup &miis = SectionMgr::sInstance->sectionParams->playerMiis;
     for (u32 player = kGameLocal; player < count && player < miis.miiCount; ++player) {
         const Mii *mii = miis.GetMii(player);
         const s32 miiCharacter = mii != nullptr ? static_cast<s32>(GetMiiCharacterId(*mii)) : -1;
-        if (heads[player - kGameLocal] == nullptr && miiCharacter >= 0)
+        // Only while the player has no model: a load drops the shown one first, and a refused head leaves nothing.
+        if (heads[player - kGameLocal] == nullptr && miiCharacter >= 0 && Own(previews[player - kGameLocal])->model == nullptr)
             ExtPreviewLoad(player, static_cast<CharacterId>(miiCharacter), 0);
     }
     extPassCount = count;
@@ -342,8 +345,10 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
         return false;
     }
     EGG::ExpHeap *heap = EGG::ExpHeap::Create(arena->getAllocatableSize(4), arena, 0);
-    if (heap == nullptr)
+    if (heap == nullptr) {
+        OS::Report("ss8 preview: player %u heap not built, arena %u\n", player + 1, arena->getAllocatableSize(4));
         return false;
+    }
 
     EGG::Allocator *allocator = new (heap) EGG::Allocator(heap, 0x20);
     EGG::Heap *oldHeap = scnMgr->curHeap;

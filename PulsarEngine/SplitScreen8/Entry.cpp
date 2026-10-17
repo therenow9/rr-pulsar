@@ -259,6 +259,10 @@ asmFunc EntryActivateStub() {
 }
 kmCall(0x808510f0, EntryActivateStub);
 
+// Pages::MainMenu::__ct+0x7C (li r4, 4): three panels on a console too, as on Dolphin; the fourth's Channel button
+// launches the installed Retro Rewind Channel (RR) or the Mario Kart Channel (vanilla).
+kmWrite32(0x80625e1c, 0x38800003);  // li r4, 3
+
 static_assert(Pulsar::UI::PULPAGE_SS8JOIN == 0x115, "RegisteredPadsOrJoin loads the join page's id as 0x115");
 
 // Each replaces "li r4, 0x61" (RegisteredPads) at section 0x54's first page and the multiplayer menu's Back button

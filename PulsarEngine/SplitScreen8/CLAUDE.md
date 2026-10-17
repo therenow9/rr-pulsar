@@ -2,7 +2,7 @@
 
 The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except five things the owner wants (root `CLAUDE.md` has the decisions). Same-character select and each player's own skin and model are RR's own since upstream `2794b039`, the scene restart's GPU drain since `d4d2ca50` (#209), and the skin menu voices since `fca2eb78` (D202), so they are vanilla. The five:
 - same-character select's OK markers offline, and the awards' Mii head only on a Mii (`UI/SameCharacterSelect.cpp`, `Race/CustomCharacters.cpp`);
-- the main menu's seven Multiplayer buttons and removal of Retro WFC (`Entry.cpp`);
+- the main menu's seven Multiplayer buttons and removal of Retro WFC and of a console's Retro Rewind Channel panel, three panels as on Dolphin (`Entry.cpp`, D236);
 - a race name balloon's portrait read once per player per race (`UI/CustomCharacters.cpp`);
 - offline KO's survivors keeping their own pad, skin and transmission after a knockout (`Gamemodes/KO/KOMgr.cpp`, D201);
 - a 2–4 screen race's HUD and respawn wipes spread over a screen record wider than the layout, WiiCompiled's ultrawide (`Hud.cpp` `InitCtrlRaceBaseWide`, `Wipe.cpp` `WideWipeInit`, D215); at 16:9 or narrower the record is the layout's width and nothing moves.
