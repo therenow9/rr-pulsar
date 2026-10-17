@@ -1,5 +1,6 @@
 #include <kamek.hpp>
 #include <MarioKartWii/3D/Model/ModelDirector.hpp>
+#include <MarioKartWii/CourseMgr.hpp>
 #include <MarioKartWii/KMP/KMPManager.hpp>
 #include <core/nw4r/math/Triangular.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -178,22 +179,54 @@ asmFunc KartSoundHud() {
 }
 kmCall(0x807075a0, KartSoundHud);
 
-// A Battle round's end moves each local's kart to its screen's MSPT (0x805847B0), and an arena has 4: screens 4-7 park
-// beside screens 0-3's, along the spot's sideways axis. The caller copies the spot before the next kart asks.
+// A Battle round's end moves each local's kart to its screen's MSPT (0x805847B0), and an arena has at most 4 (Wii Rainbow
+// Road 1): a screen past them parks beside spot screen % count, at the first offset clear of walls and over floor.
 static const float kBesideSpot = 400.0f;
+static const s8 kBesideOffsets[][2] = {{1, 0}, {-1, 0}, {0, -1}, {0, 1}, {2, 0}, {-2, 0}, {1, -1}, {-1, -1}};
+static const u32 kWallKcl = KCL_BITFIELD_WALL | KCL_BITFIELD_INVISIBLE_WALL | KCL_BITFIELD_WALL_3 | KCL_BITFIELD_PLAYER_ONLY_WALL | KCL_BITFIELD_WEAK_WALL | KCL_BITFIELD_SPECIAL_WALL
+  | KCL_BITFIELD_WALL5 | KCL_BITFIELD_FALL_BOUNDARY;
+static const u32 kFloorKcl = 0x20e80dff;  // the floor mask 0x8058473C samples under the spot
+
+// An arena's object KCLs read info->objInfo and ret unchecked (0x8081323C, 0x8081340C): neither is null.
+static bool Collides(const Vec3 &pos, const Vec3 &from, u32 kcl, float radius) {
+    CollisionInfo info;
+    info.objInfo = nullptr;
+    KCLTypeHolder ret;
+    return CourseMgr::sInstance->IsCollidingAddEntry(pos, from, static_cast<KCLBitfield>(kcl), &info, &ret, 0, radius);
+}
 
 static KMP::Holder<MSPT> *ScreenMspt(const KMP::Manager &kmp, u16 index) {
-    KMP::Holder<MSPT> *holder = kmp.GetHolder<MSPT>(IsWideHud(index) ? index - kGameLocal : index);
-    if (!IsWideHud(index))
-        return holder;
+    const u16 count = kmp.msptSection != nullptr ? kmp.msptSection->pointCount : 0;
+    if (raceScreenCount == 0 || index < count || count == 0 || index >= kMaxLocal)
+        return kmp.GetHolder<MSPT>(index);
     static MSPT beside;
     static KMP::Holder<MSPT> besideHolder = {&beside};
-    beside = *holder->raw;
-    float sin = 0.0f;
-    float cos = 0.0f;
-    nw4r::math::SinCosFIdx(&sin, &cos, beside.angle.y * (256.0f / 360.0f));
-    beside.position.x += kBesideSpot * cos;
-    beside.position.z -= kBesideSpot * sin;
+    // Screens count..index are placed in order, each off the spots and the karts placed before it.
+    Vec3 taken[kMaxLocal];
+    for (u16 s = 0; s < count; ++s) taken[s] = kmp.GetHolder<MSPT>(s)->raw->position;
+    for (u16 s = count; s <= index; ++s) {
+        beside = *kmp.GetHolder<MSPT>(s % count)->raw;
+        float sin = 0.0f;
+        float cos = 0.0f;
+        nw4r::math::SinCosFIdx(&sin, &cos, beside.angle.y * (256.0f / 360.0f));
+        const Vec3 base = beside.position;
+        for (u32 i = 0; i < sizeof(kBesideOffsets) / sizeof(kBesideOffsets[0]); ++i) {
+            const float side = kBesideSpot * kBesideOffsets[i][0];
+            const float ahead = kBesideSpot * kBesideOffsets[i][1];
+            Vec3 pos(base.x + side * cos + ahead * sin, base.y, base.z - side * sin + ahead * cos);
+            bool clear = !Collides(Vec3(pos.x, pos.y + kBesideSpot / 2, pos.z), Vec3(pos.x, pos.y + kBesideSpot / 2, pos.z), kWallKcl, kBesideSpot / 2);
+            clear = clear && Collides(Vec3(pos.x, pos.y - kBesideSpot / 2, pos.z), Vec3(pos.x, pos.y + kBesideSpot, pos.z), kFloorKcl, kBesideSpot / 8);
+            for (u16 t = 0; clear && t < s; ++t) {
+                const Vec3 &k = taken[t];
+                clear = (k.x - pos.x) * (k.x - pos.x) + (k.z - pos.z) * (k.z - pos.z) >= kBesideSpot * kBesideSpot * 0.5f;
+            }
+            if (clear || i == 0)
+                beside.position = pos;
+            if (clear)
+                break;
+        }
+        taken[s] = beside.position;
+    }
     return &besideHolder;
 }
 kmCall(0x805847b0, ScreenMspt);

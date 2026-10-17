@@ -2288,7 +2288,7 @@ sInstance__13EntityManager = 0x809c2ef0
 
 #CourseMgr
 IsCollidingAddEntry__9CourseMgrFRC4Vec3RC4Vec311KCLBitfieldP13CollisionInfoP13KCLTypeHolderUif = 0x807907f8
-sInstance__11CourseMgr = 0x809c2F44
+sInstance__9CourseMgr = 0x809c2F44
 
 ##ITEM
 #ItemObjProperties

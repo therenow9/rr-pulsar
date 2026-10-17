@@ -10,6 +10,7 @@
 #include <PulsarSystem.hpp>
 #include <SlotExpansion/CupsConfig.hpp>
 #include <core/egg/Archive.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 
@@ -164,7 +165,7 @@ static void VSRaceRandomFix(SectionParams *params) {
                     break;
                 }
             }
-        } while (isRepeat);
+        } while (isRepeat || SplitScreen8::TrackOffForLocals(id));
         params->vsTracks[i] = static_cast<CourseId>(id);
         cupsConfig->vsTrackVariantIdx[i] = static_cast<u8>(cupsConfig->RandomizeVariant(id));
     }
@@ -199,6 +200,10 @@ static u8 ClampOrderedVSVariantIdx(const CupsConfig &cupsConfig, PulsarId trackI
 
 static void AppendOrderedVSTrackVariants(SectionParams *params, CupsConfig &cupsConfig, PulsarCupId &cupId, u32 &rowIdx, u32 &scheduleIdx, u8 startVariantIdx, bool wrapVariants) {
     const PulsarId trackId = cupsConfig.ConvertTrack_PulsarCupToTrack(cupId, rowIdx);
+    if (SplitScreen8::TrackOffForLocals(trackId)) {
+        AdvanceOrderedVSTrack(cupsConfig, cupId, rowIdx);
+        return;
+    }
     const u8 variantCount = GetOrderedVSVariantCount(cupsConfig, trackId);
     const u8 firstVariantIdx = ClampOrderedVSVariantIdx(cupsConfig, trackId, startVariantIdx);
 

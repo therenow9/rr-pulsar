@@ -12,6 +12,7 @@
 #include <SlotExpansion/UI/ExpansionUIMisc.hpp>
 #include <Network/PacketExpansion.hpp>
 #include <core/nw4r/lyt/TextBox.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace UI {
@@ -730,15 +731,17 @@ static void ExtCourseSelectCourseInitSelf(CtrlMenuCourseSelectCourse *course) {
     // channel ldb stuff ignored
     const u32 cupId = cupPage->clickedCupId;
 
-    PushButton *toSelect = &course->courseButtons[0];
+    PushButton *toSelect = nullptr;
     for (int i = 0; i < 4; ++i) {
         PushButton &curButton = course->courseButtons[i];
         curButton.buttonId = i;
         const u32 bmgId = GetTrackBMGByRowIdx(i);
         PulsarId trackId = cupsConfig->ConvertTrack_PulsarCupToTrack(cupsConfig->lastSelectedCup, i);
         SetCourseButtonMessage(curButton, bmgId, trackId, i);
+        if (SplitScreen8::OffCourseButton(*course, i, trackId))
+            continue;
 
-        if (trackId == cupsConfig->GetSelected()) {
+        if (toSelect == nullptr || trackId == cupsConfig->GetSelected()) {
             toSelect = &curButton;
         }
     };

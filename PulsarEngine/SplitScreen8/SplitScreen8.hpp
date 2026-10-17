@@ -5,6 +5,7 @@
 class Page;
 class GameScene;
 class LayoutUIControl;
+class CtrlMenuCourseSelectCourse;
 namespace EGG {
 class Heap;
 class ExpHeap;
@@ -72,6 +73,9 @@ Input::RealControllerHolder *PlayerHolder(u32 player);
 bool UIPressed(const Input::RealControllerHolder &holder, u32 action);
 // Local players of the 5-8 player game the menus are setting up, else 0; SectionParams' own count stays 4 in it.
 extern u8 menuLocalCount;
+// Whether a 5-8 player game leaves a track out, by PulsarId; and, on the course page, its button greyed and unselectable.
+bool TrackOffForLocals(u32 track);
+bool OffCourseButton(CtrlMenuCourseSelectCourse &course, u32 row, u32 track);
 // The race scene's MEM2 heap in a 5-8 player race, else null: the race's MEM1 cannot also hold that race's layouts and items.
 EGG::ExpHeap *RaceMem2();
 // P5-8's character and kart, read at InitRace once picked and cleared at the main menu; SectionParams' picks are 4 wide.

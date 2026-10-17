@@ -11,6 +11,7 @@
 #include <MarioKartWii/System/Random.hpp>
 #include <MarioKartWii/UI/Page/Page.hpp>
 #include <MarioKartWii/UI/Page/Menu/BattleKartSelect.hpp>
+#include <MarioKartWii/UI/Page/Menu/CourseSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/KartSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/Menu.hpp>
 #include <MarioKartWii/UI/Page/Menu/MultiPlayerTeamSelect.hpp>
@@ -178,6 +179,29 @@ static void Fade(LayoutUIControl &control, bool faded) {
     nw4r::lyt::Pane &root = *control.layout.layout.rootPane;
     root.alpha = alpha;
     root.flag |= 2;  // influenced alpha: the panes below take the root's
+}
+
+// These fault at load with 8 locals, so 5-8 player games leave them out (Mystic Tangle's tree models: 4.5 MB of MEM1).
+static const u16 kTracksOffForLocals[] = {0x18e, 0x19e, 0x1e3, 0x1e4, 0x1fb, 0x21d, 0x224};
+
+bool TrackOffForLocals(u32 track) {
+    if (menuLocalCount <= kGameLocal)
+        return false;
+    for (u32 i = 0; i < sizeof(kTracksOffForLocals) / sizeof(kTracksOffForLocals[0]); ++i)
+        if (kTracksOffForLocals[i] == track)
+            return true;
+    return false;
+}
+
+// The page keeps its buttons from cup to cup, so a 5-8 player game sets both ways; the variant page's control is left alone.
+bool OffCourseButton(CtrlMenuCourseSelectCourse &course, u32 row, u32 track) {
+    const Pages::CourseSelect *page = SectionMgr::sInstance->curSection->Get<Pages::CourseSelect>();
+    if (menuLocalCount <= kGameLocal || page == nullptr || &page->CtrlMenuCourseSelectCourse != &course)
+        return false;
+    const bool off = TrackOffForLocals(track);
+    course.courseButtons[row].manipulator.inaccessible = off;
+    Fade(course.courseButtons[row], off);
+    return off;
 }
 
 // A control loaded with kButtonAnims, placed and in the player's colours as UpDownControl::Update and PushButton::Update
