@@ -411,6 +411,7 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
 }
 kmCall(0x808562dc, InitCtrlRaceBaseWide);
 
+#ifndef SS8_VANILLA
 // RR's own speedometer is built for a single local only, which a widened 1-local race keeps.
 static u32 SpeedoCount() {
     if (raceScreenCount == 0 || raceLocalCount < 2)
@@ -431,6 +432,7 @@ static void SpeedoCreate(Page &page, u32 index, u32 count) {
     }
 }
 static Pulsar::UI::CustomCtrlBuilder wideSpeedos(SpeedoCount, SpeedoCreate);
+#endif
 
 EGG::ExpHeap *RaceMem2(u32 room) {
     const GameScene *scene = GameScene::GetCurrent();

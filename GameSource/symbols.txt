@@ -1277,6 +1277,7 @@ HasDirectionalHandler__18ControlManipulatorFUc = 0x805efdc8
 TriggerAction__18ControlManipulatorF6ActionUcUi = 0x805efe40
 Load__18ControlManipulatorFv = 0x805efef4
 Update__18ControlManipulatorFv = 0x805f0040
+hudSlotIdColours__12SplitScreen8 = 0x80895cc0
 GetHudColor__18ControlManipulatorCFP6RGBA16P6RGBA16 = 0x805f03dc
 GetHudSlotIdColor__18ControlManipulatorFUcP6RGBA16P6RGBA16 = 0x805f0440
 GetHudSlotIdColorSingle__18ControlManipulatorFUcP6RGBA16 = 0x805f04d8

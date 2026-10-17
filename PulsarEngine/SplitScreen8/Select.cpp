@@ -137,7 +137,11 @@ static u32 KartChoices(CharacterId character, KartId *choices) {
     u32 count = 0;
     for (u8 k = 0; k < 12; ++k) {
         const KartId kart = CharacterIdToKartIdByIdx(character, k);
+#ifdef SS8_VANILLA
+        if (IsKartUnlocked(kart, static_cast<u32>(2)))
+#else
         if (IsKartUnlocked(kart, static_cast<u32>(2)) && Pulsar::Restrictions::IsVehicleEnabled(kart))
+#endif
             choices[count++] = kart;
     }
     return count;
@@ -469,9 +473,11 @@ void SelectPage::ActivateButtons() {
     const bool transmission = this->step.id == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT;
     for (u32 player = 0; player < menuLocalCount; ++player) {
         bool first;
+#ifndef SS8_VANILLA
         if (transmission)
             first = Pulsar::UI::GetSelectedTransmission(player) == Pulsar::TRANSMISSION_OUTSIDE;
         else
+#endif
             first = player < kGameLocal ? params->driftType[player] == kDriftAuto : Holder(*Input::Manager::sInstance, player).isDriftAuto != 0;
         this->buttons[player] = first ? 0 : 1;
         for (u32 side = 0; side < 2; ++side) StartAnimations(*this->sides[player][side], side == this->buttons[player]);
@@ -679,10 +685,12 @@ void SelectPage::WriteButton(u32 player) {
             extLastTeam[player - kGameLocal] = team;
         return;
     }
+#ifndef SS8_VANILLA
     if (this->step.id == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT) {
         Pulsar::UI::SetSelectedTransmission(player, first ? Pulsar::TRANSMISSION_OUTSIDE : Pulsar::TRANSMISSION_INSIDE);
         return;
     }
+#endif
     Holder(*Input::Manager::sInstance, player).SetDriftType(first);
     if (player >= kGameLocal)
         return;
@@ -766,7 +774,11 @@ void SelectPage::AfterControlUpdate() {
 void SelectPage::Leave(u32 next, u32 animDirection) {
     if (next == Pulsar::UI::PULPAGE_SS8CHARSELECT && this->kartStep && MenuTeamVS())
         next = Pulsar::UI::PULPAGE_SS8TEAMSELECT;
+#ifdef SS8_VANILLA
+    if (next == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT)  // transmissions are RR's
+#else
     if (next == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT && Pulsar::UI::ShouldSkipTransmissionSelect(Pulsar::System::sInstance))
+#endif
         next = this->kartStep ? Pulsar::UI::PULPAGE_SS8DRIFTSELECT : Pulsar::UI::PULPAGE_SS8KARTSELECT;
     this->leaving = true;
     this->nextPageId = static_cast<PageId>(next);

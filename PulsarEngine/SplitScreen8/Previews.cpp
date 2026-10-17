@@ -316,7 +316,11 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
     u32 fileSize = 0;
     if (slot != 0) {
         snprintf(path, sizeof(path), "/Scene/Model/Driver/%s-%u.brres", ArchiveMgr::GetKartArchivePostfix(characterId), slot);
+#ifdef SS8_VANILLA
+        const s32 entryNum = DVD::ConvertPathToEntryNum(path);
+#else
         const s32 entryNum = Pulsar::IOOverrides::ConvertPathToEntryNumWithLooseOverride(path);
+#endif
         DVD::FileInfo fileInfo = {};
         if (entryNum < 0 || !DVD::FastOpen(entryNum, &fileInfo)) {
             ExtPreviewLoad(player, characterId, 0);
@@ -353,7 +357,11 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
     MenuModelBRRESHandle brresHandle;
     bool bound;
     if (isMii) {
+#ifdef SS8_VANILLA
+        bound = false;  // the Mii body loader is RR's
+#else
         bound = Pulsar::LoadMiiOutfitCBRRES(&brresHandle, characterId) != 0;
+#endif
     } else if (slot != 0) {
         g3d::ResFile brres;
         brres.data = static_cast<g3d::ResFileData *>(EGG::DvdRipper::LoadToMainRAM(path, nullptr, heap, EGG::DvdRipper::ALLOC_FROM_HEAD, 0, nullptr, nullptr));
@@ -620,7 +628,11 @@ static bool RequestUnpack(CharacterId character, u32 slot) {
     const char *name = ArchiveMgr::GetKartArchivePostfix(character);
     char skinPath[0x80];
     snprintf(skinPath, sizeof(skinPath), "/Scene/Model/Kart/%s-%u-allkart.szs", name, slot);
+#ifdef SS8_VANILLA
+    if (slot != 0 && DVD::ConvertPathToEntryNum(skinPath) >= 0)
+#else
     if (slot != 0 && Pulsar::IOOverrides::ConvertPathToEntryNumWithLooseOverride(skinPath) >= 0)
+#endif
         snprintf(unpackPath, sizeof(unpackPath), "Scene/Model/Kart/%s-%u-allkart", name, slot);
     else
         snprintf(unpackPath, sizeof(unpackPath), "Scene/Model/Kart/%s-allkart", name);

@@ -321,12 +321,18 @@ CharacterId ExtCharacter(u32 player) {
 
 // A Mii's id is past selectedSlots' row, so it reads 0 and writes nothing.
 u32 SkinSlot(u32 hud, u32 character) {
+#ifdef SS8_VANILLA
+    return 0;  // skins are RR's
+#else
     return hud < kMaxLocal && character < Pulsar::Driver::CHARACTER_COUNT ? Pulsar::Driver::selectedSlots[hud][character] : 0;
+#endif
 }
 
 void SetSkinSlot(u32 hud, u32 character, u32 slot) {
+#ifndef SS8_VANILLA
     if (hud < kMaxLocal && character < Pulsar::Driver::CHARACTER_COUNT)
         Pulsar::Driver::selectedSlots[hud][character] = slot;
+#endif
 }
 
 // A 5-8 player section 0x54 has ~1.2 MB less MEM1 free, too little for RR's 0xE1000 per skin load. A load keeps its file
@@ -340,7 +346,11 @@ u32 SkinLoadReserve(u32 reserve) {
 // The menus CPU-fill slots 4+: players 5..N are made local here, with their pick or default, before RacedataScenario::Init
 // counts locals. Not for the awards (InitAwards has given every local a slot) nor a field KO has compacted.
 static void MenuLocalsLocal(Racedata *racedata) {
+#ifdef SS8_VANILLA
+    const Pulsar::KO::Mgr *ko = nullptr;
+#else
     const Pulsar::KO::Mgr *ko = Pulsar::System::sInstance->koMgr;
+#endif
     if (menuLocalCount <= kGameLocal || racedata->menusScenario.settings.gamemode == MODE_AWARD || (ko != nullptr && ko->IsFieldCompacted()))
         return;
     for (u32 i = kGameLocal; i < menuLocalCount; ++i) {

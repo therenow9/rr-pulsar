@@ -4,6 +4,7 @@
 #include <core/rvl/KPAD.hpp>
 #include <core/rvl/WPAD.hpp>
 #include <core/rvl/OS/OS.hpp>
+#include <core/rvl/DVD/dvd.hpp>
 #include <core/nw4r/snd/BasicSound.hpp>
 #include <core/nw4r/snd/WsdFile.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
@@ -217,6 +218,14 @@ static void ReportRacePlayers() {
         return;
     racePlayersReported = true;
     const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
+#ifdef SS8_VANILLA
+    // Without RR: no skins, lent voices, extended teams, RR modes or transmissions.
+    for (u32 i = 0; i < sizeof(scenario.players) / sizeof(scenario.players[0]); ++i) {
+        const RacedataPlayer &player = scenario.players[i];
+        OS::Report("ss8 race player %u: type %d hud %d ch %d character %#x kart %#x team %d\n", i, player.playerType, player.hudSlotId, player.realControllerChannel, player.characterId, player.kartId,
+          player.team);
+    }
+#else
     Pulsar::UI::ExtendedTeamManager *teams = Pulsar::UI::ExtendedTeamManager::sInstance;
     for (u32 i = 0; i < sizeof(scenario.players) / sizeof(scenario.players[0]); ++i) {
         const RacedataPlayer &player = scenario.players[i];
@@ -230,13 +239,18 @@ static void ReportRacePlayers() {
       scenario.settings.gametype, scenario.settings.battleType, system->IsContext(Pulsar::PULSAR_FFA), system->IsContext(Pulsar::PULSAR_ELIMINATION), system->IsContext(Pulsar::PULSAR_MODE_KO),
       system->IsContext(Pulsar::PULSAR_MODE_LAPKO), system->IsContext(Pulsar::PULSAR_KOFINAL), system->IsContext(Pulsar::PULSAR_MODE_BATTLEROYALE), system->IsContext(Pulsar::PULSAR_MODE_OTT),
       system->IsContext(Pulsar::PULSAR_EXTENDEDTEAMS), SectionMgr::sInstance->sectionParams->vsRaceCount, system->koMgr != nullptr, scenario.settings.raceNumber);
+#endif
     // Each holder's drift type as RealControllerHolder::SetDriftType stores it (+0xC0, 0x80520F30), and
     // its controller's copy (+0x51), which the race reads (Kart::Status, 0x805944F4).
     for (u32 i = 0; Input::Manager::sInstance != nullptr && i < kMaxLocal; ++i) {
         const Input::RealControllerHolder &holder = Holder(*Input::Manager::sInstance, i);
         const u8 *controller = reinterpret_cast<const u8 *>(holder.curController);
+#ifdef SS8_VANILLA
+        OS::Report("ss8 holder %u: drift %u controller %d pad %#x\n", i, holder.isDriftAuto, controller != nullptr ? controller[0x51] : -1, calculateID(&holder));
+#else
         OS::Report("ss8 holder %u: drift %u controller %d transmission %d pad %#x\n", i, holder.isDriftAuto, controller != nullptr ? controller[0x51] : -1, Pulsar::UI::GetSelectedTransmission(i),
           calculateID(&holder));
+#endif
     }
 }
 static RaceFrameHook reportRacePlayers(ReportRacePlayers);
@@ -285,9 +299,28 @@ static bool menuScriptRead;
 static void OnSectionLoad() {
     if (!menuScriptRead) {
         menuScriptRead = true;
+#ifdef SS8_VANILLA
+        // No Pulsar IO without RR: the script is a disc file in the pack's /Binaries. DVD reads need a 32-aligned buffer,
+        // and Kamek's link keeps no static's alignment.
+        const char *path = "/Binaries/ss8-menu.bin";
+        bool read = false;
+        DVD::FileInfo info;
+        const s32 entryNum = DVD::ConvertPathToEntryNum(path);
+        void *buffer = EGG::Heap::alloc(sizeof(menuScript), 0x20);
+        if (buffer != nullptr && entryNum >= 0 && DVD::FastOpen(entryNum, &info)) {
+            read = DVD::ReadPrio(&info, buffer, sizeof(menuScript), 0, 2) == sizeof(menuScript);
+            DVD::Close(&info);
+        }
+        if (read)
+            memcpy(&menuScript, buffer, sizeof(menuScript));
+        if (buffer != nullptr)
+            EGG::Heap::free(buffer, nullptr);
+#else
         char path[IOS::ipcMaxPath];
         snprintf(path, IOS::ipcMaxPath, "%s/ss8-menu.bin", Pulsar::System::sInstance->GetModFolder());
-        if (Pulsar::IO::sInstance->ReadFolderFileFromPath(&menuScript, path, sizeof(menuScript)) != sizeof(menuScript)) {
+        const bool read = Pulsar::IO::sInstance->ReadFolderFileFromPath(&menuScript, path, sizeof(menuScript)) == sizeof(menuScript);
+#endif
+        if (!read) {
             memset(&menuScript, 0, sizeof(menuScript));
             OS::Report("ss8 menu: no script at %s frame %u\n", path, menuFrames);
         } else
@@ -300,8 +333,10 @@ static void OnSectionLoad() {
     battleTopPage = PAGE_NONE;
     memset(reportedSkins, 0, sizeof(reportedSkins));
     OS::Report("ss8 section %#x frame %u locals %u\n", SectionMgr::sInstance->curSection->sectionId, menuFrames, menuLocalCount);
+#ifndef SS8_VANILLA
     for (u32 i = 0; Pulsar::Settings::Mgr::IsCreated() && i < menuScript.settingCount; ++i)
         Pulsar::Settings::Mgr::Get().SetSettingValue(static_cast<Pulsar::Settings::SettingId>(menuScript.settings[i].id), menuScript.settings[i].value);
+#endif
     for (u32 i = 0; menuLocalCount > kGameLocal && i < menuScript.pickCount; ++i) {
         ExtPick &pick = extPicks[menuScript.picks[i].slot];
         pick.character = static_cast<CharacterId>(menuScript.picks[i].character);

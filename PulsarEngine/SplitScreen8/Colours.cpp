@@ -45,7 +45,11 @@ static u8 ResultRowHud(const Racedata *racedata, u8 playerId) {
     const u8 hud = racedata->GetHudSlotId(playerId);
     if (raceLocalCount <= kGameLocal || hud < kGameLocal || hud == 0xff)
         return hud;
+#ifdef SS8_VANILLA
+    if (!IsWideLocalHud(hud))
+#else
     if (!IsWideLocalHud(hud) || Pulsar::UI::ExtendedTeamManager::IsActivated())
+#endif
         return kGameLocal;
     rowHud = hud;
     return hud - kGameLocal;

@@ -170,7 +170,11 @@ static void ExtConfirmVoice(u32 player, CharacterId character, u32 type = 0) {
     // The skin's voice, as RR's hook in 0x80868ABC gives P1-4: a skin's own trick line is already in the handle,
     // and a silent skin returns before the stop, as P1-4's picker does.
     nw4r::snd::SoundHandle &handle = extVoices[player - kGameLocal];
+#ifdef SS8_VANILLA
+    const s32 voice = character;
+#else
     const s32 voice = Pulsar::Race::GetMenuVoiceCharacter(character, player, handle);
+#endif
     OS::Report("ss8 voice: player %u character %#x type %u plays %d\n", player + 1, character, type, voice);
     if (voice < 0)
         return;
@@ -520,19 +524,25 @@ void CharSelectPage::SetIcon(Button &button) {
     const char *icon = button.locked ? "cha_26_hatena" : GetCharacterIconPaneName(button.character);
     static const char *const iconPanes[] = {"chara", "chara_shadow", "chara_light_01", "chara_light_02", "chara_c_down"};
     for (u32 i = 0; i < sizeof(iconPanes) / sizeof(iconPanes[0]); ++i) control.SetPicturePane(iconPanes[i], icon);
+#ifndef SS8_VANILLA
     if (button.outfit >= 0)
         return;
     Pulsar::Race::LoadCustomCharacterIcon(button.character, Pulsar::Driver::selectedSlots[0][button.character], control.layout.GetPaneByName("chara"), control.layout.GetPaneByName("chara_shadow"),
       control.layout.GetPaneByName("chara_light_01"));
     *control.layout.GetPaneByName("chara_light_02")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
     *control.layout.GetPaneByName("chara_c_down")->GetMaterial()->GetTexMapAry() = *control.layout.GetPaneByName("chara")->GetMaterial()->GetTexMapAry();
+#endif
 }
 
 // The 4P name plate (0x8083D9C0), each channel the mean of the player's two colours (0x8083F09C). RharacterSelectName
-// is RR's layout, with the skin toggle's L and R at its ends; a build without RR would load CharacterSelectName.
+// is RR's layout, with the skin toggle's L and R at its ends; without RR it is the game's CharacterSelectName.
 void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale) {
     ControlLoader loader(&plate);
+#ifdef SS8_VANILLA
+    loader.Load("control", "CharacterSelectName", "CharacterSelectName1P4", nullptr);
+#else
     loader.Load("control", "RharacterSelectName", "CharacterSelectName1P4", nullptr);
+#endif
     plate.drawPriority = -1.0f;  // as CreateControl with 3+ players (0x8083D9F4)
     PositionAndScale &base = plate.positionAndscale[0];
     base.position.x = x;
@@ -655,7 +665,11 @@ void CharSelectPage::SetPlateName(u32 player) {
         return;
     }
     const CharacterId character = button.character;
+#ifdef SS8_VANILLA
+    this->plates[player]->SetMessage(GetCharacterBMGId(character, false));
+#else
     this->plates[player]->SetMessage(Pulsar::UI::GetCharacterSlotNameBMGId(character, SkinSlot(player, character), false));
+#endif
 }
 
 Mii *CharSelectPage::PlayerMii(u32 player) const {
@@ -766,10 +780,14 @@ void CharSelectPage::OnActivate() {
     this->rolling = -1;
     kartRoulette = false;
     const SectionParams *params = SectionMgr::sInstance->sectionParams;
+#ifdef SS8_VANILLA
+    bool miiCOpen = false;  // Mii outfit C is RR's
+#else
     bool miiCOpen = Pulsar::Restrictions::IsOnlyMiiOutfitCEnabled();
     const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
     if (!miiCOpen && rksys != nullptr)
         miiCOpen = Pulsar::PointRating::GetUserVR(rksys->curLicenseId) >= 300.0f;
+#endif
 #ifdef SS8_MENU_SCRIPT
     miiCOpen = miiCOpen || menuOpenMiiC;
 #endif
@@ -875,6 +893,7 @@ void CharSelectPage::BeforeControlUpdate() {
 
 // RR's skin cycle (PageAfterControlUpdate) for one player, only while the preview stands idle.
 void CharSelectPage::CycleSkin(u32 player, s32 direction) {
+#ifndef SS8_VANILLA
     Button &button = this->buttons[this->cursors[player].button];
     const CharacterId character = button.character;
     if (button.outfit >= 0)
@@ -909,11 +928,13 @@ void CharSelectPage::CycleSkin(u32 player, s32 direction) {
         this->SetIcon(button);
     this->SetPlateName(player);
     OS::Report("ss8 select: character player %u skin %#x slot %u%s\n", player + 1, character, SkinSlot(player, character), loaded ? "" : " failed");
+#endif
 }
 
 // RR's per-player model pass (PageAfterControlUpdate); LoadDriverBRRES returns at once when the model is loaded.
 // Not during a roll, whose hops load nothing before the last.
 void CharSelectPage::SyncSkinModels() {
+#ifndef SS8_VANILLA
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
     MenuDriverModelMgr *mgr = modelMgr != nullptr ? modelMgr->driverModels : static_cast<MenuDriverModelMgr *>(nullptr);
     if (mgr == nullptr || this->rolling >= 0)
@@ -930,6 +951,7 @@ void CharSelectPage::SyncSkinModels() {
             mgr->players[p].playerModel = model;
         }
     }
+#endif
 }
 
 void CharSelectPage::AfterControlUpdate() {
@@ -1005,7 +1027,11 @@ void CharSelectPage::FillCpus() {
 CharacterId CharSelectPage::RollCharacter(Random &random, u32 player, CharacterId avoid) const {
     CharacterId choices[kButtons];
     u32 count = 0;
+#ifdef SS8_VANILLA
+    const u32 mask = ~0u;
+#else
     const u32 mask = Pulsar::Restrictions::GetCharacterMask();
+#endif
     for (u32 i = 0; i < kButtons - 1; ++i) {  // never Mii C, as RR (BUTTON_MII_C)
         if (((mask >> i) & 1) == 0)
             continue;
@@ -1018,6 +1044,9 @@ CharacterId CharSelectPage::RollCharacter(Random &random, u32 player, CharacterI
 
 // RR's RandomizeCombo for every player, drawn as RR draws them. combos[] is not written: 2 wide, and read only by online code.
 bool CharSelectPage::Roll() {
+#ifdef SS8_VANILLA
+    return false;  // Randomize Combo is RR's
+#else
     if (Pulsar::Restrictions::IsCharacterRestrictionEnabled() || Pulsar::Restrictions::IsVehicleRestrictionEnabled())
         return false;
     Random random;
@@ -1060,6 +1089,7 @@ bool CharSelectPage::Roll() {
     this->rolling = kRollFrames;
     kartRoulette = true;
     return true;
+#endif
 }
 
 // RR's roulette (ExpCharacterSelect::BeforeControlUpdate). Only the last hop loads a preview: a load per hop fragments
@@ -1086,11 +1116,13 @@ void CharSelectPage::Roulette() {
 // P1-4's skin models leave the structs heaps before a roll's last hop loads every model, so those loads start from the
 // heap the page opened with, not one earlier rolls fragmented. RR's unload puts the player back on the stock model first.
 void CharSelectPage::FlushSkinModels() {
+#ifndef SS8_VANILLA
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
     MenuDriverModelMgr *mgr = modelMgr != nullptr ? modelMgr->driverModels : static_cast<MenuDriverModelMgr *>(nullptr);
     if (mgr == nullptr)
         return;
     for (u32 hud = 0; hud < mgr->playerCount && hud < kGameLocal; ++hud) Pulsar::Driver::UnloadDriverBRRES(hud);
+#endif
 }
 
 // As the menus read it: the D-pad's direction actions first, else the stick. -1 for none.
