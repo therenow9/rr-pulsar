@@ -291,8 +291,6 @@ void System::UpdateContext() {
     bool isExtendedTeams =
       (settings.GetSettingValue(Pulsar::Settings::SETTING_EXTENDEDTEAMSENABLED) == EXTENDEDTEAMS_ENABLED || isOfflineTeamVS) && (!isOfflineVS || isOfflineTeamVS) && !isOfflineGrandPrix;
     const bool disableOfflineKO = isExtendedTeams && isOfflineVS;
-    // SplitScreen8: Battle Royale and Elimination stay off in a 5-8 player game; Battle Royale's race faults there.
-    const bool isSplitScreen8 = SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal;
     bool isKO = settings.GetSettingValue(Pulsar::Settings::SETTING_KOENABLED) == KOSETTING_ENABLED && isOfflineVS && !disableOfflineKO;
     bool isOTT = false;
     bool is200 = Race::Is200cc() && this->info.Has200cc();
@@ -322,9 +320,9 @@ void System::UpdateContext() {
     bool isVanillaMode = settings.GetSettingValue(Pulsar::Settings::SETTING_VANILLAMODE) == VANILLAMODE_ENABLED && isFroom;
     bool isMirrorMode = settings.GetSettingValue(Pulsar::Settings::SETTING_MIRROR) == MIRRORMODE_ENABLED && isFroom;
     bool isTeamBattle = settings.GetSettingValue(Pulsar::Settings::SETTING_BATTLETEAMS) == BATTLE_FFA_DISABLED && isBattle;
-    bool isElimination = settings.GetSettingValue(Pulsar::Settings::SETTING_BATTLEELIMINATION) && isBalloonBattle && !isSplitScreen8;
+    bool isElimination = settings.GetSettingValue(Pulsar::Settings::SETTING_BATTLEELIMINATION) && isBalloonBattle;
     bool isVR = settings.GetSettingValue(Pulsar::Settings::SETTING_VR) == VR_ENABLED && isNotPublic;
-    bool isBattleRoyale = settings.GetSettingValue(Pulsar::Settings::SETTING_KOROYALEENABLED) == KOROYALESETTING_ENABLED && isNotPublic && !isBattle && !isTimeTrial && !isSplitScreen8;
+    bool isBattleRoyale = settings.GetSettingValue(Pulsar::Settings::SETTING_KOROYALEENABLED) == KOROYALESETTING_ENABLED && isNotPublic && !isBattle && !isTimeTrial && !SplitScreen8::RoyaleOff();
     const u8 koRoyaleBalloons = settings.GetSettingValue(Pulsar::Settings::SETTING_KOROYALEBALLOONS);
     bool isKoPerRace2 = koRoyaleBalloons == KOROYALESETTING_BALLOONS_2;
     bool isKoPerRace3 = koRoyaleBalloons == KOROYALESETTING_BALLOONS_3;

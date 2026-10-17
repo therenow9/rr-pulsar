@@ -10,6 +10,7 @@
 #include <Gamemodes/LapKO/LapKOMgr.hpp>
 #include <MarioKartWii/RKNet/RKNetController.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace BattleElim {
@@ -84,7 +85,7 @@ static void SetTimerToZeroWhenAllPlayersEliminated() {
     const RacedataScenario &scenario = racedata.menusScenario;
     const GameMode mode = scenario.settings.gamemode;
     const u8 playerCount = Pulsar::System::sInstance->nonTTGhostPlayersCount;
-    const u8 localPlayerCount = scenario.localPlayerCount;
+    const u8 localPlayerCount = SplitScreen8::RaceLocals(scenario.localPlayerCount);
     if (!raceinfo->IsAtLeastStage(RACESTAGE_RACE))
         return;
     if (!ShouldApplyBattleElimination())

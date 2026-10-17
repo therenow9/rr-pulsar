@@ -8,6 +8,7 @@
 #include <MarioKartWii/3D/Model/ModelTransformator.hpp>
 #include <MarioKartWii/3D/Model/AnmHolder.hpp>
 #include <UI/ExtendedTeamSelect/ExtendedTeamManager.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace Extra {
@@ -39,7 +40,8 @@ static bool IsOnAnyLocalItemBubbleTeam(u8 playerId) {
         return false;
 
     const RacedataScenario &scenario = racedata->racesScenario;
-    for (u8 localPlayer = 0; localPlayer < scenario.localPlayerCount; ++localPlayer) {
+    const u8 localPlayerCount = SplitScreen8::RaceLocals(scenario.localPlayerCount);
+    for (u8 localPlayer = 0; localPlayer < localPlayerCount; ++localPlayer) {
         const u8 localPlayerId = static_cast<u8>(racedata->GetPlayerIdOfLocalPlayer(localPlayer));
         if (AreOnSameItemBubbleTeam(playerId, localPlayerId))
             return true;
@@ -128,7 +130,7 @@ static void SetupItemLightAnimation(Item::Obj *obj) {
         return;
 
     const RacedataScenario &scenario = racedata->racesScenario;
-    const u8 screenCount = scenario.screenCount;
+    const u8 screenCount = SplitScreen8::raceScreenCount != 0 ? SplitScreen8::raceScreenCount : scenario.screenCount;
 
     for (u32 i = 0; i < screenCount; ++i) obj->item_light->DisableScreen(i);
 
@@ -145,7 +147,8 @@ static void SetupItemLightAnimation(Item::Obj *obj) {
         return;
 
     bool showBubble = false;
-    for (u8 localPlayer = 0; localPlayer < scenario.localPlayerCount; ++localPlayer) {
+    const u8 localPlayerCount = SplitScreen8::RaceLocals(scenario.localPlayerCount);
+    for (u8 localPlayer = 0; localPlayer < localPlayerCount; ++localPlayer) {
         const u8 localPlayerId = static_cast<u8>(racedata->GetPlayerIdOfLocalPlayer(localPlayer));
         if (!AreOnSameItemBubbleTeam(playerId, localPlayerId))
             continue;

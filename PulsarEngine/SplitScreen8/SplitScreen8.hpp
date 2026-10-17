@@ -57,6 +57,11 @@ static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710); 
 
 // Local players of a widened race or of any race with more than 4, else 0; the scenario's own count stops at 4.
 extern u8 raceLocalCount;
+// A race's local players for a loop over them: the scenario's count, which stops at 4, unless the race has more on
+// its own screens; a one-screen scene (Next Race's) gives locals 4-7 no hud, and their player id reads past hudPlayerIds.
+inline u8 RaceLocals(u8 scenarioLocals) {
+    return raceScreenCount != 0 && raceLocalCount != 0 ? raceLocalCount : scenarioLocals;
+}
 // Real controller holder of controller id 0..7; ids 4+ live past the manager's own holders.
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id);
 // A local player's holder in the menus, and whether an Action is newly pressed on a holder this frame.
@@ -64,6 +69,10 @@ Input::RealControllerHolder *PlayerHolder(u32 player);
 bool UIPressed(const Input::RealControllerHolder &holder, u32 action);
 // Local players of the 5-8 player game the menus are setting up, else 0; SectionParams' own count stays 4 in it.
 extern u8 menuLocalCount;
+// Battle Royale's race faults as it loads on 8 screens (7-8 locals), so a game that big keeps it off.
+inline bool RoyaleOff() {
+    return menuLocalCount > 6;
+}
 // P5-8's character and kart, read at InitRace once picked and cleared at the main menu; SectionParams' picks are 4 wide.
 struct ExtPick {
     CharacterId character;

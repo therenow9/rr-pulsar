@@ -577,10 +577,13 @@ static void UnpackKartArchive(void *area) {
     EGG::ExpHeap *heap = static_cast<EGG::ExpHeap *>(area);
     ArchiveMgr *archives = ArchiveMgr::sInstance;
     ArchivesHolder *holder = &archives->kartModelsHolders[kUnpackHolder];
+    const u64 start = OS::GetTime();
+    OS::Report("ss8 preview: unpack start %s prio %u\n", unpackPath, OS::Thread::current->priority);
     if (holder->HasArchives())
         holder->UnmountArchives();
     heap->freeAll();
     holder->LoadArchives(unpackPath, heap, archives->allkartModelDumpHeap, nullptr);
+    OS::Report("ss8 preview: unpack end %s %u ms\n", unpackPath, OS::TicksToMilliseconds(OS::GetTime() - start));
     unpackState = UNPACK_DONE;
 }
 
@@ -613,7 +616,7 @@ static bool RequestUnpack(CharacterId character, u32 slot) {
         unpackState = UNPACK_IDLE;
         return false;
     }
-    OS::Report("ss8 preview: kart archive %s\n", unpackPath);
+    OS::Report("ss8 preview: kart archive %s prio %u\n", unpackPath, OS::Thread::current->priority);
     return true;
 }
 

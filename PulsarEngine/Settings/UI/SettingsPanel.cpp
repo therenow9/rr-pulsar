@@ -232,10 +232,9 @@ void SettingsPanel::LoadCurrentValues() {
     }
 }
 
-// Battle Royale's and Elimination's settings, which a 5-8 player game cannot play: greyed, and the cursor skips them.
+// Battle Royale's settings, which a 7-8 player game cannot play: greyed, and the cursor skips them.
 static bool IsGreyed(Settings::SettingId id) {
-    return SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal
-      && (id == Settings::SETTING_KOROYALEENABLED || id == Settings::SETTING_KOROYALEBALLOONS || id == Settings::SETTING_KOROYALELAPMULTIPLIER || id == Settings::SETTING_BATTLEELIMINATION);
+    return SplitScreen8::RoyaleOff() && (id == Settings::SETTING_KOROYALEENABLED || id == Settings::SETTING_KOROYALEBALLOONS || id == Settings::SETTING_KOROYALELAPMULTIPLIER);
 }
 
 void SettingsPanel::OnActivate() {
@@ -313,7 +312,7 @@ void SettingsPanel::SetControlsHidden(bool hidden) {
             }
             radio.Init();
             greyed = IsGreyed(id);
-            if (SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal)  // a row shows another setting on each page
+            if (SplitScreen8::RoyaleOff())  // a row shows another setting on each page
                 SplitScreen8::Fade(radio, greyed);
         }
         radio.isHidden = rowHidden;
@@ -332,7 +331,7 @@ void SettingsPanel::SetControlsHidden(bool hidden) {
             scroller.SelectInitial(def.optionCount, scrollerValues[scroller.id]);
             scroller.Init();
             greyed = IsGreyed(id);
-            if (SplitScreen8::menuLocalCount > SplitScreen8::kGameLocal) {
+            if (SplitScreen8::RoyaleOff()) {
                 SplitScreen8::Fade(scroller, greyed);
                 SplitScreen8::Fade(value, greyed);
             }
