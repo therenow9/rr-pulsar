@@ -363,7 +363,7 @@ bool ExtPreviewLoad(u32 player, CharacterId characterId, u32 slotArg) {
     bool bound;
     if (isMii) {
 #ifdef SS8_VANILLA
-        bound = false;  // the Mii body loader is RR's
+        bound = brresHandle.BindDriverBRRES(characterId);
 #else
         bound = Pulsar::LoadMiiOutfitCBRRES(&brresHandle, characterId) != 0;
 #endif

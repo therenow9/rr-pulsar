@@ -780,10 +780,15 @@ void SelectPage::Leave(u32 next, u32 animDirection) {
     if (next == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT && Pulsar::UI::ShouldSkipTransmissionSelect(Pulsar::System::sInstance))
 #endif
         next = this->kartStep ? Pulsar::UI::PULPAGE_SS8DRIFTSELECT : Pulsar::UI::PULPAGE_SS8KARTSELECT;
+#ifdef SS8_VANILLA
+    // The game's arenas have their own cup page (MultiDriftSelect::OnButtonClick, 0x8084B7BC); RR's cup page holds them.
+    if (next == PAGE_CUP_SELECT && Racedata::sInstance->menusScenario.settings.gamemode == MODE_BATTLE)
+        next = PAGE_BATTLE_CUP_SELECT;
+#endif
     this->leaving = true;
     this->nextPageId = static_cast<PageId>(next);
-    if (next == PAGE_CUP_SELECT && animDirection == 0) {
-        Page *cupSelect = SectionMgr::sInstance->curSection->pages[PAGE_CUP_SELECT];
+    if ((next == PAGE_CUP_SELECT || next == PAGE_BATTLE_CUP_SELECT) && animDirection == 0) {
+        Page *cupSelect = SectionMgr::sInstance->curSection->pages[next];
         if (cupSelect != nullptr)
             static_cast<Pages::Menu *>(cupSelect)->prevPageId = static_cast<PageId>(this->step.id);
     }

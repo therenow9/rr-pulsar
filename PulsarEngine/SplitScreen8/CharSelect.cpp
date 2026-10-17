@@ -768,8 +768,8 @@ s32 CharSelectPage::ButtonOf(CharacterId character) const {
     return -1;
 }
 
-// P1-4 start on SectionParams' last picks (0x807E2F34), P5-8 on theirs. Mii C opens as RR opens it on the vanilla page
-// without character restrictions; a last pick on a locked C starts on the default.
+// P1-4 start on SectionParams' last picks (0x807E2F34), P5-8 on theirs. Mii C opens as RR opens it on the game's page
+// without character restrictions, and never without RR; a last pick on a locked C starts on the default.
 void CharSelectPage::OnActivate() {
     this->nextPageId = PAGE_NONE;
     this->leaving = false;
@@ -787,12 +787,15 @@ void CharSelectPage::OnActivate() {
     const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
     if (!miiCOpen && rksys != nullptr)
         miiCOpen = Pulsar::PointRating::GetUserVR(rksys->curLicenseId) >= 300.0f;
-#endif
 #ifdef SS8_MENU_SCRIPT
     miiCOpen = miiCOpen || menuOpenMiiC;
 #endif
+#endif
     Button &miiC = this->buttons[kButtons - 1];
     miiC.locked = !miiCOpen;
+#ifdef SS8_VANILLA
+    miiC.control.isHidden = true;  // the game's page has no Mii C; the disc's Button2 lies over Mii B
+#endif
     this->SetIcon(miiC);
     for (u32 p = 0; p < kMaxLocal; ++p) {
         Cursor &cursor = this->cursors[p];
