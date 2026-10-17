@@ -7,9 +7,9 @@
 namespace SplitScreen8 {
 
 // RaceScene::CreateAndInitInstances+0x310: every item object's models load per screen on the ScnMgr's heap, 2.6 MB of MEM1
-// at 8 screens under RR's Royale limits, which leaves Lakitu's none; a 5-8 player race loads them on MEM2.
+// at 8 screens under RR's Royale limits, which leaves Lakitu's none; a 5-8 player race loads them on MEM2 while 2.5 MB is free.
 static Item::Manager *CreateItemManager() {
-    EGG::ExpHeap *mem2 = RaceMem2();
+    EGG::ExpHeap *mem2 = RaceMem2(0x280000);
     if (mem2 == nullptr)
         return Item::Manager::CreateInstance();
     ScnMgr *scnMgr = ScnMgr::sInstance[0];

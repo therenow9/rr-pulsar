@@ -432,17 +432,20 @@ static void SpeedoCreate(Page &page, u32 index, u32 count) {
 }
 static Pulsar::UI::CustomCtrlBuilder wideSpeedos(SpeedoCount, SpeedoCreate);
 
-EGG::ExpHeap *RaceMem2() {
+EGG::ExpHeap *RaceMem2(u32 room) {
     const GameScene *scene = GameScene::GetCurrent();
     if (menuLocalCount <= kGameLocal || scene->id != SCENE_ID_RACE)
         return nullptr;
-    return scene->structsHeaps.heaps[1];
+    EGG::ExpHeap *mem2 = scene->structsHeaps.heaps[1];
+    if (mem2->getAllocatableSize(4) < room)
+        return nullptr;
+    return mem2;
 }
 
 // RR builds every section's layout allocator on the scene's MEM1 heap (SectionChanges.cpp, 0x80621F4C); a 5-8 player race's
-// race sections keep the game's MEM2 heap.
+// race sections keep the game's MEM2 heap while 1.25 MB of it is free: 0.79 MB of layouts at 8 screens, the rest headroom.
 static EGG::Heap *RaceLayoutHeap(EGG::Heap *heap) {
-    EGG::Heap *mem2 = RaceMem2();
+    EGG::Heap *mem2 = RaceMem2(0x140000);
     return mem2 != nullptr ? mem2 : heap;
 }
 

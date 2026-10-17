@@ -181,16 +181,9 @@ static void Fade(LayoutUIControl &control, bool faded) {
     root.flag |= 2;  // influenced alpha: the panes below take the root's
 }
 
-// These fault at load with 8 locals, so 5-8 player games leave them out (Mystic Tangle's tree models: 4.5 MB of MEM1).
-static const u16 kTracksOffForLocals[] = {0x18e, 0x19e, 0x1e3, 0x1e4, 0x1fb, 0x21d, 0x224};
-
+// Mystic Tangle faults at load with 8 locals (its tree models take 4.3 MB of MEM1), so 5-8 player games leave it out.
 bool TrackOffForLocals(u32 track) {
-    if (menuLocalCount <= kGameLocal)
-        return false;
-    for (u32 i = 0; i < sizeof(kTracksOffForLocals) / sizeof(kTracksOffForLocals[0]); ++i)
-        if (kTracksOffForLocals[i] == track)
-            return true;
-    return false;
+    return menuLocalCount > kGameLocal && track == 0x1e4;
 }
 
 // The page keeps its buttons from cup to cup, so a 5-8 player game sets both ways; the variant page's control is left alone.

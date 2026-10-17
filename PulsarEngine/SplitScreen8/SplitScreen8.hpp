@@ -76,8 +76,9 @@ extern u8 menuLocalCount;
 // Whether a 5-8 player game leaves a track out, by PulsarId; and, on the course page, its button greyed and unselectable.
 bool TrackOffForLocals(u32 track);
 bool OffCourseButton(CtrlMenuCourseSelectCourse &course, u32 row, u32 track);
-// The race scene's MEM2 heap in a 5-8 player race, else null: the race's MEM1 cannot also hold that race's layouts and items.
-EGG::ExpHeap *RaceMem2();
+// The race scene's MEM2 heap in a 5-8 player race while it has room bytes free, else null: the race's MEM1 cannot also hold
+// that race's layouts and items, unless a big track's archive, which sits on MEM2, leaves MEM2 less.
+EGG::ExpHeap *RaceMem2(u32 room);
 // P5-8's character and kart, read at InitRace once picked and cleared at the main menu; SectionParams' picks are 4 wide.
 struct ExtPick {
     CharacterId character;
