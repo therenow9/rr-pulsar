@@ -502,4 +502,39 @@ asmFunc HighwayCarScreens() {
 }
 kmCall(0x806d5fb0, HighwayCarScreens);
 
+// The Boos' manager (object 0x18C, __ct 0x80753B34) sizes its array of per-local Boo sets by "lbz r4, 0x26(r4)", the
+// scenario's locals, then fills one per local kart: a widened race gets its own count. r12 is reloaded next, CR0 is not read.
+asmFunc BooSetCount() {
+    ASM(
+        nofralloc;
+        lbz r4, 0x26(r4);
+        lis r12, raceScreenCount @ha;
+        lbz r12, raceScreenCount @l(r12);
+        cmpwi r12, 0;
+        beqlr;
+        lis r12, raceLocalCount @ha;
+        lbz r12, raceLocalCount @l(r12);
+        cmpwi r12, 0;
+        beqlr;
+        mr r4, r12;
+        blr;)
+}
+kmCall(0x80753b94, BooSetCount);
+
+// Its "bl Kart::Link::IsLocal" per kart: a one-screen scene's locals 5-8 would fill past the array (r18 sets made, the
+// capacity at +0xB4 of r15), so they get none. The branch keeps the call's LR, so IsLocal returns to the site.
+extern "C" bool IsLocal__Q24Kart4LinkCFv(const void *link);
+asmFunc BooSetLocal() {
+    ASM(
+        nofralloc;
+        lwz r0, 0xb4(r15);
+        cmpw r18, r0;
+        blt local;
+        li r3, 0;
+        blr;
+        local :;
+        b IsLocal__Q24Kart4LinkCFv;)
+}
+kmCall(0x80753bec, BooSetLocal);
+
 }  // namespace SplitScreen8
