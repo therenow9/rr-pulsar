@@ -499,10 +499,12 @@ static u32 NewIDWide(const void *pads, s32 hud) {
     return calculateID(&Holder(*Input::Manager::sInstance, hud));
 }
 kmCall(0x80715460, NewIDWide);
-// RecognizePadMenu::BeforeEntranceAnimations+0x38 and BeforeControlUpdate+0x2C ask it for the reconnect box's slot, P5-8's
-// in a 5-8 player game (Join.cpp).
+// RecognizePadMenu's and RecognizePadLocalRace's BeforeEntranceAnimations+0x38 and BeforeControlUpdate+0x2C ask it for
+// the reconnect box's slot, P5-8's in a 5-8 player game (Join.cpp).
 kmCall(0x8061c660, NewIDWide);
 kmCall(0x8061c7f0, NewIDWide);
+kmCall(0x8061cae0, NewIDWide);
+kmCall(0x8061cc64, NewIDWide);
 
 // The 4 CharacterActor voice-pan sites, "cmplwi r0, 4; bgt" on the hud (+0x6ED): hud 5+ skip the pan
 // and 4 gets the centre. A local's hud 4-7 of a widened race passes (CR0 eq); the bgt reads CR0 only.

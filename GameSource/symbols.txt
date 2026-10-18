@@ -2736,6 +2736,7 @@ ResetAllPads__10SectionPadFv = 0x8061bcc8
 ResetPad__10SectionPadFUi = 0x8061b7c4
 ResetPadsStatus__10SectionPadFv = 0x8061b9a0
 SetPadDisconnected__10SectionPadFUi = 0x8061b89c
+DisconnectPad__10SectionPadFUi = 0x8061b8b0
 GetFirstDeactivatedPad__10SectionPadFv = 0x8061b9bc
 RequestPad__10SectionPadFUc = 0x8061b6ec
 HasAController__10SectionPadCFUc = 0x8061b3cc

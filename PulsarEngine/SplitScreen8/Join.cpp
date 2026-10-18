@@ -451,32 +451,36 @@ asmFunc ConfirmChangeNextPage() {
 }
 kmCall(0x80605234, ConfirmChangeNextPage);
 
-// The reconnect box (RecognizePad) scans SectionPad's slots 0-4. In a 5-8 player game's menus it scans P5-8 too wherever
-// the top page scans all of P1-4; a race's box stays P1-4's.
+// The reconnect box (RecognizePad) scans SectionPad's slots 0-4. In a 5-8 player game it scans P5-8 too wherever the
+// top page scans all of P1-4: the menus' players, or a race's locals (fewer after a knockout).
 static bool ExtBoxSlot(u32 slot) {
-    return slot >= kGameLocal && slot < menuLocalCount && GameScene::GetCurrent()->id != SCENE_ID_RACE;
+    const bool race = GameScene::GetCurrent()->id == SCENE_ID_RACE;
+    return slot >= kGameLocal && slot < (race ? raceLocalCount : menuLocalCount);
 }
 
-// RecognizePad::OnActivate+0x74 and CheckForConditions+0x2C, "bl GetFirstDeactivatedPad".
+// RecognizePad::OnActivate+0x74, RecognizePadLocalRace::OnActivate+0x80 and CheckForConditions+0x2C,
+// "bl GetFirstDeactivatedPad".
 static s32 FirstDeactivatedPad(SectionPad *pad) {
     const s32 slot = pad->GetFirstDeactivatedPad();
-    if (slot >= 0 || (pad->localPlayerBitfield & ((1 << kGameLocal) - 1)) != (1 << kGameLocal) - 1 || !ExtBoxSlot(kGameLocal))
+    if (slot >= 0 || (pad->localPlayerBitfield & ((1 << kGameLocal) - 1)) != (1 << kGameLocal) - 1)
         return slot;
-    for (u32 ext = kGameLocal; ext < menuLocalCount; ++ext) {
+    for (u32 ext = kGameLocal; ExtBoxSlot(ext); ++ext) {
         if (!Joined(ext))
             return ext;
     }
     return -1;
 }
 kmCall(0x8061c234, FirstDeactivatedPad);
+kmCall(0x8061c9ec, FirstDeactivatedPad);
 kmCall(0x8061c438, FirstDeactivatedPad);
 
-// The box's reads of the slot it shows (OnActivate+0x84, AfterControlUpdate+0x4C), and the lamp row's, which lights the
-// lamp of that slot's port or channel (SetMessage_case14+0x2C, "{arg border}"); P5-8 have no PadInfo.
+// The box's reads of its slot (both OnActivates, AfterControlUpdate+0x4C), and the lamp row's, which lights that slot's
+// port or channel (SetMessage_case14+0x2C, "{arg border}"); P5-8 have no PadInfo.
 static u32 BoxCurrentID(const SectionPad *pad, u32 slot) {
     return ExtBoxSlot(slot) ? extPads[slot - kGameLocal].id : pad->GetCurrentID(slot);
 }
 kmCall(0x8061c244, BoxCurrentID);
+kmCall(0x8061c9fc, BoxCurrentID);
 kmCall(0x8061c330, BoxCurrentID);
 kmCall(0x805ce65c, BoxCurrentID);
 
@@ -498,16 +502,17 @@ static bool SlotHasAController(const SectionPad *pad, u32 slot) {
 }
 kmCall(0x80601514, SlotHasAController);
 
-// RecognizePadMenu::BeforeEntranceAnimations+0x50, "bl PadControl::SetParams". The "Player" group binds its colour tracks
-// again only when its animation changes, so a 5-8 player game's box first plays P1's, undoing a P5-8 box's ColourSlot.
+// Both boxes' BeforeEntranceAnimations+0x50, "bl PadControl::SetParams". The "Player" group binds its colour tracks again
+// only when its animation changes, so a 5-8 player game's box first plays P1's, undoing a P5-8 box's ColourSlot.
 static void BoxPadParams(LayoutUIControl *pad, u32 hud, u8 coloured, u32 mode) {
-    if (menuLocalCount > kGameLocal)
+    if (ExtBoxSlot(kGameLocal))
         pad->animator.GetAnimationGroupById(1).PlayAnimationAtFrame(0, 0.0f);
     padSetParams(pad, hud, coloured, mode);
     if (ExtBoxSlot(hud))
         ColourSlot(*pad, hud);
 }
 kmCall(0x8061c678, BoxPadParams);
+kmCall(0x8061caf8, BoxPadParams);
 
 // RecognizePadMenu::AfterEntranceAnimations+0x40 and +0x44 tail-call SetPadDisconnected or RequestPad, both indexing
 // padInfos[5] by the slot; a P5-8 slot waits for an A on any free controller in both cases.
@@ -518,6 +523,25 @@ static void BoxPadDisconnected(SectionPad *pad, u32 slot) {
         pad->SetPadDisconnected(slot);
 }
 kmBranch(0x8061c760, BoxPadDisconnected);
+
+// A race's box asks for the pad through DisconnectPad, which also indexes padInfos[5]: RecognizePadLocalRace's
+// AfterEntranceAnimations+0x40 and +0x44 (tail calls) and BeforeControlUpdate+0x98, once a changed controller leaves.
+static void RaceBoxDisconnectPad(SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        Request(slot);
+    else
+        pad->DisconnectPad(slot);
+}
+kmBranch(0x8061cbd4, RaceBoxDisconnectPad);
+kmBranch(0x8061cbd8, RaceBoxDisconnectPad);
+kmCall(0x8061ccd0, RaceBoxDisconnectPad);
+
+// RecognizePadLocalRace::BeforeControlUpdate+0xBC asks for P1-4's pad again when another controller holds the slot, as a
+// race keeps each player's own; P5-8 take any free controller, as in the menus.
+static bool RaceBoxHasAController(const SectionPad *pad, u32 slot) {
+    return !ExtBoxSlot(slot) && pad->HasAController(slot);
+}
+kmCall(0x8061ccf4, RaceBoxHasAController);
 
 // BeforeControlUpdate+0x8C requests the slot's pad again once a changed controller leaves its channel.
 static void BoxRequestPad(SectionPad *pad, u32 slot) {
