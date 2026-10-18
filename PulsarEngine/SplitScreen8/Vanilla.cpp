@@ -1,7 +1,11 @@
 #ifdef SS8_VANILLA
 #include <kamek.hpp>
+#include <core/System/SystemManager.hpp>
+#include <core/rvl/gx/GX.hpp>
 #include <MarioKartWii/3D/Scn/ScnMgr.hpp>
+#include <MarioKartWii/System/NdevArgsExtractor.hpp>
 #include <MarioKartWii/File/BMG.hpp>
+#include <MarioKartWii/Scene/GameScene.hpp>
 #include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
 #include <MarioKartWii/UI/Layout/Layout.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
@@ -9,7 +13,7 @@
 #include <SplitScreen8/SplitScreen8.hpp>
 
 // Mario Kart Wii without Retro Rewind: the Pulsar and RR hooks SplitScreen8 relies on, from the RR files this build leaves out
-// (UI/UI.cpp, UI/UIColor.cpp, Driver/CustomCharacters.cpp, Race/CustomCharacters.cpp).
+// (UI/UI.cpp, UI/UIColor.cpp, Driver/CustomCharacters.cpp, Race/CustomCharacters.cpp, Race/ResourceFixes.cpp).
 
 namespace Pulsar {
 namespace UI {
@@ -204,6 +208,26 @@ static void ResetScnMgr() {
     ScnMgr::Reset();
 }
 kmCall(0x8051b118, ResetScnMgr);
+
+// GameScene::reinit+0x1C, "bl GameScene::Reset", before it frees the structs heaps: the outgoing scene's light textures
+// still have EFB copies queued into them, so drain the GPU first, as EGG::SceneManager::destroyScene does.
+static void ResetAndDrainGpu(GameScene &scene) {
+    scene.Reset();
+    GX::Flush();
+    GX::DrawDone();
+}
+kmCall(0x8051b7cc, ResetAndDrainGpu);
+
+#ifdef SS8_DEBUG_BOOT
+// SectionMgr::Init's "bl NdevArgsExtractor::ExtractAllArgs", as RR's BootIntoSection: with no ndevArg it returns before
+// registering pad 0, so RR's own string sets license 0 and GC port 1 (0x124), the pad an RR boot gets in Dolphin.
+static SectionId BootIntoSection(const NdevArgsExtractor &extractor) {
+    SystemManager::sInstance->ndevArg = "-s132 -l0 -p292";
+    extractor.ExtractAllArgs();
+    return DebugBootPrepare(SECTION_NONE);
+}
+kmCall(0x80634f20, BootIntoSection);
+#endif
 
 }  // namespace SplitScreen8
 #endif

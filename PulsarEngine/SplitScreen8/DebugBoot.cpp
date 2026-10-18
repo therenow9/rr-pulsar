@@ -72,6 +72,13 @@ static FrameLoadHook holdBootCount(HoldBootCount);
 // scenario is filled as Title::PrepareDemo fills its no-menu race; InitRace copies it into the race.
 SectionId DebugBootPrepare(SectionId section) {
     Racedata *racedata = Racedata::sInstance;
+#ifdef SS8_VANILLA
+    SectionMgr *sectionMgr = SectionMgr::sInstance;
+    // A CourseId, which build_code.py checks.
+    const CourseId track = static_cast<CourseId>(SS8_BOOT_TRACK);
+    if (racedata == nullptr || sectionMgr == nullptr || sectionMgr->sectionParams == nullptr)
+        return section;
+#else
     Pulsar::CupsConfig *cups = Pulsar::CupsConfig::sInstance;
     SectionMgr *sectionMgr = SectionMgr::sInstance;
     const Pulsar::PulsarId track = static_cast<Pulsar::PulsarId>(SS8_BOOT_TRACK);
@@ -79,6 +86,7 @@ SectionId DebugBootPrepare(SectionId section) {
         return section;
     if (!cups->IsValidTrack(track))
         return section;
+#endif
 
     racedata->ResetScenarios();
     RacedataScenario &scenario = racedata->menusScenario;
@@ -113,6 +121,12 @@ SectionId DebugBootPrepare(SectionId section) {
     menuLocalCount = SS8_BOOT_LOCALS;
 #endif
 
+#ifdef SS8_VANILLA
+    // cupId stays as Racedata::Init leaves it: only a Grand Prix reads it.
+    settings.courseId = track;
+    SectionParams *params = sectionMgr->sectionParams;
+    params->vsTracks[0] = track;
+#else
     // The track goes through CupsConfig: RR's FormatTrackPath loads GetWinning(), not courseId.
     cups->SetWinning(track, SS8_BOOT_VARIANT);
     cups->SetSelected(track);
@@ -122,9 +136,11 @@ SectionId DebugBootPrepare(SectionId section) {
     SectionParams *params = sectionMgr->sectionParams;
     params->vsTracks[0] = static_cast<CourseId>(track);
     cups->vsTrackVariantIdx[0] = SS8_BOOT_VARIANT;
+#endif
     params->vsRaceNumber = 0;
     params->vsRaceLimit = 4;
 
+#ifndef SS8_VANILLA
     // RR gives offline CPUs custom skins only outside local multiplayer, at full LOD only, while a widened 1-local
     // boot loads the 4-screen LOD (+7 = 4): show the default skins a multi-local race would. RR's next settings save keeps it.
     if (Pulsar::Settings::Mgr::IsCreated())
@@ -137,6 +153,7 @@ SectionId DebugBootPrepare(SectionId section) {
     // RR's value 1 leaves PULSAR_FFA off (PulsarSystem.cpp), so the round is Red vs Blue.
     if (Pulsar::Settings::Mgr::IsCreated())
         Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_BATTLETEAMS, Pulsar::BATTLE_FFA_ENABLED);
+#endif
 #endif
     return kBootSection;
 }
@@ -251,8 +268,12 @@ static void BindBootPads() {
 #endif
     ++bootRaces;
     raceFrames = 0;
+#ifdef SS8_VANILLA
+    OS::Report("ss8 boot: race %u track %x variant %u locals %u\n", bootRaces, Racedata::sInstance->racesScenario.settings.courseId, 0, menuLocalCount);
+#else
     const Pulsar::CupsConfig *cups = Pulsar::CupsConfig::sInstance;
     OS::Report("ss8 boot: race %u track %x variant %u locals %u\n", bootRaces, cups->GetWinning(), cups->GetCurVariantIdx(), menuLocalCount);
+#endif
 }
 static RaceLoadHook bindBootPads(BindBootPads);
 
