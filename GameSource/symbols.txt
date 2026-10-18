@@ -1155,6 +1155,8 @@ ExtractAllArgs__17NdevArgsExtractorCFv = 0x805b9344
 
 #SectionParams
 ChangeLicense__13SectionParamsFv = 0x805e40a8
+RandomizeVSTracks__13SectionParamsFv = 0x805e32ec
+RandomizeBattleArenas__13SectionParamsFv = 0x805e3858
 
 #SectionPad
 GetCurrentID__10SectionPadCFUi = 0x8061b358

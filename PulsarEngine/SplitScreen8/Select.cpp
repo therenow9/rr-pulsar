@@ -17,6 +17,7 @@
 #include <MarioKartWii/UI/Page/Menu/KartSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/Menu.hpp>
 #include <MarioKartWii/UI/Page/Menu/MultiPlayerTeamSelect.hpp>
+#include <MarioKartWii/UI/Page/Menu/StartRace.hpp>
 #include <MarioKartWii/UI/Page/Other/ModelRenderer.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuText.hpp>
 #include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
@@ -71,7 +72,11 @@ static const KartVoiceFn kartVoice = reinterpret_cast<KartVoiceFn>(0x808689dc);
 extern "C" bool PlayDriverTeamVoice(u8 *manager, u32 hud, u32 team);
 
 const float kCellX[kGameLocal] = {-240.0f, -80.0f, 80.0f, 240.0f};
+#ifdef SS8_VANILLA
+const float kKartPlateY[2] = {65.0f, -95.0f};  // clear of the game's bottom bar, which RR's background lacks
+#else
 const float kKartPlateY[2] = {10.0f, -165.0f};
+#endif
 const float kKartPlateScale = 0.5f;
 const float kKartPreviewDY = 71.0f;  // the texture's middle; the kart sits low in it
 const float kKartPreviewScale = 0.45f;
@@ -270,6 +275,7 @@ public:
     void OnActivate() override;
     void OnDeactivate() override;
     void AfterControlUpdate() override;
+    void OnResume() override;
 
 private:
     void Leave(u32 next, u32 animDirection);
@@ -295,6 +301,7 @@ private:
     CtrlMenuPageTitleText *titleText;
     PageManipulatorManager manager;
     PageId nextPageId;
+    SectionId raceSection;  // while Start? is up, the section its OK opens
     bool ready[kMaxLocal];
     bool leaving;
     s32 leaveFrames;  // counts down once everyone is ready, -1 before
@@ -406,6 +413,7 @@ void SelectPage::LoadCell(u32 player) {
 
 void SelectPage::OnActivate() {
     this->nextPageId = PAGE_NONE;
+    this->raceSection = SECTION_NONE;
     this->leaving = false;
     this->leaveFrames = -1;
     this->rolling = -1;
@@ -819,9 +827,30 @@ void SelectPage::Leave(u32 next, u32 animDirection) {
 #endif
         next = this->kartStep ? Pulsar::UI::PULPAGE_SS8DRIFTSELECT : Pulsar::UI::PULPAGE_SS8KARTSELECT;
 #ifdef SS8_VANILLA
+    const bool battle = Racedata::sInstance->menusScenario.settings.gamemode == MODE_BATTLE;
     // The game's arenas have their own cup page (MultiDriftSelect::OnButtonClick, 0x8084B7BC); RR's cup page holds them.
-    if (next == PAGE_CUP_SELECT && Racedata::sInstance->menusScenario.settings.gamemode == MODE_BATTLE)
+    if (next == PAGE_CUP_SELECT && battle)
         next = PAGE_BATTLE_CUP_SELECT;
+    // With the multiplayer rules' courses on Random (index 2 or 3, 0x80860A28; Random is 1) the game's drift page draws
+    // them and asks Start? in place of the cup page (0x8084B6D8-0x8084B798).
+    const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
+    if ((next == PAGE_CUP_SELECT || next == PAGE_BATTLE_CUP_SELECT) && animDirection == 0 && static_cast<s16>(rksys->curLicenseId) >= 0
+      && rksys->licenses[rksys->curLicenseId].courseChoice[battle ? 3 : 2] == 1) {
+        SectionParams *params = SectionMgr::sInstance->sectionParams;
+        RacedataSettings &settings = Racedata::sInstance->menusScenario.settings;
+        if (battle) {
+            params->RandomizeBattleArenas();
+            settings.courseId = params->battleArenas[0];
+        } else {
+            params->RandomizeVSTracks();
+            settings.courseId = params->vsTracks[0];
+        }
+        this->raceSection = battle ? SECTION_BALLOON_BATTLE_INTRO : SECTION_VS_RACE_INTRO;
+        this->leaving = true;
+        OS::Report("ss8 select: %s page -> start race on %#x\n", this->step.name, settings.courseId);
+        this->AddPageLayer(PAGE_START_RACE, 0);
+        return;
+    }
 #endif
     this->leaving = true;
     this->nextPageId = static_cast<PageId>(next);
@@ -834,7 +863,24 @@ void SelectPage::Leave(u32 next, u32 animDirection) {
     this->EndStateAnimated(animDirection, 0.0f);
 }
 
-// P5-8's karts on the cup and course pages: the page's model control (NoteModelControl::Load, 0x805F4348) showing
+// As Menu::OnResume once Start? closes (0x80837D44): its OK changes section, and its Back clears every player's
+// choice, as MultiDriftSelect::OnResume does (0x8084B8C4).
+void SelectPage::OnResume() {
+    const SectionId section = this->raceSection;
+    if (section == SECTION_NONE)
+        return;
+    this->raceSection = SECTION_NONE;
+    if (SectionMgr::sInstance->curSection->Get<Pages::StartRace>()->hasButtonBeenPressed) {
+        this->ChangeSectionBySceneChange(section, 0, 0.0f);
+        return;
+    }
+    OS::Report("ss8 select: %s page back from start race\n", this->step.name);
+    for (u32 player = 0; player < kMaxLocal; ++player) this->ready[player] = false;
+    this->leaving = false;
+    this->leaveFrames = -1;
+}
+
+// P5-8's karts on the cup, course, Battle cup and arena pages: the page's model control (NoteModelControl::Load, 0x805F4348) showing
 // their preview, as the character and kart pages do.
 class CupKart : public LayoutUIControl {
 public:
@@ -886,16 +932,17 @@ void CupKart::OnUpdate() {
     SetPreviewTexture(*this, texObj);
     this->isHidden = texObj == nullptr;
     Pages::Menu *page = static_cast<Pages::Menu *>(this->parentGroup->parentPage);
-    const bool course = page->pageId == PAGE_COURSE_SELECT;
+    const bool course = page->pageId != PAGE_CUP_SELECT;  // the Battle cup and arena pages take the course page's columns
     PlaceCupKart(*this, this->player, course);
-    if (this->player == kGameLocal)  // P1-4's each frame, over RR's one-time place (ExpansionUIMisc.cpp)
+    if (this->player == kGameLocal)  // P1-4's each frame, over RR's one-time place (ExpansionUIMisc.cpp) or the game's
         for (u32 i = 0; i < kGameLocal; ++i) PlaceCupKart(page->modelPosition[i], i, course);
 }
 
-// Menu::OnInit's "bl Page::InitControlGroup" (0x80836CFC, 0x80836DC8); r3-r4 are the call's own. On the cup and
-// course pages of a 5-8 player game, P5-8's karts go after the count the code after it fills.
+// Menu::OnInit's "bl Page::InitControlGroup" (0x80836CFC, 0x80836DC8); r3-r4 are the call's own. On the cup, course,
+// Battle cup and arena pages of a 5-8 player game, P5-8's karts go after the count the code after it fills.
 static void MenuControlGroup(Page &page, u32 count) {
-    const bool karts = (page.pageId == PAGE_CUP_SELECT || page.pageId == PAGE_COURSE_SELECT) && menuLocalCount > kGameLocal;
+    const PageId id = page.pageId;
+    const bool karts = (id == PAGE_CUP_SELECT || id == PAGE_COURSE_SELECT || id == PAGE_BATTLE_CUP_SELECT || id == PAGE_BATTLE_STAGE_SELECT) && menuLocalCount > kGameLocal;
     const u32 extra = karts ? menuLocalCount - kGameLocal : 0;
     page.InitControlGroup(count + extra);
     for (u32 i = 0; i < extra; ++i) {

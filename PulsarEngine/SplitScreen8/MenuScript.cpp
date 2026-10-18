@@ -225,6 +225,7 @@ static void ReportRacePlayers() {
         OS::Report("ss8 race player %u: type %d hud %d ch %d character %#x kart %#x team %d\n", i, player.playerType, player.hudSlotId, player.realControllerChannel, player.characterId, player.kartId,
           player.team);
     }
+    OS::Report("ss8 context: gamemode %d battle %d course %#x race %u\n", scenario.settings.gamemode, scenario.settings.battleType, scenario.settings.courseId, scenario.settings.raceNumber);
 #else
     Pulsar::UI::ExtendedTeamManager *teams = Pulsar::UI::ExtendedTeamManager::sInstance;
     for (u32 i = 0; i < sizeof(scenario.players) / sizeof(scenario.players[0]); ++i) {

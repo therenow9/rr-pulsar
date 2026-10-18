@@ -7,6 +7,7 @@
 //_sinit_ at 80842a64
 namespace Pages {
 class StartRace : public MenuInteractable {  // ID 0x4B //tied to one OK button "Start?"
+public:
     static const PageId id = PAGE_START_RACE;
     StartRace();  // 80625a7c
     ~StartRace() override;  // 808429d8 vtable 808d9580
