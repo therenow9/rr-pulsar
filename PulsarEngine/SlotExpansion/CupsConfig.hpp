@@ -134,6 +134,8 @@ public:
         this->selectedCourse = id;
     }
     const char *GetFileName(PulsarId id, u8 variantIdx) const;
+    // The path a non-reg track's race loads, without the .szs the loader adds
+    void FormatCoursePath(char *path, u32 length, PulsarId id, u8 variantIdx) const;
     u32 GetTotalVariantCount() const {
         return this->totalVariantCount;
     }

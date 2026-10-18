@@ -38,6 +38,7 @@ private:
     u8 baseRowIdx;
     u8 highlightedVariantIdx;
     u8 variantButtonVariants[4];
+    bool variantButtonOff[4];  // read once per activation: ApplyVariantButtonState runs every frame
     wchar_t variantButtonNames[4][128];
     bool variantButtonsPopulated;
     PtmfHolder_2A<VariantSelect, void, PushButton &, u32> onBackClickHandler;

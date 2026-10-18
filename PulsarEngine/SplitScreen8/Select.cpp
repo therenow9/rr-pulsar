@@ -1,5 +1,7 @@
 #include <kamek.hpp>
 #include <core/rvl/OS/OS.hpp>
+#include <core/rvl/OS/OSCache.hpp>
+#include <core/rvl/dvd/dvd.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuModelMgr.hpp>
@@ -24,6 +26,8 @@
 #include <Driver/CustomCharacters.hpp>
 #include <Network/Settings/SelectionRestrictions.hpp>
 #include <PulsarSystem.hpp>
+#include <Settings/Settings.hpp>
+#include <SlotExpansion/CupsConfig.hpp>
 #include <UI/UI.hpp>
 #include <UI/TransmissionSelect/TransmissionSelect.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
@@ -185,21 +189,55 @@ static void Fade(LayoutUIControl &control, bool faded) {
     root.flag |= 2;  // influenced alpha: the panes below take the root's
 }
 
+#ifndef SS8_VANILLA
 // Mystic Tangle faults at load with 8 locals (its tree models take 4.3 MB of MEM1), so 5-8 player games leave it out.
-bool TrackOffForLocals(u32 track) {
-    return menuLocalCount > kGameLocal && track == 0x1e4;
+// Battle Royale's 1 MB Mii heap goes on MEM2 after the archive, so it also leaves out archives above a line per tile count.
+bool TrackOffForLocals(u32 track, u32 variant) {
+    if (menuLocalCount <= kGameLocal)
+        return false;
+    if (track == 0x1e4)
+        return true;
+    const Pulsar::PulsarId id = static_cast<Pulsar::PulsarId>(track);
+    const bool royale = Pulsar::Settings::Mgr::Get().GetSettingValue(Pulsar::Settings::SETTING_KOROYALEENABLED) == Pulsar::KOROYALESETTING_ENABLED;
+    if (!royale || Pulsar::CupsConfig::IsReg(id))
+        return false;
+    char path[0x80];
+    Pulsar::CupsConfig::sInstance->FormatCoursePath(path, sizeof(path) - 4, id, static_cast<u8>(variant));
+    strcat(path, ".szs");
+    DVD::FileInfo info;
+    if (!DVD::Open(path, &info))
+        return false;
+    // DVD reads need a 32-byte aligned buffer, which Kamek's link does not give a static.
+    u8 raw[0x40];
+    u32 *header = reinterpret_cast<u32 *>((reinterpret_cast<u32>(raw) + 0x1f) & ~0x1f);
+    OS::DCInvalidateRange(header, 0x20);
+    const bool read = DVD::ReadPrio(&info, header, 0x20, 0, 2) == 0x20;
+    DVD::Close(&info);
+    const u32 line = menuLocalCount > 6 ? 83 * 0x100000 / 10 : 9 * 0x100000;  // 8.3 MiB on 8 tiles, 9.0 on 6
+    return read && header[0] == 0x59617a30 && header[1] > line;  // "Yaz0", then the decoded size
 }
 
-// The page keeps its buttons from cup to cup, so a 5-8 player game sets both ways; the variant page's control is left alone.
-bool OffCourseButton(CtrlMenuCourseSelectCourse &course, u32 row, u32 track) {
-    const Pages::CourseSelect *page = SectionMgr::sInstance->curSection->Get<Pages::CourseSelect>();
-    if (menuLocalCount <= kGameLocal || page == nullptr || &page->CtrlMenuCourseSelectCourse != &course)
+// The pages keep their buttons, so a 5-8 player game sets both ways. Variant -1 is the course page, whose button goes only
+// with every variant of its track; the variant page's own control also runs that InitSelf and is left alone there.
+bool OffCourseButton(CtrlMenuCourseSelectCourse &course, u32 row, u32 track, s32 variant) {
+    if (menuLocalCount <= kGameLocal)
         return false;
-    const bool off = TrackOffForLocals(track);
+    bool off = true;
+    if (variant >= 0) {
+        off = TrackOffForLocals(track, variant);
+    } else {
+        const Pages::CourseSelect *page = SectionMgr::sInstance->curSection->Get<Pages::CourseSelect>();
+        if (page == nullptr || &page->CtrlMenuCourseSelectCourse != &course)
+            return false;
+        const Pulsar::PulsarId id = static_cast<Pulsar::PulsarId>(track);
+        const u32 variants = Pulsar::CupsConfig::IsReg(id) ? 1 : Pulsar::CupsConfig::sInstance->GetTrack(id).variantCount + 1;
+        for (u32 i = 0; off && i < variants; ++i) off = TrackOffForLocals(track, i);
+    }
     course.courseButtons[row].manipulator.inaccessible = off;
     Fade(course.courseButtons[row], off);
     return off;
 }
+#endif
 
 // A control loaded with kButtonAnims, placed and in the player's colours as UpDownControl::Update and PushButton::Update
 // (0x805BDE2C) colour them; a button has no color_yajirushi.

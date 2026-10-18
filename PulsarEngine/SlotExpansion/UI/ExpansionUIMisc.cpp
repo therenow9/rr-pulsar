@@ -738,14 +738,14 @@ static void ExtCourseSelectCourseInitSelf(CtrlMenuCourseSelectCourse *course) {
         const u32 bmgId = GetTrackBMGByRowIdx(i);
         PulsarId trackId = cupsConfig->ConvertTrack_PulsarCupToTrack(cupsConfig->lastSelectedCup, i);
         SetCourseButtonMessage(curButton, bmgId, trackId, i);
-        if (SplitScreen8::OffCourseButton(*course, i, trackId))
+        if (SplitScreen8::OffCourseButton(*course, i, trackId, -1))
             continue;
 
         if (toSelect == nullptr || trackId == cupsConfig->GetSelected()) {
             toSelect = &curButton;
         }
     };
-    if (coursePage != nullptr) {
+    if (coursePage != nullptr && toSelect != nullptr) {
         coursePage->SelectButton(*toSelect);
     }
 };

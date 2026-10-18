@@ -9,6 +9,7 @@
 #include <MarioKartWii/UI/Page/Other/SELECTStageMgr.hpp>
 #include <MarioKartWii/UI/Ctrl/CountDown.hpp>
 #include <UI/UI.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 #include <MarioKartWii/UI/Text/Text.hpp>
 
 namespace Pulsar {
@@ -157,12 +158,16 @@ void VariantSelect::PopulateVariantButtons() {
     }
 
     ApplyVariantButtonState();
+    for (u32 i = 0; i < 4; ++i) {
+        if (variantButtonVariants[i] != 0xFF)
+            variantButtonOff[i] = SplitScreen8::OffCourseButton(this->CtrlMenuCourseSelectCourse, i, selectedPulsarId, variantButtonVariants[i]);
+    }
     if (variantButtonsPopulated) {
         const u8 desiredVariantIdx = cups->GetLastSelectedVariant(selectedPulsarId);
         highlightedVariantIdx = desiredVariantIdx;
         u32 desiredButtonIdx = 0;
         for (u32 i = 0; i < 4; ++i) {
-            if (variantButtonVariants[i] == desiredVariantIdx) {
+            if (variantButtonVariants[i] == desiredVariantIdx && !variantButtonOff[i]) {
                 desiredButtonIdx = i;
                 break;
             }
@@ -187,7 +192,7 @@ void VariantSelect::ApplyVariantButtonState() {
             continue;
         }
         btn.UIControl::isHidden = false;
-        btn.manipulator.inaccessible = false;
+        btn.manipulator.inaccessible = variantButtonOff[i];
         btn.buttonId = static_cast<s32>(baseRowIdx);
         Text::Info info;
         memset(&info, 0, sizeof(info));
@@ -240,6 +245,7 @@ u32 VariantSelect::GetVariantIndexForButton(const PushButton &button) const {
 void VariantSelect::ResetVariantButtonState() {
     for (u32 i = 0; i < 4; ++i) {
         variantButtonVariants[i] = 0xFF;
+        variantButtonOff[i] = false;
         variantButtonNames[i][0] = L'\0';
     }
 }

@@ -104,8 +104,11 @@ static void FormatTrackPath(char *path, u32 length, const char *format, const ch
         return;
     }
 
-    const u8 variantIdx = cupsConfig->GetCurVariantIdx();
-    const char *creatorFile = cupsConfig->GetFileName(pulsarId, variantIdx);
+    cupsConfig->FormatCoursePath(path, length, pulsarId, cupsConfig->GetCurVariantIdx());
+}
+
+void CupsConfig::FormatCoursePath(char *path, u32 length, PulsarId pulsarId, u8 variantIdx) const {
+    const char *creatorFile = this->GetFileName(pulsarId, variantIdx);
     const CourseId realId = CupsConfig::ConvertTrack_PulsarIdToRealId(pulsarId);
     if (creatorFile != nullptr && (realId > 119 || variantIdx > 0)) {
         snprintf(path, length, "Race/Course/%s", creatorFile);
@@ -154,6 +157,7 @@ static void VSRaceRandomFix(SectionParams *params) {
     CupsConfig *cupsConfig = CupsConfig::sInstance;
     Random random;
     PulsarId id;
+    u32 variantIdx = 0;
     bool isRepeat;
     for (int i = 0; i < 32; ++i) {
         do {
@@ -165,9 +169,11 @@ static void VSRaceRandomFix(SectionParams *params) {
                     break;
                 }
             }
-        } while (isRepeat || SplitScreen8::TrackOffForLocals(id));
+            if (!isRepeat)
+                variantIdx = cupsConfig->RandomizeVariant(id);
+        } while (isRepeat || SplitScreen8::TrackOffForLocals(id, variantIdx));
         params->vsTracks[i] = static_cast<CourseId>(id);
-        cupsConfig->vsTrackVariantIdx[i] = static_cast<u8>(cupsConfig->RandomizeVariant(id));
+        cupsConfig->vsTrackVariantIdx[i] = static_cast<u8>(variantIdx);
     }
 
     cupsConfig->SetWinning(static_cast<PulsarId>(params->vsTracks[0]), cupsConfig->vsTrackVariantIdx[0]);
@@ -200,16 +206,14 @@ static u8 ClampOrderedVSVariantIdx(const CupsConfig &cupsConfig, PulsarId trackI
 
 static void AppendOrderedVSTrackVariants(SectionParams *params, CupsConfig &cupsConfig, PulsarCupId &cupId, u32 &rowIdx, u32 &scheduleIdx, u8 startVariantIdx, bool wrapVariants) {
     const PulsarId trackId = cupsConfig.ConvertTrack_PulsarCupToTrack(cupId, rowIdx);
-    if (SplitScreen8::TrackOffForLocals(trackId)) {
-        AdvanceOrderedVSTrack(cupsConfig, cupId, rowIdx);
-        return;
-    }
     const u8 variantCount = GetOrderedVSVariantCount(cupsConfig, trackId);
     const u8 firstVariantIdx = ClampOrderedVSVariantIdx(cupsConfig, trackId, startVariantIdx);
 
     const u32 variantsToSchedule = wrapVariants ? variantCount : static_cast<u32>(variantCount - firstVariantIdx);
     for (u32 variantOffset = 0; variantOffset < variantsToSchedule && scheduleIdx < 32; ++variantOffset) {
         const u8 variantIdx = wrapVariants ? static_cast<u8>((firstVariantIdx + variantOffset) % variantCount) : static_cast<u8>(firstVariantIdx + variantOffset);
+        if (SplitScreen8::TrackOffForLocals(trackId, variantIdx))
+            continue;
         params->vsTracks[scheduleIdx] = static_cast<CourseId>(trackId);
         cupsConfig.vsTrackVariantIdx[scheduleIdx] = variantIdx;
         ++scheduleIdx;
