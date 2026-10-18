@@ -42,6 +42,8 @@ void AutodriveLocals() {
 
 #ifdef SS8_DEBUG_BOOT
 const int kBootGCLocals = SS8_BOOT_LOCALS < kGameLocal ? SS8_BOOT_LOCALS : kGameLocal;
+// 5-8 locals race in the 4P section: the scenario's local count stops at 4.
+const SectionId kBootSection = static_cast<SectionId>((SS8_BOOT_BATTLE ? SECTION_P1BATTLE : SECTION_P1VS) + kBootGCLocals - 1);
 
 #if SS8_BOOT_LOCALS > 4
 // Players 5..N hold Wii channels 0..N-5.
@@ -51,6 +53,19 @@ static void BindBootWiiHolders() {
         return;
     for (u32 id = kGameLocal; id < SS8_BOOT_LOCALS; ++id) BindPad(Holder(*input, id), &input->wiiControllers[id - kGameLocal]);
 }
+
+// Set as each section is requested, before its pages are built: the boot's races, intros and awards hold the 5-8 count;
+// its between-race menus run as 1-4 games' (at 5-8 they draw menu models the boot never built); any other ends it.
+static bool bootGame = true;
+static void HoldBootCount() {
+    const SectionId next = SectionMgr::sInstance->nextSectionId;
+    if (!bootGame || next == SECTION_NONE)
+        return;
+    const bool race = next == kBootSection || next == SECTION_VS_RACE_INTRO || next == SECTION_BALLOON_BATTLE_INTRO || next == SECTION_VS_RACE_AWARD;
+    menuLocalCount = race ? SS8_BOOT_LOCALS : 0;
+    bootGame = race || next == SECTION_SINGLE_P_VS_NEXT_RACE || next == SECTION_SINGLE_P_BT_NEXT_BATTLE;
+}
+static FrameLoadHook holdBootCount(HoldBootCount);
 #endif
 
 // Runs inside SectionMgr::Init, after Racedata, RKSYS, CupsConfig and SectionParams exist. The menu
@@ -94,17 +109,19 @@ SectionId DebugBootPrepare(SectionId section) {
     for (int i = 1; i < kBootGCLocals; ++i) sectionMgr->pad.padInfos[i].controllerID = (i + 1) << 8 | 0x24;
 #if SS8_BOOT_LOCALS > 4
     BindBootWiiHolders();
+    // As the 5-8 Players button sets it: the race's 5-8 memory and pad paths key on it.
+    menuLocalCount = SS8_BOOT_LOCALS;
 #endif
 
     // The track goes through CupsConfig: RR's FormatTrackPath loads GetWinning(), not courseId.
-    cups->SetWinning(track, 0);
+    cups->SetWinning(track, SS8_BOOT_VARIANT);
     cups->SetSelected(track);
     cups->lastSelectedCup = Pulsar::CupsConfig::ConvertCup_PulsarTrackToCup(track);
     settings.courseId = cups->GetCorrectTrackSlot();
     settings.cupId = cups->lastSelectedCup % 8;
     SectionParams *params = sectionMgr->sectionParams;
     params->vsTracks[0] = static_cast<CourseId>(track);
-    cups->vsTrackVariantIdx[0] = 0;
+    cups->vsTrackVariantIdx[0] = SS8_BOOT_VARIANT;
     params->vsRaceNumber = 0;
     params->vsRaceLimit = 4;
 
@@ -121,8 +138,7 @@ SectionId DebugBootPrepare(SectionId section) {
     if (Pulsar::Settings::Mgr::IsCreated())
         Pulsar::Settings::Mgr::Get().SetSettingValue(Pulsar::Settings::SETTING_BATTLETEAMS, Pulsar::BATTLE_FFA_ENABLED);
 #endif
-    // 5-8 locals race in the 4P section: the scenario's local count stops at 4.
-    return static_cast<SectionId>((SS8_BOOT_BATTLE ? SECTION_P1BATTLE : SECTION_P1VS) + kBootGCLocals - 1);
+    return kBootSection;
 }
 
 // The boot skips the title's and menus' pad binding, and RR's SetUpCorrectController binds pad 0 only to a leftover
@@ -235,6 +251,8 @@ static void BindBootPads() {
 #endif
     ++bootRaces;
     raceFrames = 0;
+    const Pulsar::CupsConfig *cups = Pulsar::CupsConfig::sInstance;
+    OS::Report("ss8 boot: race %u track %x variant %u locals %u\n", bootRaces, cups->GetWinning(), cups->GetCurVariantIdx(), menuLocalCount);
 }
 static RaceLoadHook bindBootPads(BindBootPads);
 
