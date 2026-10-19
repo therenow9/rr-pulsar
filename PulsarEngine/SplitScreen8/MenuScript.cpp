@@ -71,12 +71,23 @@ bool menuOpenMiiC;
 static void ReportHeaps(const char *when);
 static void ReportSkins();
 
-// GCNController::UpdateImpl+0x70 calls Input::Manager::CopyPADStatus(manager, channel, &padStatus) for each
-// plugged-in port every frame, and reads padStatus after it; a result of 2 (no controller) disconnects it (+0x514).
+static bool Scripted(u32 port) {
+    for (u32 i = 0; i < menuScript.stepCount; ++i)
+        if (menuScript.steps[i].port == port)
+            return true;
+    return false;
+}
+
+// GCNController::UpdateImpl+0x70 calls Input::Manager::CopyPADStatus for each port every frame; a result of 2 (no
+// controller) disconnects it (+0x514), so a scripted port reads 0 with no pad (WiiCompiled has no Always Connected).
 static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Status *status) {
     u32 result = input->CopyPADStatus(channel, status);
     if (status == nullptr)
         return result;
+    if (result != 0 && Scripted(channel)) {
+        memset(status, 0, sizeof(PAD::Status));
+        result = 0;
+    }
     for (u32 i = 0; i < menuScript.stepCount; ++i) {
         const MenuStep &step = menuScript.steps[i];
         if (step.port != channel || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
@@ -97,18 +108,28 @@ static u32 CopyPADStatusMenuScript(Input::Manager *input, u32 channel, PAD::Stat
 }
 kmCall(0x80520220, CopyPADStatusMenuScript);
 
-// WiiController::UpdateImpl+0x1E8 calls UpdateStatesClassic for a Classic Controller channel; it takes held buttons
-// from the status's +0x2A (WPADCLStatus). The controller's +0x8D4 is its channel, +0x8F8 the last frame's buttons.
+// WiiController::UpdateImpl+0x1E8 calls UpdateStatesClassic for a Classic Controller channel.
 static void UpdateStatesClassicMenuScript(u8 *controller, u8 *status, void *state, void *uiState) {
-    const u32 port = 4 + *reinterpret_cast<const u32 *>(controller + 0x8d4);
+    Input::WiiController *wii = reinterpret_cast<Input::WiiController *>(controller);
+    KPAD::UnifiedWpadStatus *unified = reinterpret_cast<KPAD::UnifiedWpadStatus *>(status);
+    const u32 port = 4 + wii->channel;
+    u16 buttons = 0;
     for (u32 i = 0; i < menuScript.stepCount; ++i) {
         const MenuStep &step = menuScript.steps[i];
         if (step.port != port || menuFrames < step.frame || menuFrames >= step.frame + step.hold)
             continue;
         if (menuFrames == step.frame)
             OS::Report("ss8 menu: step %u frame %u port %u press %04x\n", i, menuFrames, port + 1, step.buttons);
-        *reinterpret_cast<u16 *>(status + 0x2a) |= step.buttons;
+        buttons |= step.buttons;
     }
+    // Without a real Classic (0x8051F550-0x8051F570) the game centres the sticks and holds clButtons, which it also
+    // reads as last frame's: a scripted channel there presses no new button this frame (no tricks, no drift start).
+    const WPAD::Status &core = unified->u.cl.coreStatus;
+    const bool real = core.deviceType == WPAD::WPAD_DEV_CLASSIC && core.error == 0 && unified->format >= WPAD::WPAD_FMT_CLASSIC && unified->format <= WPAD::WPAD_FMT_CLASSIC_ACC_DPD;
+    if (real)
+        unified->u.cl.clButtons |= buttons;
+    else if (Scripted(port))
+        wii->clButtons = buttons;
     updateStatesClassic(controller, status, state, uiState);
 }
 kmCall(0x8051fe6c, UpdateStatesClassicMenuScript);
@@ -127,13 +148,26 @@ static bool Unplugged(u32 port, bool report) {
     return false;
 }
 
+// A channel the script presses reads as a Classic Controller with no remote there.
 static s32 ProbeMenuScript(s32 channel, u32 *type) {
-    return Unplugged(4 + channel, true) ? -1 : WPAD::Probe(channel, type);
+    if (Unplugged(4 + channel, true))
+        return -1;
+    const s32 result = WPAD::Probe(channel, type);
+    if (result == 0 || !Scripted(4 + channel))
+        return result;
+    *type = WPAD::WPAD_DEV_CLASSIC;
+    return 0;
 }
 kmCall(0x8051fcc8, ProbeMenuScript);
 
 static s32 ReadMenuScript(s32 channel, KPAD::Status *status, u32 count) {
-    return Unplugged(4 + channel, false) ? 0 : KPAD::Read(channel, status, count);
+    if (Unplugged(4 + channel, false))
+        return 0;
+    const s32 read = KPAD::Read(channel, status, count);
+    if (read > 0 || !Scripted(4 + channel))
+        return read;
+    memset(status, 0, sizeof(KPAD::Status));
+    return 1;
 }
 kmCall(0x8051fd30, ReadMenuScript);
 
