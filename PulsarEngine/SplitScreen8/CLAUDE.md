@@ -1,10 +1,11 @@
 # PulsarEngine/SplitScreen8
 
-The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except five things the owner wants (root `CLAUDE.md` has the decisions). Same-character select and each player's own skin and model are RR's own since upstream `2794b039`, the scene restart's GPU drain since `d4d2ca50` (#209), and the skin menu voices since `fca2eb78` (D202), so they are vanilla. The five:
+The 8-player module: Kamek hooks into PAL Mario Kart Wii, built into Retro Rewind's `Code.pul`. Everything here protects one property: **with 1–4 local players the game is untouched vanilla Retro Rewind**, except six things the owner wants (root `CLAUDE.md` has the decisions). Same-character select and each player's own skin and model are RR's own since upstream `2794b039`, the scene restart's GPU drain since `d4d2ca50` (#209), and the skin menu voices since `fca2eb78` (D202), so they are vanilla. The six:
 - same-character select's OK markers offline, and the awards' Mii head only on a Mii (`UI/SameCharacterSelect.cpp`, `Race/CustomCharacters.cpp`);
 - the main menu's seven Multiplayer buttons and removal of Retro WFC and of a console's Retro Rewind Channel panel, three panels as on Dolphin (`Entry.cpp`, D236);
 - a race name balloon's portrait read once per player per race (`UI/CustomCharacters.cpp`);
 - offline KO's survivors keeping their own pad, skin and transmission after a knockout (`Gamemodes/KO/KOMgr.cpp`, D201);
+- each player's own skin at the awards, and a CPU whose skin has no model for its race (every multi-screen race) named, shown and voiced as its base character (`Race/CustomCharacters.cpp`, D285, D294);
 - a 2–4 screen race's HUD and respawn wipes spread over a screen record wider than the layout, WiiCompiled's ultrawide (`Hud.cpp` `InitCtrlRaceBaseWide`, `Wipe.cpp` `WideWipeInit`, D215); at 16:9 or narrower the record is the layout's width and nothing moves.
 
 Breaking a rule below **fails silently** — it builds, it may even work with 8 players, and it breaks something unrelated. `docs/widening-inventory.md` and `docs/m1-same-character.md` (repo root) have the reasoning.
@@ -18,7 +19,7 @@ Breaking a rule below **fails silently** — it builds, it may even work with 8 
 
 ## Players 5–8
 
-- **Every hook outside those five early-returns for ≤ 4 local players.** RR's `selectedSlots` is widened to `kMaxLocal`, so RR's reads by `12 + hud` and by a race player's hud reach every local; where P5–8's hud is −1 (a race's one-screen first pass, where RR fixes each racer's skin, and the "Next Race" scene, `Screens.cpp`) RR's race read takes their place among the locals. `SkinSlot(hud, c)` (`Entry.cpp`) guards a Mii id. RR's own per-hud reads (`RequestDriverModel`, the cycle) stay below the game's local count, 4 at most. Nothing here passes a hud of 4 or more to RR's 4-wide `customModels` or `LoadDriverBRRES`.
+- **Every hook outside those six early-returns for ≤ 4 local players.** RR's `selectedSlots` is widened to `kMaxLocal`, so RR's reads by `12 + hud` and by a race player's hud reach every local; where P5–8's hud is −1 (a race's one-screen first pass, where RR fixes each racer's skin, and the "Next Race" scene, `Screens.cpp`) RR's race read takes their place among the locals. `SkinSlot(hud, c)` (`Entry.cpp`) guards a Mii id. RR's own per-hud reads (`RequestDriverModel`, the cycle) stay below the game's local count, 4 at most. Nothing here passes a hud of 4 or more to RR's 4-wide `customModels` or `LoadDriverBRRES`.
 - **Where players 5–8 live (D144):** RR's own per-player statics widen in place to `kMaxLocal` in the RR file, with no side table here. The game's memory, and anything serialized or sent online, keep indices 0–3 on the game's storage and put 4–7 in a side table here, sized by `kMaxLocal`, never a literal.
 - **Write the diff as the root `CLAUDE.md`'s "Writing the diff" says:** edit the owning function, delete the superseded path, declare a shared address once (`SplitScreen8.hpp`) or as a `symbols.txt` line, and no one-caller wrapper that is not a hook target.
 - **A game slot can be -1.** Check before indexing.
