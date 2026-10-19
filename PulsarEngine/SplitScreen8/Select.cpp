@@ -183,9 +183,10 @@ static void SetPaneColours(LayoutUIControl &control, const char *name, const RGB
     }
 }
 
-// Fades a control to the look of one a 5-8 player game cannot use, or back.
-static void Fade(LayoutUIControl &control, bool faded) {
-    const u8 alpha = faded ? 100 : 255;
+// The look of a control a 5-8 player game cannot use.
+const u8 kFadedAlpha = 100;
+
+void Fade(LayoutUIControl &control, u8 alpha) {
     // LayoutUIControl::Update gives the root [3]'s opacity each frame; SetPositionAnim makes [3] from [1] while the page animates.
     control.positionAndscale[1].opacity = alpha;
     control.positionAndscale[3].opacity = alpha;
@@ -239,7 +240,7 @@ bool OffCourseButton(CtrlMenuCourseSelectCourse &course, u32 row, u32 track, s32
         for (u32 i = 0; off && i < variants; ++i) off = TrackOffForLocals(track, i);
     }
     course.courseButtons[row].manipulator.inaccessible = off;
-    Fade(course.courseButtons[row], off);
+    Fade(course.courseButtons[row], off ? kFadedAlpha : 255);
     return off;
 }
 #endif
@@ -502,7 +503,7 @@ void SelectPage::UpdateTeamCap(bool moveOff) {
             continue;
         for (u32 side = 0; side < 2; ++side) {
             const bool full = this->teamFull[side];
-            Fade(*this->sides[player][side], full);
+            Fade(*this->sides[player][side], full ? kFadedAlpha : 255);
             if (moveOff && full && this->buttons[player] == side) {
                 SelectControl(*this->sides[player][side], false);
                 SelectControl(*this->sides[player][side ^ 1], true);
@@ -891,7 +892,7 @@ public:
 
 // One column of four a side, P1 and P2 at the top, at one size per page.
 const float kCupKartX[2][2] = {{-101.0f, 229.0f}, {-240.0f, 240.0f}};  // [course page][odd player]
-const float kCupKartY[2][4] = {{55.0f, 5.0f, -45.0f, -95.0f}, {110.0f, 40.0f, -30.0f, -100.0f}};
+const float kCupKartY[2][4] = {{35.0f, -10.0f, -55.0f, -100.0f}, {110.0f, 40.0f, -30.0f, -100.0f}};  // the cup page's below a selected arrow
 const float kCupKartSize[2] = {0.4f, 0.55f};
 
 static void PlaceCupKart(LayoutUIControl &control, u32 player, bool course) {

@@ -245,9 +245,9 @@ float LayoutWidth() {
     return SystemManager::sInstance->isWideScreen == 1 ? 832.0f : 608.0f;
 }
 
-// Moves a control loaded from its tile's 4P variant onto the tile, keeping its distances from the outer edge and the row, scaled.
-// A tile row is centred 114 above or below 0, as in 4P; the tiles split the screen record, wider than the layout under WiiCompiled.
-static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
+// Moves a control loaded from its tile's 4P variant onto the tile, keeping its distances from the outer (or inner) edge and the row,
+// scaled. A tile row is centred 114 above or below 0, as in 4P; the tiles split the screen record, wider than the layout under WiiCompiled.
+static void PlaceOnTile(UIControl &control, u32 tile, bool centred, bool inner = false) {
     const float width = GameScreenEffectsMgr::GetRootScreenWidth();
     const float layoutWidth = LayoutWidth();
     const float factor = raceScreenCount == 8 ? 0.5f : 0.65f;
@@ -263,7 +263,7 @@ static void PlaceOnTile(UIControl &control, u32 tile, bool centred) {
         base.position.y = rowMid;
     } else {
         const float fromEdge = rightSide ? layoutWidth / 2 - base.position.x : base.position.x + layoutWidth / 2;
-        base.position.x = rightSide ? left + tileWidth - fromEdge * factor : left + fromEdge * factor;
+        base.position.x = rightSide != inner ? left + tileWidth - fromEdge * factor : left + fromEdge * factor;
         const float quadrantMid = q < 2 ? 114.0f : -114.0f;
         base.position.y = rowMid + (base.position.y - quadrantMid) * (factor > 0.6f ? factor : 0.6f);
     }
@@ -281,6 +281,7 @@ const u32 kBattlePointVtable = 0x808d3b38;
 const u32 kBattleAddPointVtable = 0x808d3b88;
 const u32 kNameBalloonVtable = 0x808d3e58;
 const u32 kItemBalloonVtable = 0x808d3e1c;
+const u32 kMapVtable = 0x808d3960;
 
 typedef char CtrlRaceCountIs0x198[sizeof(CtrlRaceCount) == 0x198 ? 1 : -1];
 
@@ -395,14 +396,25 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
         if (control == nullptr)
             continue;
         const u32 vtable = *reinterpret_cast<const u32 *>(control);
+        // The one map the tiles share sits over the middle ones: smaller and fainter. PositionFromBasePosition passes the
+        // scale on to its icons and start line, before the fade, so they keep their full opacity.
+        if (vtable == kMapVtable) {
+            control->positionAndscale[0].scale.x *= 0.65f;
+            control->positionAndscale[0].scale.z *= 0.65f;
+            control->PositionFromBasePosition();
+            Fade(*static_cast<LayoutUIControl *>(control), 140);
+            continue;
+        }
         if (vtable != kRankNumVtable && vtable != kLapVtable && vtable != kItemWindowVtable && vtable != kBattlePointVtable && vtable != kBattleAddPointVtable)
             continue;
         // RR's FFA mask (0x2000) adds one BattleAddPoint after the per-player ones, from a fixed 1P name: it keeps its place.
         if (vtable == kBattleAddPointVtable && addPoints++ >= raceLocalCount)
             continue;
+        // FFA draws the score over the place; on a 5-8 tile it and its "+1" go to the tile's inner side.
+        const bool ffaScore = (bitField & 0x2000) != 0 && (vtable == kBattlePointVtable || vtable == kBattleAddPointVtable);
         const u8 slot = static_cast<CtrlRaceBase *>(control)->hudSlotId;
         if (slot < raceLocalCount)
-            PlaceOnTile(*control, slot, false);
+            PlaceOnTile(*control, slot, false, ffaScore);
     }
     if (page->ctrlRaceCountArray != nullptr) {
         for (u32 i = 0; i < 2u * raceLocalCount; ++i) PlaceOnTile(page->ctrlRaceCountArray[i], i / 2, true);

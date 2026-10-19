@@ -146,6 +146,7 @@ void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float s
 void LoadModelPreview(LayoutUIControl &preview, float x, float y, float scale);
 void SetPreviewTexture(LayoutUIControl &preview, const GX::TexObj *texObj);
 void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type);
+void Fade(LayoutUIControl &control, u8 alpha);
 // PushButton's animation names (0x808B7690, UpDownButton's the same), so a loaded control keeps its group ids.
 extern const char *kButtonAnims[];
 enum ButtonGroup {
