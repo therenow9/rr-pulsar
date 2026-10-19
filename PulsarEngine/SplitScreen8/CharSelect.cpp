@@ -1013,8 +1013,11 @@ void CharSelectPage::AfterControlUpdate() {
         this->leaveFrames = static_cast<s32>(ok.animations[0].transform->GetFrameSize() / ok.animations[0].speed / ok.unknown_0x40);
         this->FillCpus();
     }
-    if (this->leaveFrames-- == 0)
+    if (this->leaveFrames-- == 0) {
+        if (MenuFreeForAll())
+            AssignLastTeams();
         this->Leave(MenuTeamVS() ? Pulsar::UI::PULPAGE_SS8TEAMSELECT : Pulsar::UI::PULPAGE_SS8KARTSELECT, 0);
+    }
 }
 
 // For the fill's one call SectionParams' count is the true one and P5-8's picks sit in their scenario slots, so no CPU

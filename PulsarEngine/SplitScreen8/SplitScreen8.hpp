@@ -170,7 +170,9 @@ const u32 kVoiceTeamBlue = 2;
 const u32 kVoiceTeamRed = 3;
 void ExtMenuVoice(u32 player, CharacterId character, u32 type);
 void UpdateDriverPreviews(LayoutUIControl *const *previews);
+bool MenuFreeForAll();
 bool MenuTeamVS();
+void AssignLastTeams();
 // Calls a game fill that counts SectionParams' locals (4 in a 5-8 player game) with the true count.
 void WithMenuLocalCount(void (*fill)());
 // The holder menu input slot 4 answers, null for none; Pause.cpp's proxy, cleared at every section load.

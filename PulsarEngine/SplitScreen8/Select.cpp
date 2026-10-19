@@ -49,9 +49,20 @@ static const SelectStep kSteps[] = {
     {Pulsar::UI::PULPAGE_SS8TEAMSELECT, Pulsar::UI::PULPAGE_SS8CHARSELECT, Pulsar::UI::PULPAGE_SS8KARTSELECT, L"Team Settings", "team"},
 };
 
-// VSModeSelect's Team VS sets bit 1 (0x80852A64); Battle sets it too (0x8083B96C).
+// RR's free-for-all Battle (PulsarSystem.cpp's isTeamBattle), from the setting: RR's context is set at scene entry,
+// before Battle is picked.
+bool MenuFreeForAll() {
+#ifdef SS8_VANILLA
+    return false;
+#else
+    return Racedata::sInstance->menusScenario.settings.gamemode == MODE_BATTLE && Pulsar::Settings::Mgr::Get().GetSettingValue(Pulsar::Settings::SETTING_BATTLETEAMS) == Pulsar::BATTLE_FFA_DISABLED;
+#endif
+}
+
+// VSModeSelect's Team VS sets bit 1 (0x80852A64); Battle sets it too (0x8083B96C), and RR's free-for-all clears it
+// only at the race (BattleFFA.cpp).
 bool MenuTeamVS() {
-    return (Racedata::sInstance->menusScenario.settings.modeFlags & 2) != 0;
+    return !MenuFreeForAll() && (Racedata::sInstance->menusScenario.settings.modeFlags & 2) != 0;
 }
 
 void WithMenuLocalCount(void (*fill)()) {
@@ -491,6 +502,22 @@ void SelectPage::ActivateTeams() {
     }
 }
 
+// Free-for-all skips the team page, but a Battle's race still needs a team per player (its AI reads a null kart with
+// none, 0x80728D50): the teams the page's untouched confirm writes, six a side at most, the CPUs balanced against them.
+void AssignLastTeams() {
+    const SectionParams *params = SectionMgr::sInstance->sectionParams;
+    u32 chosen[2] = {0, 0};
+    for (u32 player = 0; player < menuLocalCount; ++player) {
+        const u32 last = player < kGameLocal ? params->isOddLicense[player] : extLastTeam[player - kGameLocal];
+        u32 side = last == TEAM_BLUE ? 1 : 0;
+        if (chosen[side] == kTeamFull)
+            side ^= 1;
+        ++chosen[side];
+        Racedata::sInstance->menusScenario.players[player].team = side == 0 ? TEAM_RED : TEAM_BLUE;
+    }
+    WithMenuLocalCount(Pages::MultiTeamSelect::AssignCPUTeams);
+}
+
 // A team six players have chosen fades for the players still choosing, and moves them off it when moveOff.
 void SelectPage::UpdateTeamCap(bool moveOff) {
     u32 chosen[2] = {0, 0};
@@ -891,7 +918,11 @@ public:
 };
 
 // One column of four a side, P1 and P2 at the top, at one size per page.
+#ifdef SS8_VANILLA
+const float kCupKartX[2][2] = {{-240.0f, 240.0f}, {-240.0f, 240.0f}};  // the game's course-list box fills the cup page's middle
+#else
 const float kCupKartX[2][2] = {{-101.0f, 229.0f}, {-240.0f, 240.0f}};  // [course page][odd player]
+#endif
 const float kCupKartY[2][4] = {{35.0f, -10.0f, -55.0f, -100.0f}, {110.0f, 40.0f, -30.0f, -100.0f}};  // the cup page's below a selected arrow
 const float kCupKartSize[2] = {0.4f, 0.55f};
 
