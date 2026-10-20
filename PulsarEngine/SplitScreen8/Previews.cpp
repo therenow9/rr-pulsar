@@ -736,21 +736,23 @@ static bool BuildKart(u32 i) {
     return true;
 }
 
-// Builds every wanted kart whose archive is unpacked, else queues the next unpack. A built kart puts its driver in
-// the kart pose as VehicleModelControl::OnUpdate does (0x805F3F3C), with -1 for SwitchState's player.
+// Builds each wanted kart whose archive is unpacked, else queues the next; every frame a built kart's driver takes the
+// kart pose as VehicleModelControl::OnUpdate does (0x805F3F3C), as MenuKartModel::Update places a kart only then (0x808328C4).
 static void ServiceKarts() {
-    if (unpackHeap == nullptr || unpackState == UNPACK_BUSY)
+    if (unpackHeap == nullptr)
         return;
-    for (u32 i = 0; i < kExtPlayers; ++i) {
+    bool queued = unpackState == UNPACK_BUSY;
+    for (u32 i = 0; i < kExtPlayers && !queued; ++i) {
         ExtKart &kart = karts[i];
         if (!kart.shown || !kart.wanted || kart.failed || kart.heap == nullptr || Own(previews[i])->model == nullptr || KartCurrent(kart, i))
             continue;
         if (unpackState == UNPACK_DONE && unpackCharacter == kart.wantCharacter && unpackSlot == kart.wantSlot)
             kart.failed = !BuildKart(i);
-        else if (RequestUnpack(kart.wantCharacter, kart.wantSlot))
-            return;
+        else
+            queued = RequestUnpack(kart.wantCharacter, kart.wantSlot);
     }
-    RaiseLoadThread(false);
+    if (!queued)
+        RaiseLoadThread(false);
     for (u32 i = 0; i < kExtPlayers; ++i) {
         ExtKart &kart = karts[i];
         MenuDriverModel *driver = Own(previews[i]);
