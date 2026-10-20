@@ -36,7 +36,12 @@ void AutodriveLocals() {
         Kart::Player *kart = karts->GetKartPlayer(id);
         raceinfo->players[id]->realControllerHolder = reinterpret_cast<Input::RealControllerHolder *>(&input->virtualControllerHolders[id]);
         kart->pointers.kartStatus->bitfield4 |= 1;
-        kart->kartSub->aiController->StartPostRaceAI();
+        // A battle's post-race AI holds the kart still (UpdatePostBattleDriving): there it drives as a battle CPU.
+        AI::Player *ai = kart->kartSub->aiController->playerAI;
+        if (scenario.settings.gamemode == MODE_BATTLE)
+            ai->SetNextActions(&ai->cpuDrivingAction);
+        else
+            kart->kartSub->aiController->StartPostRaceAI();
     }
 }
 
