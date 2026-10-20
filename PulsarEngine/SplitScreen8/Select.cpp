@@ -908,12 +908,13 @@ void SelectPage::OnResume() {
     this->leaveFrames = -1;
 }
 
-// P5-8's karts on the cup, course, Battle cup and arena pages: the page's model control (NoteModelControl::Load, 0x805F4348) showing
+// P5-8's karts on the cup, course, version, Battle cup and arena pages: the page's model control (NoteModelControl::Load, 0x805F4348) showing
 // their preview, as the character and kart pages do.
 class CupKart : public LayoutUIControl {
 public:
     void InitSelf() override;
     void OnUpdate() override;
+    void SetPositionAnim(PositionAndScale &positionAndScale, float curFrame) override;
     u32 player;
 };
 
@@ -926,15 +927,15 @@ const float kCupKartX[2][2] = {{-101.0f, 229.0f}, {-240.0f, 240.0f}};  // [cours
 const float kCupKartY[2][4] = {{35.0f, -10.0f, -55.0f, -100.0f}, {110.0f, 40.0f, -30.0f, -100.0f}};  // the cup page's below a selected arrow
 const float kCupKartSize[2] = {0.4f, 0.55f};
 
+// The model pane keeps its offset, which NoteModelControl::SetPositionAnim (0x805F4CFC) writes while the page
+// animates, so the control goes where that offset lands the kart on the column.
 static void PlaceCupKart(LayoutUIControl &control, u32 player, bool course) {
-    nw4r::lyt::Pane *model = control.layout.GetPaneByName("model_null");
-    model->trans.x = 0.0f;
-    model->trans.y = 0.0f;
+    const nw4r::lyt::Pane *model = control.layout.GetPaneByName("model_null");
     PositionAndScale &at = control.positionAndscale[1];
-    at.position.x = kCupKartX[course][player & 1];
-    at.position.y = kCupKartY[course][player / 2];
     at.scale.x = kCupKartSize[course] / model->scale.x;
     at.scale.z = at.scale.x;
+    at.position.x = kCupKartX[course][player & 1] - model->trans.x * at.scale.x;
+    at.position.y = kCupKartY[course][player / 2] - model->trans.y * at.scale.x;
     // [3] as SetPositionAnim (0x8063D194) makes it, which the course page runs only while it animates.
     const PositionAndScale &slide = control.positionAndscale[2];
     PositionAndScale &shown = control.positionAndscale[3];
@@ -964,17 +965,26 @@ void CupKart::OnUpdate() {
     SetPreviewTexture(*this, texObj);
     this->isHidden = texObj == nullptr;
     Pages::Menu *page = static_cast<Pages::Menu *>(this->parentGroup->parentPage);
-    const bool course = page->pageId != PAGE_CUP_SELECT;  // the Battle cup and arena pages take the course page's columns
+    const bool course = page->pageId != PAGE_CUP_SELECT;  // the version, Battle cup and arena pages take the course page's columns
     PlaceCupKart(*this, this->player, course);
     if (this->player == kGameLocal)  // P1-4's each frame, over RR's one-time place (ExpansionUIMisc.cpp) or the game's
         for (u32 i = 0; i < kGameLocal; ++i) PlaceCupKart(page->modelPosition[i], i, course);
 }
 
+// As NoteModelControl::SetPositionAnim: still while the menu changes page, as Menu::BeforeExitAnimations and
+// BeforeEntranceAnimations decide for P1-4's controls (0x80838ACC, 0x80838A14).
+void CupKart::SetPositionAnim(PositionAndScale &positionAndScale, float curFrame) {
+    const Pages::Menu *page = static_cast<const Pages::Menu *>(this->parentGroup->parentPage);
+    LayoutUIControl::SetPositionAnim(positionAndScale, page->modelPosition[0].animationType != 0 ? curFrame : 0.0f);
+}
+
 // Menu::OnInit's "bl Page::InitControlGroup" (0x80836CFC, 0x80836DC8); r3-r4 are the call's own. On the cup, course,
-// Battle cup and arena pages of a 5-8 player game, P5-8's karts go after the count the code after it fills.
+// version, Battle cup and arena pages of a 5-8 player game, P5-8's karts go after the count the code after it fills.
 static void MenuControlGroup(Page &page, u32 count) {
     const PageId id = page.pageId;
-    const bool karts = (id == PAGE_CUP_SELECT || id == PAGE_COURSE_SELECT || id == PAGE_BATTLE_CUP_SELECT || id == PAGE_BATTLE_STAGE_SELECT) && menuLocalCount > kGameLocal;
+    const bool karts =
+      (id == PAGE_CUP_SELECT || id == PAGE_COURSE_SELECT || id == static_cast<PageId>(Pulsar::UI::PULPAGE_VARIANTSELECT) || id == PAGE_BATTLE_CUP_SELECT || id == PAGE_BATTLE_STAGE_SELECT)
+      && menuLocalCount > kGameLocal;
     const u32 extra = karts ? menuLocalCount - kGameLocal : 0;
     page.InitControlGroup(count + extra);
     for (u32 i = 0; i < extra; ++i) {

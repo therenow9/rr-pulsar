@@ -23,5 +23,6 @@ Breaking a rule below **fails silently** — it builds, it may even work with 8 
 - **Where players 5–8 live (D144):** RR's own per-player statics widen in place to `kMaxLocal` in the RR file, with no side table here. The game's memory, and anything serialized or sent online, keep indices 0–3 on the game's storage and put 4–7 in a side table here, sized by `kMaxLocal`, never a literal.
 - **Write the diff as the root `CLAUDE.md`'s "Writing the diff" says:** edit the owning function, delete the superseded path, declare a shared address once (`SplitScreen8.hpp`) or as a `symbols.txt` line, and no one-caller wrapper that is not a hook target.
 - **A game slot can be -1.** Check before indexing.
+- **Free or rewrite a drawn model's memory only after `GX::DrawDone()`.** The scene's calc runs before `endFrame`'s draw-done wait, while the GPU may still be reading the last frame's display lists from that memory. A Wii's GPU stops on a rewritten one; Dolphin reads past it, so no lane shows it (`DropKart`, `DropPreview`).
 - **Menu input managers have 5 slots and read slot 4 with no mask** (`ManipulatorManager::Update`, `ControlsManipulatorManager::Update`). Anything that makes slot 4 answer a real holder (`Pause.cpp`) must be gone by the next section load, or every menu page sees that pad.
 - The `widen-to-eight` skill is the procedure for any 4-wide structure.

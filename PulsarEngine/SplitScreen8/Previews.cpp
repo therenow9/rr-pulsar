@@ -110,6 +110,7 @@ static void DropPreview(ExtPreview &preview, bool destroy) {
             preview.head->ToggleVisible(false);
         RemoveModel(preview.hair);
         RemoveModel(Own(preview)->model);
+        GX::DrawDone();  // as DropKart: the last frame may still draw the model from this heap
         preview.heap->destroy();
     }
     ForgetKartDriver(static_cast<u32>(&preview - previews));
@@ -525,8 +526,11 @@ static void DropKart(u32 i) {
     RemoveModel(KartModel(kart)->model);
     memset(kart.storage, 0, sizeof(kart.storage));
     kart.driverModel = nullptr;
-    if (kart.heap != nullptr)
+    if (kart.heap != nullptr) {
+        // The GPU may still be drawing the last frame's kart from this heap: calc runs before endFrame's GX::DrawDone.
+        GX::DrawDone();
         kart.heap->freeAll();
+    }
 }
 
 static void ForgetKartDriver(u32 i) {
