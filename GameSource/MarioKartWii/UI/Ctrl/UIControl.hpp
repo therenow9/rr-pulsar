@@ -96,6 +96,7 @@ public:
     float GetAnimationDelay() const;  // 8063d288
     void SetParentControlGroup(ControlGroup *controlGroup, u32 curZIdx);  // 8063d398
     void SetSoundIds(u32 onEntranceSoundId, u32 onExitSoundId);  // 8063d3a4
+    void PositionFromBasePosition();  // 8063d3cc positionAndscale[1..3] from [0] through the parent group
 
     PositionAndScale positionAndscale[4];  // 0x4
     ControlGroup *parentGroup;  // 0x64

@@ -16,6 +16,10 @@ namespace Pulsar {
 namespace Race {
 
 u8 racePlayerSlots[12];
+// The award race's players in podium order, as the last race's player IDs they were copied from.
+static u8 awardRacePlayers[12];
+static u32 awardRacePlayerCount;
+
 u32 GetPlayerCustomCharacterSlot(u32 playerId, CharacterId character, bool isAward) {
     const u32 characterId = static_cast<u32>(character);
     if (characterId >= Driver::CHARACTER_COUNT)
@@ -23,8 +27,11 @@ u32 GetPlayerCustomCharacterSlot(u32 playerId, CharacterId character, bool isAwa
     // Menu callers use 12 + the local HUD slot to bypass race player IDs.
     if (playerId >= 12 || Racedata::sInstance == nullptr)
         return Driver::selectedSlots[playerId >= 12 ? playerId - 12 : 0][characterId];
+    if (!isAward && Racedata::sInstance->racesScenario.settings.gamemode == MODE_AWARD)
+        return playerId < awardRacePlayerCount ? GetPlayerCustomCharacterSlot(awardRacePlayers[playerId], character, true) : 0;
     const RacedataScenario &scenario = isAward ? Racedata::sInstance->awardScenario : Racedata::sInstance->racesScenario;
-    if (playerId >= scenario.playerCount || scenario.players[playerId].characterId != character)
+    // awardScenario keeps the last race's twelve players under a smaller playerCount.
+    if (scenario.players[playerId].playerType == PLAYER_NONE || scenario.players[playerId].characterId != character)
         return Driver::selectedSlots[0][characterId];
     const RacedataPlayer &player = scenario.players[playerId];
     if (player.playerType == PLAYER_GHOST) {
@@ -41,17 +48,40 @@ u32 GetPlayerCustomCharacterSlot(u32 playerId, CharacterId character, bool isAwa
     return slot <= Driver::MAX_CUSTOM_CHARACTER_SLOTS && Driver::characterTables[characterId][slot] ? slot : 0;
 }
 
+// InitAwards+0x20 copies the last race into awardScenario before it picks the award race's players.
+static RacedataScenario &CopyAwardScenario(RacedataScenario &award, const RacedataScenario &race) {
+    awardRacePlayerCount = 0;
+    return award = race;
+}
+kmCall(0x80530884, CopyAwardScenario);
+
+// Each InitAwards branch reads a picked player's character first (GetCharacterId), in podium order.
+static CharacterId GetAwardRacePlayerCharacter(const RacedataPlayer &player) {
+    awardRacePlayers[awardRacePlayerCount++] = &player - Racedata::sInstance->racesScenario.players;
+    return player.characterId;
+}
+kmCall(0x80530964, GetAwardRacePlayerCharacter);
+kmCall(0x80530b08, GetAwardRacePlayerCharacter);
+kmCall(0x80530c4c, GetAwardRacePlayerCharacter);
+kmCall(0x80530d70, GetAwardRacePlayerCharacter);
+kmCall(0x80530e48, GetAwardRacePlayerCharacter);
+
 void RandomizeCPUCharacterTables(const RacedataScenario &scenario) {
     Random random;
+    u32 locals = 0;
     for (u32 player = 0; player < scenario.playerCount; ++player) {
         const RacedataPlayer &entry = scenario.players[player];
+        // SplitScreen8: in the race's one-screen first pass locals 5-8 have no hud; their row is their place among the locals.
+        const s32 row = entry.hudSlotId >= 0 ? entry.hudSlotId : locals >= SplitScreen8::kGameLocal ? static_cast<s32>(locals) : -1;
+        if (entry.playerType == PLAYER_REAL_LOCAL)
+            ++locals;
         const u32 character = static_cast<u32>(entry.characterId);
         if (character >= Driver::CHARACTER_COUNT)
             continue;
         if (entry.playerType == PLAYER_REAL_ONLINE)
             continue;
         if (entry.playerType != PLAYER_CPU) {
-            racePlayerSlots[player] = entry.playerType == PLAYER_REAL_LOCAL ? Driver::selectedSlots[entry.hudSlotId][character] : 0;
+            racePlayerSlots[player] = entry.playerType == PLAYER_REAL_LOCAL && row >= 0 ? Driver::selectedSlots[row][character] : 0;
             continue;
         }
         if (scenario.settings.raceNumber != 0)
@@ -89,6 +119,11 @@ static s32 LoadCustomCharactersForPlayer(char *path, u32 size, const char *forma
         snprintf(archivePath, sizeof(archivePath), "/Race/Kart/%s%s-%s-%u%s.szs", vehicleName, teamSuffix, characterName, slot, modeSuffix);
         if (IOOverrides::ConvertPathToEntryNumWithLooseOverride(archivePath) >= 0)
             return snprintf(path, size, "Race/Kart/%s%s-%s-%u%s", vehicleName, teamSuffix, characterName, slot, modeSuffix);
+        // Skins ship no low-detail (_4) karts, which a multi-screen race gives its CPUs: a CPU drawn as its base
+        // character is named and shown as one. The archives load before the race's voices, balloons and results.
+        const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
+        if (playerId < 12 && scenario.settings.gamemode != MODE_AWARD && scenario.players[playerId].playerType == PLAYER_CPU)
+            racePlayerSlots[playerId] = 0;
     }
     return snprintf(path, size, format, vehicleName, teamSuffix, characterName, modeSuffix);
 }
@@ -193,9 +228,22 @@ static asmFunc LinkAwardAnimations() {
 }
 kmCall(0x807897e0, LinkAwardAnimations);
 
-void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *pane, nw4r::lyt::Pane *shadow0, nw4r::lyt::Pane *shadow1, bool minimap) {
+// AwardsMgr::LoadPlayers+0x304, "li r27, 1" (a Mii head): a shared driver's duplicate path keeps its player's Mii in r17 whatever
+// the character, so only Mii ids (from 0x18, as the first-player path decides) get the head; r17 stays for the skin lookup above.
+static asmFunc AwardsMiiHeadOnlyForMiis() {
+    ASM(
+        nofralloc;
+        lwz r0, 0(r23);
+        cmplwi r0, 0x18;
+        bltlr;
+        li r27, 1;
+        blr;)
+}
+kmCall(0x80789644, AwardsMiiHeadOnlyForMiis);
+
+TPLPalettePtr LoadCustomCharacterIconFile(CharacterId character, u32 slot, bool minimap) {
     if (static_cast<u32>(character) >= Driver::CHARACTER_COUNT || slot == 0)
-        return;
+        return nullptr;
 
     char path[0x80];
     if (minimap)
@@ -203,7 +251,7 @@ void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *p
     else
         snprintf(path, sizeof(path), "/Race/Portrait/%s-%u-css.tpl", ArchiveMgr::GetKartArchivePostfix(character), slot);
     if (IOOverrides::ConvertPathToEntryNumWithLooseOverride(path) < 0)
-        return;
+        return nullptr;
 
     // Result controls initialize after GameScene locks its dynamic heaps.
     EGG::Heap *heap = GameScene::GetCurrent()->structsHeaps.heaps[0];
@@ -211,6 +259,11 @@ void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *p
     heap->dameFlag &= ~1;
     TPLPalettePtr icon = static_cast<TPLPalettePtr>(EGG::DvdRipper::LoadToMainRAM(path, nullptr, heap, EGG::DvdRipper::ALLOC_FROM_HEAD, 0, nullptr, nullptr));
     heap->dameFlag = heapFlags;
+    return icon;
+}
+
+void LoadCustomCharacterIcon(CharacterId character, u32 slot, nw4r::lyt::Pane *pane, nw4r::lyt::Pane *shadow0, nw4r::lyt::Pane *shadow1, bool minimap) {
+    TPLPalettePtr icon = LoadCustomCharacterIconFile(character, slot, minimap);
     if (icon == nullptr)
         return;
 

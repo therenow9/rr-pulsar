@@ -3,6 +3,7 @@
 #include <MarioKartWii/Race/RaceData.hpp>
 #include <core/rvl/dvd/dvd.hpp>
 #include <include/c_stdio.h>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace Sound {
@@ -18,7 +19,7 @@ bool FindLooseSoundEffectPath(u32 fileId, const char *extension, char *path, u32
     if (racedata == nullptr)
         return false;
     const RacedataScenario &scenario = racedata->racesScenario;
-    const u8 localCount = scenario.localPlayerCount > 4 ? 4 : scenario.localPlayerCount;
+    const u8 localCount = SplitScreen8::RaceLocals(scenario.localPlayerCount > 4 ? 4 : scenario.localPlayerCount);
     for (u8 hud = 0; hud < localCount; ++hud) {
         const u8 playerId = racedata->GetPlayerIdOfLocalPlayer(hud);
         if (playerId >= scenario.playerCount || playerId >= 12)

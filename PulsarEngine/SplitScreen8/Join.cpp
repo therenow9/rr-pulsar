@@ -1,0 +1,582 @@
+#include <kamek.hpp>
+#include <MarioKartWii/UI/Page/Page.hpp>
+#include <MarioKartWii/UI/Page/Other/RegisterPad.hpp>
+#include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuText.hpp>
+#include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
+#include <MarioKartWii/UI/Ctrl/ModelControl.hpp>
+#include <MarioKartWii/UI/Section/SectionMgr.hpp>
+#include <MarioKartWii/Input/InputManager.hpp>
+#include <MarioKartWii/Scene/GameScene.hpp>
+#include <UI/UI.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
+
+// In place of RegisteredPads and RegisterPad, whose PadControl[4] and prompts stop at 4: P2-4 join through
+// SectionPad's RequestPad, P5-8 through extPads and TrySetController on holders 4-7.
+
+namespace SplitScreen8 {
+
+// PadControl keeps its members private, so its functions go by address. Load's mode 0 leaves its pad id to
+// SetPadID; hud 4+ plays the "Menu" colour, which ColourSlot replaces.
+const u32 kPadControlSize = 0x184;
+const u32 kDummyBackSize = 0x184;
+typedef void (*PadCtorFn)(LayoutUIControl *);
+typedef void (*PadLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32, u8, u32, u32);
+typedef void (*PadSetParamsFn)(LayoutUIControl *, u32, u8, u32);
+typedef void (*PadSetIdFn)(LayoutUIControl *, u32);
+typedef void (*PadFn)(LayoutUIControl *);
+static const PadCtorFn padCtor = reinterpret_cast<PadCtorFn>(0x806012bc);
+static const PadLoadFn padLoad = reinterpret_cast<PadLoadFn>(0x80601350);
+static const PadSetParamsFn padSetParams = reinterpret_cast<PadSetParamsFn>(0x80601554);
+static const PadSetIdFn padSetId = reinterpret_cast<PadSetIdFn>(0x80601564);
+static const PadFn padRegister = reinterpret_cast<PadFn>(0x8060156c);
+
+typedef void (*TrySetControllerFn)(Input::Manager *, u32, u32);
+typedef void (*FillParamsFn)(Input::ControllerParams *, const Input::Controller *);
+typedef void (*RequestBackModelFn)(BackGroundModelControl *, s32);
+static const TrySetControllerFn trySetController = reinterpret_cast<TrySetControllerFn>(0x80523ebc);
+static const FillParamsFn fillParams = reinterpret_cast<FillParamsFn>(0x80522364);  // ControllerParams::Fill, private
+static const RequestBackModelFn requestBackModel = reinterpret_cast<RequestBackModelFn>(0x805f2e84);
+
+const u32 kTitleBmg = 0x961;  // RegisterPad's title, "Controller Registration"
+const u32 kPromptBmg = 0x9c6;  // "Press the A Button on Player 1's controller.", then 2-4
+const SoundIDs kJoinSound = static_cast<SoundIDs>(0x20);  // RegisterPad's
+
+// Two rows, P1-4 above P5-8, at 0.80 of EntryPlayerPad's 114 x 156 layout units.
+const float kSlotScale = 0.8f;
+const float kSlotY = 8.0f;
+
+// While ConfirmPads is up the slots move left and its buttons right, all smaller: in place they cover the fourth column.
+const float kConfirmSlotScale = 0.72f;
+const float kConfirmSlotX = -100.0f;
+const float kConfirmButtonScale = 0.8f;
+const float kConfirmButtonX = 210.0f;
+const u32 kConfirmFrames = 10;
+
+ExtPad extPads[kMaxLocal - kGameLocal];
+
+static Input::RealControllerHolder &SlotHolder(u32 slot) {
+    return Holder(*Input::Manager::sInstance, slot);
+}
+
+static bool IsColourTrack(const nw4r::lyt::AnimationLink &link) {
+    const nw4r::lyt::res::AnimationBlock *res = link.animTrans->resource;
+    const u32 animOffsets = nw4r::ut::ConvertOffsToPtr<u32>(res, res->animOffsetToAnimOffsetsArray)[link.idx];
+    const nw4r::lyt::res::AnimationContent *content = nw4r::ut::ConvertOffsToPtr<nw4r::lyt::res::AnimationContent>(res, animOffsets);
+    const u32 *infoOffsets = nw4r::ut::ConvertOffsToPtr<u32>(content, sizeof(*content));
+    for (int i = 0; i < content->infoCount; ++i) {
+        const nw4r::lyt::res::AnimationInfo *info = nw4r::ut::ConvertOffsToPtr<nw4r::lyt::res::AnimationInfo>(content, infoOffsets[i]);
+        if (info->kind == nw4r::lyt::res::ANIMATIONTYPE_RLMC)
+            return true;
+    }
+    return false;
+}
+
+// Pulsar's UnbindRLMC steps on from the link it just unbound, an endless walk once a material has more than one
+// colour track; each slot material has one per player colour, so this scan restarts after every unbind.
+static void UnbindColourTracks(nw4r::lyt::Material *material) {
+    typedef nw4r::ut::LinkList<nw4r::lyt::AnimationLink, offsetof(nw4r::lyt::AnimationLink, link)> Links;
+    bool unbound = true;
+    while (unbound) {
+        unbound = false;
+        for (Links::Iterator it = material->animLinkList.GetBeginIter(); it != material->animLinkList.GetEndIter(); ++it) {
+            if (it->disable || !IsColourTrack(*it))
+                continue;
+            material->UnbindAnimation(it->animTrans);
+            unbound = true;
+            break;
+        }
+    }
+}
+
+// The slot's frame, its stripes and its controller's glow take tev colour 1 from the "Player"
+// animation group; for P5-8 those tracks are unbound and the slot palette written once.
+static void ColourPane(LayoutUIControl &control, const char *name, u8 r, u8 g, u8 b) {
+    nw4r::lyt::Pane *pane = control.layout.GetPaneByName(name);
+    if (pane == nullptr)
+        return;
+    nw4r::lyt::Material *material = pane->GetMaterial();
+    if (material == nullptr)
+        return;
+    UnbindColourTracks(material);
+    material->tevColours[1].r = r;
+    material->tevColours[1].g = g;
+    material->tevColours[1].b = b;
+}
+
+static void ColourSlot(LayoutUIControl &control, u32 slot) {
+    RGBA16 primary, secondary;
+    SlotPalette(slot, &primary, &secondary);
+    ColourPane(control, "waku", primary.red, primary.green, primary.blue);
+    ColourPane(control, "borderline", primary.red * 2 / 5, primary.green * 2 / 5, primary.blue * 2 / 5);
+    ColourPane(control, "con_light", secondary.red, secondary.green, secondary.blue);
+}
+
+class JoinPage : public Page {
+public:
+    JoinPage();
+    ~JoinPage() override;
+    PageId GetNextPage() const override {
+        return this->nextPageId;
+    }
+    void OnInit() override;
+    void OnActivate() override;
+    void AfterControlUpdate() override;
+
+private:
+    u32 SlotId(u32 slot) const;
+    void Release(u32 slot);
+    void Prompt(s32 slot);
+    void PlaceSlots();
+    void OpenConfirm();
+    void Leave(u32 animDirection, float animLength);
+    void Confirming();
+    void OnBackPress(u32 hudSlotId);
+
+    CtrlMenuPageTitleText *titleText;
+    CtrlMenuInstructionText *bottomText;
+    LayoutUIControl *backButton;  // a CtrlMenuDummyBack: the visual only, as RegisterPad has
+    LayoutUIControl *pads[kMaxLocal];
+    PageManipulatorManager manager;
+    PtmfHolder_1A<JoinPage, void, u32> onBackPressHandler;
+    PageId nextPageId;
+    s32 requested;  // the slot waiting for its A, -1 for none
+    s32 prompted;  // the slot the instruction text asks for, -1 for none, -2 before the first
+    u32 shownIds[kMaxLocal];  // the pad id each slot shows
+    bool leaving;
+    bool confirming;  // ConfirmPads is open over the page
+    u32 confirmFrame;  // 0 at the join layout, kConfirmFrames at the confirm one
+};
+
+Page *NewJoinPage() {
+    return new JoinPage;
+}
+
+JoinPage::JoinPage() {
+    this->nextPageId = PAGE_NONE;
+    this->onBackPressHandler.subject = this;
+    this->onBackPressHandler.ptmf = &JoinPage::OnBackPress;
+    this->titleText = new CtrlMenuPageTitleText;
+    this->bottomText = new CtrlMenuInstructionText;
+    // Built as RegisterPad::__ct builds its own (0x80603860): a LayoutUIControl with the dummy's vtable.
+    this->backButton = static_cast<LayoutUIControl *>(::operator new(kDummyBackSize));
+    layoutCtor(this->backButton);
+    *reinterpret_cast<u32 *>(this->backButton) = 0x808d3710;
+    for (int i = 0; i < kMaxLocal; ++i) {
+        this->pads[i] = static_cast<LayoutUIControl *>(::operator new(kPadControlSize));
+        padCtor(this->pads[i]);
+    }
+}
+
+JoinPage::~JoinPage() {
+    delete this->titleText;
+    delete this->bottomText;
+    delete this->backButton;
+    for (int i = 0; i < kMaxLocal; ++i) delete this->pads[i];
+}
+
+void JoinPage::OnInit() {
+    this->InitControlGroup(3 + kMaxLocal);
+    this->AddControl(0, *this->titleText, 0);
+    this->titleText->Load(false);
+    this->titleText->SetMessage(kTitleBmg);
+    this->AddControl(1, *this->bottomText, 0);
+    this->bottomText->Load();
+    this->AddControl(2, *this->backButton, 0);
+    dummyBackLoad(this->backButton, Pulsar::UI::buttonFolder, "Back", "ButtonBack", 1);
+    for (u32 slot = 0; slot < kMaxLocal; ++slot) {
+        LayoutUIControl &pad = *this->pads[slot];
+        this->AddControl(3 + slot, pad, 0);
+        const bool game = slot < kGameLocal;
+        padLoad(&pad, "pad_recognize", "EntryPlayerPad", "Pad1P_Div4", slot, game, 0, 0);
+        if (!game)
+            ColourSlot(pad, slot);
+    }
+    this->confirmFrame = 0;
+    this->PlaceSlots();
+    // P1 drives the page with B only, as RegisterPad's manager does; P2-8's B is read from their holders. As at
+    // 0x80603A2C, no player is in the mask the reconnect overlay scans: after Change every pad is reset, P1's too.
+    this->manager.Init(1, false);
+    this->SetManipulatorManager(this->manager);
+    this->manager.UpdatePlayerBitfield2(0);
+    this->manager.SetGlobalHandler(BACK_PRESS, this->onBackPressHandler, false);
+}
+
+void JoinPage::OnActivate() {
+    this->nextPageId = PAGE_NONE;
+    this->leaving = false;
+    this->confirming = false;
+    this->confirmFrame = 0;
+    this->PlaceSlots();
+    this->requested = -1;
+    this->prompted = -2;
+    // As RegisteredPads::OnActivate does (0x80603170): no background model behind the slots.
+    Page *background = SectionMgr::sInstance->curSection->pages[0x5c];
+    if (background != nullptr)
+        requestBackModel(reinterpret_cast<BackGroundModelControl *>(reinterpret_cast<u8 *>(background) + 0x1c8), -1);
+    for (u32 slot = 0; slot < kMaxLocal; ++slot) {
+        this->shownIds[slot] = ~0u;
+        this->pads[slot]->isHidden = slot >= menuLocalCount;
+    }
+    // As SectionPad keeps P1-4's, each P5-8 gets back the pad it gave up at the main menu, unless another holder has it
+    // now or it no longer gives the id the slot joined with.
+    Input::Manager *input = Input::Manager::sInstance;
+    for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) {
+        ExtPad &pad = extPads[slot - kGameLocal];
+        Input::Controller *controller = pad.controller;
+        pad.controller = nullptr;
+        if (controller == nullptr)
+            continue;
+        bool held = false;
+        for (u32 h = 0; h < kMaxLocal; ++h) held |= Holder(*input, h).curController == controller;
+        Input::RealControllerHolder &holder = SlotHolder(slot);
+        if (!held) {
+            holder.SetController(controller, nullptr);
+            if (calculateID(&holder) == pad.id) {
+                BindPad(holder, controller);
+                continue;
+            }
+            holder.SetController(&input->dummyController, nullptr);
+        }
+        pad.id = 0;
+    }
+}
+
+static bool Joined(u32 slot) {
+    if (slot < kGameLocal)
+        return SectionMgr::sInstance->pad.HasAController(slot);
+    const ExtPad &pad = extPads[slot - kGameLocal];
+    return !pad.waiting && pad.id != 0 && pad.id == calculateID(&SlotHolder(slot));
+}
+
+u32 JoinPage::SlotId(u32 slot) const {
+    if (!Joined(slot))
+        return 0;
+    if (slot < kGameLocal)
+        return SectionMgr::sInstance->pad.GetCurrentID(slot);
+    return extPads[slot - kGameLocal].id;
+}
+
+// The slot waits for an A on any controller no holder has; its holder drops to the dummy controller.
+static void Request(u32 slot) {
+    if (slot < kGameLocal) {
+        SectionMgr::sInstance->pad.RequestPad(slot);
+        return;
+    }
+    Input::Manager *input = Input::Manager::sInstance;
+    SlotHolder(slot).SetController(&input->dummyController, nullptr);
+    extPads[slot - kGameLocal].id = 0;
+    extPads[slot - kGameLocal].waiting = true;
+}
+
+// A waiting P5-8 slot takes the controller that presses A, as SectionPad::Update does for P2-4 (TrySetController).
+static void TakePad(u32 slot) {
+    ExtPad &pad = extPads[slot - kGameLocal];
+    if (!pad.waiting)
+        return;
+    trySetController(Input::Manager::sInstance, slot, 0);
+    const u32 id = calculateID(&SlotHolder(slot));
+    if (id == 0)
+        return;
+    pad.id = id;
+    pad.waiting = false;
+}
+
+// The slot empties and stops waiting; its holder drops to the dummy controller.
+void JoinPage::Release(u32 slot) {
+    if (slot < kGameLocal) {
+        SectionMgr::sInstance->pad.ResetPad(slot);
+        return;
+    }
+    Input::Manager *input = Input::Manager::sInstance;
+    SlotHolder(slot).SetController(&input->dummyController, nullptr);
+    extPads[slot - kGameLocal].id = 0;
+    extPads[slot - kGameLocal].waiting = false;
+}
+
+void JoinPage::Prompt(s32 slot) {
+    if (slot == this->prompted)
+        return;
+    this->prompted = slot;
+    if (slot >= 0 && slot < kGameLocal) {
+        this->bottomText->SetMessage(kPromptBmg + slot);
+        return;
+    }
+    if (slot < 0) {
+        this->bottomText->SetMessage(0);  // as RegisterPad clears it after each pad (0x80603D98)
+        return;
+    }
+    // English only: Retro Rewind's text has no prompt past Player 4.
+    static const wchar_t *const extPrompts[kMaxLocal - kGameLocal] = {
+        L"Press the A Button on Player 5's controller.",
+        L"Press the A Button on Player 6's controller.",
+        L"Press the A Button on Player 7's controller.",
+        L"Press the A Button on Player 8's controller.",
+    };
+    Text::Info info;
+    info.strings[0] = const_cast<wchar_t *>(extPrompts[slot - kGameLocal]);
+    this->bottomText->SetMessage(Pulsar::UI::BMG_TEXT, &info);
+}
+
+void JoinPage::PlaceSlots() {
+    const float t = static_cast<float>(this->confirmFrame) / kConfirmFrames;
+    const float scale = kSlotScale + (kConfirmSlotScale - kSlotScale) * t;
+    const float dx = (114.0f + 24.0f) * scale;
+    const float dy = 156.0f * scale + 12.0f;
+    for (u32 slot = 0; slot < kMaxLocal; ++slot) {
+        LayoutUIControl &pad = *this->pads[slot];
+        PositionAndScale &base = pad.positionAndscale[0];
+        base.position.x = kConfirmSlotX * t + (-1.5f + (slot % 4)) * dx;
+        base.position.y = kSlotY + (slot < kGameLocal ? dy / 2 : -dy / 2);
+        base.scale.x = scale;
+        base.scale.z = scale;  // Vec2 names its second component z
+        pad.PositionFromBasePosition();
+    }
+}
+
+// Section 0x54 is built again for every game, so this ConfirmPads serves only this 5-8 player one.
+void JoinPage::OpenConfirm() {
+    this->confirming = true;
+    Pages::ConfirmPads *confirm = SectionMgr::sInstance->curSection->Get<Pages::ConfirmPads>();
+    if (confirm != nullptr) {
+        PushButton *buttons[2] = {&confirm->okButton, &confirm->changeButton};
+        for (int i = 0; i < 2; ++i) {
+            PositionAndScale &base = buttons[i]->positionAndscale[0];
+            base.position.x = kConfirmButtonX;
+            base.scale.x = kConfirmButtonScale;
+            base.scale.z = kConfirmButtonScale;
+            buttons[i]->PositionFromBasePosition();
+        }
+    }
+    this->AddPageLayer(PAGE_CONFIRM_PAD, 0);
+}
+
+void JoinPage::AfterControlUpdate() {
+    if (this->currentState != STATE_ACTIVE || this->leaving)
+        return;
+    const u32 frame = this->confirming ? kConfirmFrames : 0;
+    if (this->confirmFrame != frame) {
+        this->confirmFrame += frame > this->confirmFrame ? 1 : -1;
+        this->PlaceSlots();
+    }
+    if (this->confirming) {
+        this->Confirming();
+        return;
+    }
+    const u32 count = menuLocalCount;
+    for (u32 slot = kGameLocal; slot < count; ++slot) TakePad(slot);
+    for (u32 slot = 1; slot < count; ++slot) {
+        if (!Joined(slot))
+            continue;
+        const Input::RealControllerHolder *holder = PlayerHolder(slot);
+        if (holder != nullptr && UIPressed(*holder, BACK_PRESS)) {
+            this->Release(slot);
+            if (static_cast<s32>(slot) == this->requested)
+                this->requested = -1;
+        }
+    }
+    s32 next = -1;
+    for (u32 slot = 0; slot < count && next < 0; ++slot) {
+        if (!Joined(slot))
+            next = slot;
+    }
+    if (next != this->requested) {
+        if (this->requested >= 0 && !Joined(this->requested))
+            this->Release(this->requested);
+        if (next >= 0)
+            Request(next);
+        this->requested = next;
+    }
+    for (u32 slot = 0; slot < count; ++slot) {
+        const u32 id = this->SlotId(slot);
+        if (id != this->shownIds[slot]) {
+            padSetId(this->pads[slot], id);
+            if (id != 0 && this->shownIds[slot] != ~0u) {
+                padRegister(this->pads[slot]);
+                this->PlaySound(kJoinSound, slot);
+            }
+            this->shownIds[slot] = id;
+        }
+    }
+    this->Prompt(next);
+    if (next < 0)
+        this->OpenConfirm();
+}
+
+// ConfirmPads' OK and Back set RegisteredPads' canEnd (read at 0x806032C8; the page is built, unshown, here too). Change
+// only closes ConfirmPads, so the pads are reset as its OnDeactivate does before RegisterPad (0x806051FC).
+void JoinPage::Confirming() {
+    Pages::RegisteredPads *registered = SectionMgr::sInstance->curSection->Get<Pages::RegisteredPads>();
+    if (registered != nullptr && registered->canEnd) {
+        registered->canEnd = false;
+        this->nextPageId = registered->endAnimDirection == 0 ? PAGE_MULTIPLAYER_MENU : PAGE_NONE;
+        this->Leave(registered->endAnimDirection, registered->endAnimLength);
+        return;
+    }
+    if (!SectionMgr::sInstance->curSection->IsPageTopLayer(*this))
+        return;
+    this->confirming = false;
+    SectionMgr::sInstance->pad.ResetAllPads();
+    for (u32 slot = kGameLocal; slot < menuLocalCount; ++slot) this->Release(slot);
+    this->requested = -1;
+}
+
+void JoinPage::Leave(u32 animDirection, float animLength) {
+    this->leaving = true;
+    this->EndStateAnimated(animDirection, animLength);
+}
+
+// Back to the main menu, as RegisterPad's back does from section 0x54 (0x80603C94).
+void JoinPage::OnBackPress(u32) {
+    if (this->leaving || this->confirming)
+        return;
+    this->Leave(1, 0.0f);
+    SectionMgr *sectionMgr = SectionMgr::sInstance;
+    sectionMgr->pad.ResetPadsStatus();
+    sectionMgr->SetNextSection(SECTION_MAIN_MENU_FROM_MENU, 1);
+    sectionMgr->RequestSceneChange(0, 0xff);
+}
+
+// Replaces Change's "li r0, 0x62", RegisterPad, which stops at 4; OnDeactivate (0x806051E4) resets the pads only for
+// next page 0x62, so in a 5-8 player game -1 just closes the page and Confirming resets them.
+asmFunc ConfirmChangeNextPage() {
+    ASM(
+        nofralloc;
+        lis r12, menuLocalCount @ha;
+        lbz r12, menuLocalCount @l(r12);
+        li r0, 0x62;
+        cmplwi r12, 4;
+        blelr;
+        li r0, -1;
+        blr;)
+}
+kmCall(0x80605234, ConfirmChangeNextPage);
+
+// The reconnect box (RecognizePad) scans SectionPad's slots 0-4. In a 5-8 player game it scans P5-8 too wherever the
+// top page scans all of P1-4: the menus' players, or a race's locals (fewer after a knockout).
+static bool ExtBoxSlot(u32 slot) {
+    const bool race = GameScene::GetCurrent()->id == SCENE_ID_RACE;
+    return slot >= kGameLocal && slot < (race ? raceLocalCount : menuLocalCount);
+}
+
+// RecognizePad::OnActivate+0x74, RecognizePadLocalRace::OnActivate+0x80 and CheckForConditions+0x2C,
+// "bl GetFirstDeactivatedPad".
+static s32 FirstDeactivatedPad(SectionPad *pad) {
+    const s32 slot = pad->GetFirstDeactivatedPad();
+    if (slot >= 0 || (pad->localPlayerBitfield & ((1 << kGameLocal) - 1)) != (1 << kGameLocal) - 1)
+        return slot;
+    for (u32 ext = kGameLocal; ExtBoxSlot(ext); ++ext) {
+        if (!Joined(ext))
+            return ext;
+    }
+    return -1;
+}
+kmCall(0x8061c234, FirstDeactivatedPad);
+kmCall(0x8061c9ec, FirstDeactivatedPad);
+kmCall(0x8061c438, FirstDeactivatedPad);
+
+// The box's reads of its slot (both OnActivates, AfterControlUpdate+0x4C), and the lamp row's, which lights that slot's
+// port or channel (SetMessage_case14+0x2C, "{arg border}"); P5-8 have no PadInfo.
+static u32 BoxCurrentID(const SectionPad *pad, u32 slot) {
+    return ExtBoxSlot(slot) ? extPads[slot - kGameLocal].id : pad->GetCurrentID(slot);
+}
+kmCall(0x8061c244, BoxCurrentID);
+kmCall(0x8061c9fc, BoxCurrentID);
+kmCall(0x8061c330, BoxCurrentID);
+kmCall(0x805ce65c, BoxCurrentID);
+
+// AfterControlUpdate+0x38 closes the box once the slot has its pad again; a P5-8 slot waits there for its A.
+static bool BoxHasAController(const SectionPad *pad, u32 slot) {
+    if (!ExtBoxSlot(slot))
+        return pad->HasAController(slot);
+    TakePad(slot);
+    return Joined(slot);
+}
+kmCall(0x8061c31c, BoxHasAController);
+
+// PadControl::OnUpdate+0x98 dims the pad of a slot with no controller, every frame on the join page and in the box. The
+// join page's hidden slots past the player count still update, and SectionPad has no slot past 4.
+static bool SlotHasAController(const SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        return Joined(slot);
+    return slot <= kGameLocal && pad->HasAController(slot);
+}
+kmCall(0x80601514, SlotHasAController);
+
+// Both boxes' BeforeEntranceAnimations+0x50, "bl PadControl::SetParams". The "Player" group binds its colour tracks again
+// only when its animation changes, so a 5-8 player game's box first plays P1's, undoing a P5-8 box's ColourSlot.
+static void BoxPadParams(LayoutUIControl *pad, u32 hud, u8 coloured, u32 mode) {
+    if (ExtBoxSlot(kGameLocal))
+        pad->animator.GetAnimationGroupById(1).PlayAnimationAtFrame(0, 0.0f);
+    padSetParams(pad, hud, coloured, mode);
+    if (ExtBoxSlot(hud))
+        ColourSlot(*pad, hud);
+}
+kmCall(0x8061c678, BoxPadParams);
+kmCall(0x8061caf8, BoxPadParams);
+
+// RecognizePadMenu::AfterEntranceAnimations+0x40 and +0x44 tail-call SetPadDisconnected or RequestPad, both indexing
+// padInfos[5] by the slot; a P5-8 slot waits for an A on any free controller in both cases.
+static void BoxPadDisconnected(SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        Request(slot);
+    else
+        pad->SetPadDisconnected(slot);
+}
+kmBranch(0x8061c760, BoxPadDisconnected);
+
+// A race's box asks for the pad through DisconnectPad, which also indexes padInfos[5]: RecognizePadLocalRace's
+// AfterEntranceAnimations+0x40 and +0x44 (tail calls) and BeforeControlUpdate+0x98, once a changed controller leaves.
+static void RaceBoxDisconnectPad(SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        Request(slot);
+    else
+        pad->DisconnectPad(slot);
+}
+kmBranch(0x8061cbd4, RaceBoxDisconnectPad);
+kmBranch(0x8061cbd8, RaceBoxDisconnectPad);
+kmCall(0x8061ccd0, RaceBoxDisconnectPad);
+
+// RecognizePadLocalRace::BeforeControlUpdate+0xBC asks for P1-4's pad again when another controller holds the slot, as a
+// race keeps each player's own; P5-8 take any free controller, as in the menus.
+static bool RaceBoxHasAController(const SectionPad *pad, u32 slot) {
+    return !ExtBoxSlot(slot) && pad->HasAController(slot);
+}
+kmCall(0x8061ccf4, RaceBoxHasAController);
+
+// BeforeControlUpdate+0x8C requests the slot's pad again once a changed controller leaves its channel.
+static void BoxRequestPad(SectionPad *pad, u32 slot) {
+    if (ExtBoxSlot(slot))
+        Request(slot);
+    else
+        pad->RequestPad(slot);
+}
+kmBranch(0x8061c764, BoxRequestPad);
+kmCall(0x8061c850, BoxRequestPad);
+
+// Every 5-8 player game starts at the main menu (Entry.cpp), where holders 4-7 go back to the dummy that TrySetController's
+// scans read in a 1-4 player game too; a joined P5-8 keeps its pad for JoinPage::OnActivate.
+void ClearExtPads() {
+    Input::Manager *input = Input::Manager::sInstance;
+    for (u32 slot = kGameLocal; slot < kMaxLocal; ++slot) {
+        ExtPad &pad = extPads[slot - kGameLocal];
+        pad.controller = nullptr;
+        if (input != nullptr && Joined(slot))
+            pad.controller = SlotHolder(slot).curController;
+        else
+            pad.id = 0;
+        pad.waiting = false;
+        if (input != nullptr)
+            SlotHolder(slot).SetController(&input->dummyController, nullptr);
+    }
+}
+
+// As TrySetController binds a pad (0x80523FCC): current and previous controller, the +0xC copy InitControllers restores
+// each race, and params.
+void BindPad(Input::RealControllerHolder &holder, Input::Controller *controller) {
+    if (holder.curController != controller)
+        holder.SetController(controller, nullptr);
+    holder.controller3 = holder.curController;
+    fillParams(&holder.params, holder.curController);
+}
+
+}  // namespace SplitScreen8

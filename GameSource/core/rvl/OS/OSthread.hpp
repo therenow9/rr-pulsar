@@ -80,6 +80,7 @@ s32 SuspendThread(Thread *thread);
 
 // switches to another thread of equal priority
 void YieldThread();
+BOOL SetThreadPriority(Thread *thread, s32 priority);  // 801aab98
 
 }  // namespace OS
 #endif

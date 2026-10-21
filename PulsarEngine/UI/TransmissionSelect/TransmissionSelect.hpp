@@ -7,10 +7,12 @@
 #include <UI/UI.hpp>
 
 namespace Pulsar {
+class System;
 namespace UI {
 
 Transmission GetSelectedTransmission(u32 hudSlotId);
 void SetSelectedTransmission(u32 hudSlotId, Transmission transmission);
+bool ShouldSkipTransmissionSelect(const System *system);
 extern u8 remoteTransmission[12][2];
 
 class TransmissionSelect : public Pages::DriftSelect {

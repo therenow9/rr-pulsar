@@ -118,21 +118,4 @@ static void ClearContextsUponWFCDisconnect() {
 
 SectionLoadHook clearContext(ClearContextsUponWFCDisconnect);
 
-// Hide the channel button on the title screen [ZPL]
-extern "C" u32 sMainMenuControlCount = 4;
-static void HideChannelButton() {
-    sMainMenuControlCount = Dolphin::IsEmulator() ? 3 : 4;
-}
-BootHook hideChannelButton(HideChannelButton, 0);
-
-asmFunc LoadMainMenuControlCount() {
-    ASM(
-        nofralloc;
-        lis r4, sMainMenuControlCount @ha;
-        lwz r4, sMainMenuControlCount @l(r4);
-        blr;
-    )
-}
-kmCall(0x80625E1C, LoadMainMenuControlCount);
-
 }  // namespace RetroRewind

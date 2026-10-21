@@ -8,8 +8,9 @@
 #include <MarioKartWii/Audio/Actors/CharacterActor.hpp>
 #include <MarioKartWii/Driver/DriverController.hpp>
 #include <MarioKartWii/Race/RaceData.hpp>
-#include <MarioKartWii/Scene/RootScene.hpp>
 #include <MarioKartWii/System/Random.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
+#include <core/RK/RKSystem.hpp>
 #include <core/nw4r/snd/SoundArchive.hpp>
 #include <core/nw4r/snd/WsdFile.hpp>
 #include <core/nw4r/snd/WaveArchive.hpp>
@@ -41,12 +42,18 @@ struct MenuTrickVoice {
     bool silent;
 };
 
-static MenuTrickVoice sMenuTrickVoices[4];
-static void InitMenuTrickVoiceBuffers() {
-    // Child scenes consume the remaining parent heap, so reserve these before the first menu is created.
-    for (u32 hud = 0; hud < 4; ++hud) sMenuTrickVoices[hud].wsd = RootScene::sInstance->mainMEMHeap->alloc(0x40000, 0x20);
+static MenuTrickVoice sMenuTrickVoices[SplitScreen8::kMaxLocal];
+
+// Each hud's buffer comes from the sound heap on its first voiced skin, so no MEM2 is held outside the menus;
+// the next section frees it.
+static void ForgetMenuTrickVoices() {
+    for (u32 hud = 0; hud < SplitScreen8::kMaxLocal; ++hud) {
+        sMenuTrickVoices[hud].slot = 0;
+        sMenuTrickVoices[hud].wsd = nullptr;
+        sMenuTrickVoices[hud].waves = nullptr;
+    }
 }
-static BootHook InitMenuTrickVoiceBuffersOnBoot(InitMenuTrickVoiceBuffers, 4);
+static SectionLoadHook ForgetMenuTrickVoicesOnSectionLoad(ForgetMenuTrickVoices);
 
 static bool ReadWaveSoundInfoSafely(const nw4r::snd::detail::WsdFileReader *reader, nw4r::snd::detail::WaveSoundInfo *info, int index) {
     using namespace nw4r::snd::detail;
@@ -402,7 +409,7 @@ static Audio::Handle *HoldRosalinaLumaSound(Audio::RaceActor *actor, u32 soundId
 }
 kmWritePointer(0x808dbcd8, HoldRosalinaLumaSound);
 
-static s8 GetPlayerVoiceAlias(u32 playerId) {
+s8 GetPlayerVoiceAlias(u32 playerId) {
     EnsureVoiceAssignments();
     return sVoiceAssignmentsReady && playerId < 12 ? sPlayerVoiceAliases[playerId] : -1;
 }
@@ -634,19 +641,20 @@ static bool ReadVoiceFileToMemory(DVD::FileInfo &file, void *dest, u32 size, u32
     return true;
 }
 
-static bool PlayCustomMenuVoice(Audio::DriverSoundManager *manager, s32 type, s32 character, u32 hud) {
+// A skin with its own voice files says one of its trick lines into handle, and a silent skin nothing: both return -1,
+// the picker's "no sound". Any other case returns the character for the game's own line.
+s32 GetMenuVoiceCharacter(s32 character, u32 hud, nw4r::snd::SoundHandle &handle) {
     using namespace nw4r::snd::detail;
     if (character < 0 || character >= Driver::CHARACTER_COUNT)
-        return manager->PlayMenuVoice(type, static_cast<CharacterId>(character), hud);
+        return character;
     const u32 slot = Driver::selectedSlots[hud][character];
     if (slot == 0)
-        return manager->PlayMenuVoice(type, static_cast<CharacterId>(character), hud);
+        return character;
     Audio::Manager *audio = Audio::Manager::sInstance;
     // The game normally initializes this archive pointer when the first race's actors are created.
     if (Audio::Manager::soundArchive == nullptr)
         Audio::Manager::soundArchive = audio->dvdSoundArchiveptr;
     nw4r::snd::SoundArchive *archive = Audio::Manager::soundArchive;
-    nw4r::snd::SoundHandle &handle = *reinterpret_cast<nw4r::snd::SoundHandle *>(reinterpret_cast<u8 *>(manager) + 0x2430 + hud * 4);
     MenuTrickVoice *voice = &sMenuTrickVoices[hud];
     if (voice->character != character || voice->slot != slot) {
         if (voice->waves != nullptr) {
@@ -668,14 +676,14 @@ static bool PlayCustomMenuVoice(Audio::DriverSoundManager *manager, s32 type, s3
         char sourceSuffix[0x20];
         if (!FindCustomVoiceSource(static_cast<CharacterId>(character), slot, source, sourceSuffix, sizeof(sourceSuffix), "_PC")) {
             voice->silent = IsSilentSlot(static_cast<CharacterId>(character), slot);
-            return !voice->silent && manager->PlayMenuVoice(type, static_cast<CharacterId>(character), hud);
+            return voice->silent ? -1 : character;
         }
         const u16 *ranges = Audio::CharacterActor::voiceRanges[0][source];
         voice->firstSound = ranges[Audio::CHARACTER_SOURCE_STUNT_1FLIP * 2];
         voice->soundCount = ranges[Audio::CHARACTER_SOURCE_STUNT_1FLIP * 2 + 1] - voice->firstSound + 1;
         nw4r::snd::SoundArchive::SoundInfo soundInfo;
         if (archive->GetSoundType(voice->firstSound) != nw4r::snd::SoundArchive::SOUND_TYPE_WAVE || !archive->ReadSoundInfo(voice->firstSound, &soundInfo))
-            return manager->PlayMenuVoice(type, static_cast<CharacterId>(character), hud);
+            return character;
         voice->fileId = soundInfo.soundFile;
 
         char code[0x20];
@@ -687,13 +695,15 @@ static bool PlayCustomMenuVoice(Audio::DriverSoundManager *manager, s32 type, s3
             snprintf(path, sizeof(path), "/sound/GRP_VO_%s-%u_PC.brwsd", code, slot);
         DVD::FileInfo file;
         if (!DVD::Open(path, &file))
-            return manager->PlayMenuVoice(type, static_cast<CharacterId>(character), hud);
+            return character;
         do {
             VoiceFileLayout layout;
             if (!ReadVoiceFileLayout(file, "RWSD", layout) || layout.waveSize == 0)
                 break;
             if (AlignVoiceBuffer(layout.fileSize) > 0x40000)
                 break;
+            if (voice->wsd == nullptr)
+                voice->wsd = RKSystem::mInstance.audioManager->EGG::SoundHeapMgr::heap.Alloc(0x40000);
             if (voice->wsd == nullptr)
                 break;
             if (!ReadVoiceFileToMemory(file, voice->wsd, layout.fileSize, 0))
@@ -779,7 +789,7 @@ static bool PlayCustomMenuVoice(Audio::DriverSoundManager *manager, s32 type, s3
         DVD::Close(&file);
     }
     if (voice->waves == nullptr)
-        return !voice->silent && manager->PlayMenuVoice(type, static_cast<CharacterId>(character), hud);
+        return voice->silent ? -1 : character;
 
     Sound::SetLooseBRSARGroupItemBuffer(voice->fileId, false, voice->wsd);
     Sound::SetLooseBRSARGroupItemBuffer(voice->fileId, true, voice->waves);
@@ -788,9 +798,15 @@ static bool PlayCustomMenuVoice(Audio::DriverSoundManager *manager, s32 type, s3
     Random random;
     // Match Audio::Manager::StartSound directly; the header's virtual slot differs in this binary.
     if (audio->isLocked || audio->soundArchivePlayer->detail_StartSound(&handle, voice->firstSound + random.NextLimited(voice->soundCount), nullptr) != nw4r::snd::SoundStartable::START_SUCCESS)
-        return manager->PlayMenuVoice(type, static_cast<CharacterId>(character), hud);
+        return character;
     handle.basicSound->SetVolume(0, 0.85f);
-    return true;
+    return -1;
+}
+
+// The character, kart and team select voices tail-branch here with hud below 4; the picker keeps one handle per hud at +0x2430.
+static bool PlayCustomMenuVoice(Audio::DriverSoundManager *manager, s32 type, s32 character, u32 hud) {
+    nw4r::snd::SoundHandle &handle = *reinterpret_cast<nw4r::snd::SoundHandle *>(reinterpret_cast<u8 *>(manager) + 0x2430 + hud * 4);
+    return manager->PlayMenuVoice(type, static_cast<CharacterId>(GetMenuVoiceCharacter(character, hud, handle)), hud);
 }
 kmBranch(0x808689d4, PlayCustomMenuVoice);
 kmBranch(0x80868a34, PlayCustomMenuVoice);

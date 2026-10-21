@@ -321,7 +321,7 @@ asmFunc MiiOutfitCDriverSlotSpecial() {
 kmBranch(0x80830d7c, MiiOutfitCDriverSlotSpecial);
 kmPatchExitPoint(MiiOutfitCDriverSlotSpecial, 0x80830da4);
 
-static u32 LoadMiiOutfitCBRRES(void *holder, CharacterId character) {
+u32 LoadMiiOutfitCBRRES(void *holder, CharacterId character) {
     MenuModelBRRESHandle *brresHandle = static_cast<MenuModelBRRESHandle *>(holder);
     switch (character) {
         case MII_S_C_MALE:

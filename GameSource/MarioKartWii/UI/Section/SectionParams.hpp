@@ -52,7 +52,7 @@ public:
     static bool IsCourseUnlockedInOneCC(CourseId id);  // 805e372c
     static bool IsCupUnlockedInOneCC(u32 cupIdx);  // 805e37b0
 
-    void RandomizeBattleArenas();  // 805e32ec
+    void RandomizeBattleArenas();  // 805e3858
     void SetBattleArenas(CourseId initial);  // 805e38fc does NOT randomize them, rather puts them in order
     static CourseId TrackIdxToCourseId(int idx);  // 805e3f68 not quite sure why we can't idxToCourseId[idx]
     static u32 CourseIdToTrackIdx(CourseId id);  // 805e3fa0

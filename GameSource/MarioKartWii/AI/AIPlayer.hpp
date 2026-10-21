@@ -33,6 +33,7 @@ class Inputs {
 };  // 0x14
 
 class Player : public Base {
+public:
     Player(KartAIController &controller);  // 807319c4
     ~Player() override;  // offset 0x34 807323a0 vtable 808ca73c
 

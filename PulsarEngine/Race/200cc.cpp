@@ -6,6 +6,8 @@
 #include <PulsarSystem.hpp>
 #include <RetroRewind.hpp>
 #include <MarioKartWii/RKNet/RKNetController.hpp>
+#include <MarioKartWii/Input/InputManager.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 // Unoptimized code which is mostly a port of Stebler's version which itself comes from CTGP's, speed factor is in the LapSpeedModifier code
 
@@ -81,6 +83,9 @@ static void CalcBrakeDrifting() {
         if (controllerHolder != nullptr)
             EnableBrakeDrifting(*controllerHolder);
     }
+    // A 5-8 player race's huds 4-7 hold controller ids 4-7, past SectionPad's pads.
+    for (int hudSlotId = SplitScreen8::kGameLocal; hudSlotId < SplitScreen8::RaceLocals(SplitScreen8::kGameLocal); ++hudSlotId)
+        EnableBrakeDrifting(SplitScreen8::Holder(*Input::Manager::sInstance, hudSlotId));
 }
 static RaceFrameHook BrakeDriftingCheck(CalcBrakeDrifting);
 

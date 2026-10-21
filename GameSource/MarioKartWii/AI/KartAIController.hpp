@@ -14,6 +14,7 @@ public:
     bool IsRealLocal() const;  // 80726290
     bool IsGhost() const;  // 8072633c
     bool HaveSameTeam(const KartAIController &other);  // 80726380
+    void StartPostRaceAI();  // 807263a8
 
     bool IsOnTheGround() const;  // 807264e8
     bool IsInTheAir() const;  // 807264fc

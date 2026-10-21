@@ -92,7 +92,9 @@ public:
     bool pauseGame;
     bool controllerDcPause;
     bool isPaused;
-    u8 unknown_0x38C[3];
+    u8 unknown_0x38C;
+    bool skipsActions;  // 0x38d copied from 0x388 (RecognizePad sets it); Update then skips the top layer's CheckActions
+    u8 unknown_0x38E;
     bool isInitializing;  // 0x38f
     nw4r::lyt::DrawInfo drawInfo;  // 0x390
     EGG::Allocator *layoutAllocator;  // 0x3e4

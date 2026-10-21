@@ -32,6 +32,7 @@ class Actions : public ActionsBase {  // the funcs obviously have the same body 
 };  // 0x2c
 
 class Base {
+public:
     Base();  // 8074ae2c
     bool SetInitialActions();  // 8074afb4 uses the default action contained
     bool HasSameActions(ActionsBase *actions);  // 8074afcc returns curActions == actions

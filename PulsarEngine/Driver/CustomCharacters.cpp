@@ -20,13 +20,14 @@
 #include <core/rvl/PAD.hpp>
 #include <core/rvl/WPAD.hpp>
 #include <core/rvl/dvd/dvd.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
 namespace Driver {
 
 bool characterTables[CHARACTER_COUNT][MAX_CUSTOM_CHARACTER_SLOTS + 1];
 
-u8 selectedSlots[4][CHARACTER_COUNT];
+u8 selectedSlots[SplitScreen8::kMaxLocal][CHARACTER_COUNT];
 static u8 loadedSlots[4];
 static s8 cycleDirections[4];
 enum {
@@ -67,7 +68,9 @@ static s32 LoadKartArchive(char *path, u32 size, const char *format, const char 
         ++character;
     }
 
-    const u32 slot = character < CHARACTER_COUNT && !Restrictions::IsCharacterRestrictionConfigActive() && !Restrictions::IsVehicleRestrictionConfigActive() ? selectedSlots[player][character] : 0;
+    const u32 slot = character < CHARACTER_COUNT && player < SplitScreen8::kMaxLocal && !Restrictions::IsCharacterRestrictionConfigActive() && !Restrictions::IsVehicleRestrictionConfigActive()
+      ? selectedSlots[player][character]
+      : 0;
     const char *battleSuffix = strstr(format, "_BT") != nullptr ? "_BT" : "";
     if (slot != 0) {
         char archivePath[0x80];
@@ -93,7 +96,7 @@ kmWrite32(0x80541f9c, 0x7fc7f378);  // mr r7, r30
 kmWrite32(0x8054213c, 0x7fc7f378);  // mr r7, r30
 kmWrite32(0x8054217c, 0x7fc7f378);  // mr r7, r30
 
-static void UnloadDriverBRRES(u32 player) {
+void UnloadDriverBRRES(u32 player) {
     if (customModels[player] == nullptr)
         return;
 
@@ -122,6 +125,8 @@ static void UnloadDriverBRRES(u32 player) {
     }
     customModels[player] = nullptr;
     loadedSlots[player] = 0;
+    // The page's calc runs before the frame's GX::DrawDone, so the GPU may still be drawing this model's heap.
+    GX::DrawDone();
     customHeaps[player]->destroy();
     customHeaps[player] = nullptr;
 }
@@ -158,7 +163,7 @@ bool LoadDriverBRRES(u8 player, CharacterId characterId, u32 slot) {
         parentHeap = scene->structsHeaps.heaps[1];
     const u16 heapFlags = parentHeap->dameFlag;
     parentHeap->dameFlag &= ~1;
-    EGG::ExpHeap *heap = EGG::ExpHeap::Create(fileSize + 0xe1000, parentHeap, 0);
+    EGG::ExpHeap *heap = EGG::ExpHeap::Create(fileSize + SplitScreen8::SkinLoadReserve(0xe1000), parentHeap, 0);
     parentHeap->dameFlag = heapFlags;
     if (heap == nullptr)
         return false;
@@ -216,6 +221,10 @@ bool LoadDriverBRRES(u8 player, CharacterId characterId, u32 slot) {
         customHair[player]->Update(scnMgr->curScnRootIdx);
     heap->adjust();
     return true;
+}
+
+MenuDriverModel *GetCustomDriverModel(u32 player) {
+    return player < 4 ? customModels[player] : static_cast<MenuDriverModel *>(nullptr);
 }
 
 // Stock character buttons are exclusive; Miis already allow multiple players.
@@ -461,6 +470,7 @@ kmCall(0x805f5918, RequestDriverModel);
 kmBranch(0x805f5704, RequestDriverModel);
 
 static void ResetScnMgr() {
+    SplitScreen8::ResetExtPreviews();
     for (u32 player = 0; player < 4; ++player) UnloadDriverBRRES(player);
     ScnMgr::Reset();
 }

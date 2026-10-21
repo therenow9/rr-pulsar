@@ -7,6 +7,7 @@
 #include <MarioKartWii/RKNet/RKNetController.hpp>
 #include <MarioKartWii/UI/Ctrl/CtrlRace/CtrlRaceGhostDiffTime.hpp>
 #include <Settings/Settings.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 
 /*Music speedup:
 When the player reaches the final lap (if the track has >1 laps) and if the setting is set, the music will
@@ -32,7 +33,7 @@ static void MusicSpeedup(Audio::RaceRSARPlayer *rsarSoundPlayer, u32 jingle, u8 
     const RacedataSettings &raceDataSettings = Racedata::sInstance->racesScenario.settings;
     RaceinfoPlayer *hudPlayer = nullptr;
     if (raceInfo != nullptr && raceInfo->players != nullptr) {
-        hudPlayer = raceInfo->players[raceDataSettings.hudPlayerIds[hudSlotId]];
+        hudPlayer = raceInfo->players[SplitScreen8::HudRacePlayer(hudSlotId)];
     }
     const bool isNewLapTrigger = (maxLap != curLap);
     const bool hudPlayerReachedFinalLap = hudPlayer != nullptr && hudPlayer->currentLap >= raceDataSettings.lapCount;
@@ -54,7 +55,7 @@ static void MusicSpeedup(Audio::RaceRSARPlayer *rsarSoundPlayer, u32 jingle, u8 
             }
             if (finalLapSpeedupHudSlot == hudSlotId && raceInfo != nullptr && raceInfo->players != nullptr) {
                 const Timer &raceTimer = raceInfo->timerMgr->timers[0];
-                const Timer &playerTimer = raceInfo->players[raceDataSettings.hudPlayerIds[finalLapSpeedupHudSlot]]->lapSplits[maxLap - 2];
+                const Timer &playerTimer = raceInfo->players[SplitScreen8::HudRacePlayer(finalLapSpeedupHudSlot)]->lapSplits[maxLap - 2];
                 const Timer difference = CtrlRaceGhostDiffTime::SubtractTimers(raceTimer, playerTimer);
                 if (difference.minutes < 1 && difference.seconds < 5) {
                     sound.ambientParam.pitch += 0.0002f;

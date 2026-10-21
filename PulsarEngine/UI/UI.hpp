@@ -11,6 +11,7 @@ void ChangeImage(LayoutUIControl &control, const char *paneName, const char *tpl
 void SetCharacterSelectIcon(LayoutUIControl *control, const char *paneName, const char *picturePane);
 const wchar_t *GetCustomMsg(s32 bmgId);
 u32 GetCharacterNameBMGId(u32 character, bool useGenericMiiName, u32 playerId, bool isAward = false);
+u32 GetCharacterSlotNameBMGId(u32 character, u32 slot, bool useGenericMiiName);
 u32 GetCharacterAuthorBMGId(u32 character, u32 slot);
 bool SetCustomCharacterAuthorMessage(LayoutUIControl &control, u32 bmgId);
 void UnbindRLMC(lyt::Material *mat);
@@ -54,8 +55,14 @@ enum PulPageId {
     PULPAGE_VEHICLERESTRICTIONWEIGHT,
     PULPAGE_VEHICLERESTRICTION,
     PULPAGE_MULTITRANSMISSIONSELECT,
+    PULPAGE_SS8JOIN,  // SplitScreen8's 5-8 player join page
+    PULPAGE_SS8CHARSELECT,  // SplitScreen8's 5-8 player character, kart and drift pages
+    PULPAGE_SS8KARTSELECT,
+    PULPAGE_SS8TRANSMISSIONSELECT,
+    PULPAGE_SS8DRIFTSELECT,
+    PULPAGE_SS8TEAMSELECT,
 
-    PULPAGE_MAX = PULPAGE_MULTITRANSMISSIONSELECT - PULPAGE_INITIAL + 1
+    PULPAGE_MAX = PULPAGE_SS8TEAMSELECT - PULPAGE_INITIAL + 1
 };
 
 class ExpSection : public Section {  // u32 id -> either a standard pageId but can also be a PulPageId
