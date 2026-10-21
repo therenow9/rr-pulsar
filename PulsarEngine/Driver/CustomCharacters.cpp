@@ -125,6 +125,8 @@ void UnloadDriverBRRES(u32 player) {
     }
     customModels[player] = nullptr;
     loadedSlots[player] = 0;
+    // The page's calc runs before the frame's GX::DrawDone, so the GPU may still be drawing this model's heap.
+    GX::DrawDone();
     customHeaps[player]->destroy();
     customHeaps[player] = nullptr;
 }
