@@ -4,6 +4,7 @@
 #include <core/egg/Thread.hpp>
 #include <core/egg/mem/ExpHeap.hpp>
 #include <core/rvl/OS/OS.hpp>
+#include <core/rvl/OS/OSCache.hpp>
 #include <core/rvl/dvd/dvd.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuKartModel.hpp>
@@ -686,6 +687,8 @@ static bool BuildKart(u32 i) {
     }
     memcpy(kartCopy, kartFile, kartSize);
     memcpy(animCopy, animFile, animSize);
+    // ResFile::Init flushes all the GPU reads but the shaders' display lists, which stock's loads leave flushed (0x80519578).
+    OS::DCStoreRange(kartCopy, kartSize);
 
     EGG::Allocator *allocator = new (heap) EGG::Allocator(heap, 0x20);
     EGG::Heap *oldHeap = scnMgr->curHeap;
