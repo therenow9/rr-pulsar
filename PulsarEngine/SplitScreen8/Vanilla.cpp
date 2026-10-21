@@ -13,7 +13,7 @@
 #include <SplitScreen8/SplitScreen8.hpp>
 
 // Mario Kart Wii without Retro Rewind: the Pulsar and RR hooks SplitScreen8 relies on, from the RR files this build leaves out
-// (UI/UI.cpp, UI/UIColor.cpp, Driver/CustomCharacters.cpp, Race/CustomCharacters.cpp, Race/ResourceFixes.cpp).
+// (UI/UI.cpp, UI/UIColor.cpp, Driver/CustomCharacters.cpp, Race/CustomCharacters.cpp, Race/ResourceFixes.cpp), and this build's own changes.
 
 namespace Pulsar {
 namespace UI {
@@ -217,6 +217,11 @@ static void ResetAndDrainGpu(GameScene &scene) {
     GX::DrawDone();
 }
 kmCall(0x8051b7cc, ResetAndDrainGpu);
+
+// ScnMgrRace::LoadPostEffects' "ori r4, r4, 0x10" (2+ screens, then 1P): no bloom path is created, as on the courses the
+// game leaves it off. RR's Bloom setting blends the pass to nothing instead, so the GPU still draws it.
+kmWrite32(0x805b1560, 0x60000000);
+kmWrite32(0x805b15bc, 0x60000000);
 
 #ifdef SS8_DEBUG_BOOT
 // SectionMgr::Init's "bl NdevArgsExtractor::ExtractAllArgs", as RR's BootIntoSection: with no ndevArg it returns before
