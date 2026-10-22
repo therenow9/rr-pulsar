@@ -5,6 +5,7 @@ namespace VI {
 typedef void (*RetraceCallback)(u32 retraceCount);
 void WaitForRetrace();  // 801b99ec
 void *GetNextFrameBuffer();  // 801bab24
+u32 GetRetraceCount();  // 801baba4
 
 enum TVMode {
     VI_TVMODE_NTSC_INT,  // NTSC INTERLACING
