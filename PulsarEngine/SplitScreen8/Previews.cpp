@@ -140,6 +140,10 @@ void ResetExtPreviews() {
     extPassCount = 0;
 }
 
+static u32 TotalFree(EGG::Heap *heap) {
+    return static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize();
+}
+
 // Built once a section on a scene structs heap, before any load fragments it: the textures as
 // MenuModelMgr::Init builds its own (0x8059E460), then each player's arena, then each Mii player's head.
 bool ExtPreviewsShow(u32 count) {
@@ -162,7 +166,8 @@ bool ExtPreviewsShow(u32 count) {
         parentHeap = scene->structsHeaps.heaps[0];
     const u16 heapFlags = parentHeap->dameFlag;
     parentHeap->dameFlag &= ~1;
-    bool built = true;
+    // A heap short of the set in total builds none of it: a part-built set stays on the heap P1-4's skins load from.
+    bool built = TotalFree(parentHeap) >= needed;
     for (u32 i = 0; i < kExtPlayers && built; ++i) {
         if (textures[i] != nullptr)
             continue;
@@ -179,7 +184,7 @@ bool ExtPreviewsShow(u32 count) {
     }
     parentHeap->dameFlag = heapFlags;
     if (!built) {
-        OS::Report("ss8 preview: P5-8 set not built, needed %u largest %u\n", needed, parentHeap->getAllocatableSize(4));
+        OS::Report("ss8 preview: P5-8 set not built, needed %u largest %u free %u\n", needed, parentHeap->getAllocatableSize(4), TotalFree(parentHeap));
         return false;
     }
     MiiGroup &miis = SectionMgr::sInstance->sectionParams->playerMiis;
@@ -221,10 +226,6 @@ static void Pose(ModelDirector *model, ToadetteHair *hair) {
     model->Update(curRootIdx);
     if (hair != nullptr)
         hair->Update(curRootIdx);
-}
-
-static u32 TotalFree(EGG::Heap *heap) {
-    return static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize();
 }
 
 // Without this block free, a head's InitModel writes through a null ScnRfl (0x802443DC), a fault on a console.
