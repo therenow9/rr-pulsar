@@ -60,7 +60,9 @@ public:
     OS::Alarm syncAlarm;  // 0x28
     u8 unknown_0x54[4];
     OS::ThreadQueue threadQueue;  // 0x58
-    u8 unknown_0x64[0x10];
+    u8 unknown_0x60[8];
+    u32 frameStartRetraceCount;  // 0x68 retraceCount at the last beginFrame
+    u32 retraceCount;  // 0x6c
     u8 startSyncr4;  // 0x70
     u8 padding[3];
     u32 tickPerVRetraceNTSC;  // 0x74

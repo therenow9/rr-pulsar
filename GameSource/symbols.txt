@@ -551,6 +551,7 @@ Read__3PADFPQ23PAD6Status = 0x801af44c
 #VI
 WaitForRetrace__2VIFv = 0x801b99ec
 ResetSIIdle__2VIFv = 0x801bb0d0
+GetRetraceCount__2VIFv = 0x801baba4
 #NET
 NETSHA1Init = 0x801d24f4
 NETSHA1Update = 0x801d2544

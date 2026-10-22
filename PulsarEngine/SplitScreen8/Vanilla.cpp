@@ -2,7 +2,12 @@
 #include <kamek.hpp>
 #include <core/System/SystemManager.hpp>
 #include <core/rvl/gx/GX.hpp>
+#include <core/rvl/OS/OS.hpp>
+#include <core/rvl/VI/VI.hpp>
+#include <core/RK/RKSystem.hpp>
+#include <MarioKartWii/3D/GameScreenEffects/GameScreenEffects.hpp>
 #include <MarioKartWii/3D/Scn/ScnMgr.hpp>
+#include <MarioKartWii/Race/RaceData.hpp>
 #include <MarioKartWii/System/NdevArgsExtractor.hpp>
 #include <MarioKartWii/File/BMG.hpp>
 #include <MarioKartWii/Scene/GameScene.hpp>
@@ -222,6 +227,86 @@ kmCall(0x8051b7cc, ResetAndDrainGpu);
 // game leaves it off. RR's Bloom setting blends the pass to nothing instead, so the GPU still draws it.
 kmWrite32(0x805b1560, 0x60000000);
 kmWrite32(0x805b15bc, 0x60000000);
+
+// RaceCameraMgr::Update's "bl GameScreenEffectsMgr::Update" (lens flare, course filters): none in a 5-8 game, as RR's. WiiCompiled
+// writes a flare's depth copy back a frame late, into the one-screen pass's freed heap, over the race's effect creators.
+static void UpdateScreenEffects(GameScreenEffectsMgr &mgr) {
+    if (menuLocalCount <= kGameLocal)
+        mgr.Update();
+}
+kmCall(0x805a9050, UpdateScreenEffects);
+
+static bool fullRateRace;
+static u32 raceUpdates;
+static u32 lastRaceUpdates;
+static bool raceUpdating;
+static u32 raceStartRetrace;
+static u32 skippedDraws;
+
+// RaceScene::CreateAndInitInstances+0x68, "bl GameScene::SetFramerate", on every race load: the game halves the rate at 3+
+// screens. WiiCompiled (RR's runtime marker, written at boot) draws them in time, so its races keep the full rate.
+static void SetRaceFramerate(GameScene &scene, u8 halfRate) {
+    fullRateRace = *reinterpret_cast<volatile u32 *>(0x800017d8) == 1 && Racedata::sInstance->racesScenario.screenCount > 2;
+    scene.SetFramerate(fullRateRace ? 0 : halfRate);
+}
+kmCall(0x80554270, SetRaceFramerate);
+
+static void CountRaceUpdate() {
+    ++raceUpdates;
+}
+static RaceFrameHook countRaceUpdate(CountRaceUpdate);
+
+// A full-rate race keeps 60 updates a second as RR's frameskip does: while the updates trail the retraces it skips the draw, at
+// most three in a row. A tick with no race update since the last (a load, a pause, the HOME menu, the menus) keeps the game's pacing.
+extern "C" u32 DrawThisTick(u32 draw) {
+    raceUpdating = fullRateRace && raceUpdates != lastRaceUpdates;
+    lastRaceUpdates = raceUpdates;
+    if (!raceUpdating) {
+        raceStartRetrace = VI::GetRetraceCount() - raceUpdates;
+        skippedDraws = 0;
+        return draw;
+    }
+    const s32 behind = static_cast<s32>(VI::GetRetraceCount() - raceStartRetrace - raceUpdates);
+    if (behind > 8)
+        raceStartRetrace += behind;
+    else if (behind > 1 && skippedDraws < 3) {
+        ++skippedDraws;
+        return 0;
+    }
+    skippedDraws = 0;
+    return draw;
+}
+
+// RKSystem::Run+0xA8, "cmpwi r25, 0" (r25 draws this tick), as RR's Frameskip.cpp; the prologue saved LR, and no volatile
+// register is live across it.
+asmFunc DrawThisTickHook() {
+    ASM(
+        nofralloc;
+        stwu r1, -0x10(r1);
+        mflr r0;
+        stw r0, 0x14(r1);
+        mr r3, r25;
+        bl DrawThisTick;
+        mr r25, r3;
+        lwz r0, 0x14(r1);
+        mtlr r0;
+        addi r1, r1, 0x10;
+        cmpwi r25, 0;
+        blr;)
+}
+kmCall(0x800095c4, DrawThisTickHook);
+
+// AsyncDisplay::beginFrame+0x28, "bl OS::SleepThread": a racing full-rate frame past its retrace starts the next at once.
+// One frame per tick: the scene change after a race draws its own frames with no tick, and yielding there starves its loader.
+static void WaitForRetrace(OS::ThreadQueue *queue) {
+    const bool racing = raceUpdating;
+    raceUpdating = false;
+    if (racing && RKSystem::mInstance.asyncDisplay->retraceCount != RKSystem::mInstance.asyncDisplay->frameStartRetraceCount)
+        OS::YieldThread();
+    else
+        OS::SleepThread(queue);
+}
+kmCall(0x8020fe4c, WaitForRetrace);
 
 #ifdef SS8_DEBUG_BOOT
 // SectionMgr::Init's "bl NdevArgsExtractor::ExtractAllArgs", as RR's BootIntoSection: with no ndevArg it returns before
