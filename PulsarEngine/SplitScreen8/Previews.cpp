@@ -36,25 +36,22 @@ const u32 kExtPlayers = kMaxLocal - kGameLocal;
 const u16 kTextureSize = 256;  // MenuModelMgr::Init's driver textures (0x8059E460)
 const u32 kTextureFormat = 5;
 
-typedef void (*TextureCtorFn)(TextureHolder *, u16, u16, u32, EGG::Heap *);
-typedef void (*ModelMgrDrawFn)(MenuModelMgr *, u32);
-typedef TextureHolder *(*DriverTextureFn)(MenuModelMgr *, u32);
-typedef void (*KartModelsFn)(MenuKartModelMgr *, u32);
-typedef void (*SwitchStateFn)(MenuDriverModel *, s32, u32);
-static const TextureCtorFn textureCtor = reinterpret_cast<TextureCtorFn>(0x80563ce4);
-static const ModelMgrDrawFn modelMgrDraw = reinterpret_cast<ModelMgrDrawFn>(0x8059e4fc);
-static const DriverTextureFn driverTexture = reinterpret_cast<DriverTextureFn>(0x8059e634);
-static const KartModelsFn kartModelsDraw = reinterpret_cast<KartModelsFn>(0x808331c4);
+extern "C" {
+void textureCtor(TextureHolder *, u16, u16, u32, EGG::Heap *);
+void modelMgrDraw(MenuModelMgr *, u32);
+TextureHolder *driverTexture(MenuModelMgr *, u32);
+void kartModelsDraw(MenuKartModelMgr *, u32);
 // SwitchState passes its player to MenuKartModelMgr::ToggleVisible, which writes a 4-wide array, only when it is
 // not negative (cmpwi r28, 0 at 0x8082FBEC), so P5-8 pass -1.
-static const SwitchStateFn switchState = reinterpret_cast<SwitchStateFn>(0x8082fb78);
+void switchState(MenuDriverModel *, s32, u32);
 // A menu Mii head is built once a section (0x80830474) and then only re-attached (0x807DC2D8) and given its Mii:
 // building one allocates outside its own heap and only the section's end frees that, so a head is never rebuilt.
-typedef MiiHeadsModel *(*HeadCtorFn)(void *, u32, ModelDirector *, u32, Mii *, u32);
-typedef void (*HeadParamsFn)(MiiHeadsModel *, u32, ModelDirector *, u32, Mii *);
-static const HeadCtorFn headCtor = reinterpret_cast<HeadCtorFn>(0x807dbd80);
-static const HeadParamsFn headAttach = reinterpret_cast<HeadParamsFn>(0x807dc2d8);
-static const HeadParamsFn headParams = reinterpret_cast<HeadParamsFn>(0x807dc2c0);
+MiiHeadsModel *headCtor(void *, u32, ModelDirector *, u32, Mii *, u32);
+void headAttach(MiiHeadsModel *, u32, ModelDirector *, u32, Mii *);
+void headParams(MiiHeadsModel *, u32, ModelDirector *, u32, Mii *);
+extern const u8 kartModelVtable[];
+void sleepTicks(s64);
+}
 const u32 kHeadSize = 0x70;
 const u32 kHeadLayer = 5;
 const float kMiiBodyScale = 1.6f;  // the Mii body loader's SetScale (0x8083129C, 0x808AC980)
@@ -458,12 +455,8 @@ const u32 kNoArchiveHolder = kGameLocal + 1;
 // MenuKartModel as MenuKartModelMgr::Load allocates it (12 * 0x2C, 0x80832E08); its constructor is not linkable,
 // so the object is raw storage with its vtable word. Offsets as MenuKartModel::Load writes them (0x80831FF0-0x80832084).
 const u32 kKartModelSize = 0x2c;
-const u32 kKartModelVtable = 0x808d8c8c;
 const u32 kKartId = 0x8, kKartCharacter = 0xc, kKartAllocator = 0x10, kKartDriver = 0x14, kKartDisplay = 0x1c;
 const u32 kDriverKart = 0x14;  // MenuDriverModel's kart, as VehicleModelControl::OnUpdate sets it (0x805F3F30)
-
-typedef void (*SleepTicksFn)(s64);
-static const SleepTicksFn sleepTicks = reinterpret_cast<SleepTicksFn>(0x801aaca8);
 
 struct ExtKart {
     u32 storage[kKartModelSize / sizeof(u32)];
@@ -700,7 +693,7 @@ static bool BuildKart(u32 i) {
     menuAllocator = allocator;
     EGG::Heap *oldCurrentHeap = heap->BecomeCurrentHeap();
 
-    kart.storage[0] = kKartModelVtable;
+    kart.storage[0] = reinterpret_cast<u32>(kartModelVtable);
     MenuModel *model = KartModel(kart);
     KartField<KartId>(kart, kKartId) = kart.wantKart;
     KartField<CharacterId>(kart, kKartCharacter) = kart.wantCharacter;

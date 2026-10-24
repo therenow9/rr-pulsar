@@ -1,5 +1,6 @@
 #ifdef SS8_VANILLA
 #include <kamek.hpp>
+#include <Dolphin/DolphinIOS.hpp>
 #include <core/System/SystemManager.hpp>
 #include <core/rvl/gx/GX.hpp>
 #include <core/rvl/OS/OS.hpp>
@@ -244,9 +245,9 @@ static u32 raceStartRetrace;
 static u32 skippedDraws;
 
 // RaceScene::CreateAndInitInstances+0x68, "bl GameScene::SetFramerate", on every race load: the game halves the rate at 3+
-// screens. WiiCompiled (RR's runtime marker, written at boot) draws them in time, so its races keep the full rate.
+// screens. WiiCompiled (RR's runtime marker, written at boot) and Dolphin keep the full rate, skipping draws when behind.
 static void SetRaceFramerate(GameScene &scene, u8 halfRate) {
-    fullRateRace = *reinterpret_cast<volatile u32 *>(0x800017d8) == 1 && Racedata::sInstance->racesScenario.screenCount > 2;
+    fullRateRace = (*reinterpret_cast<volatile u32 *>(0x800017d8) == 1 || Dolphin::IsEmulator()) && Racedata::sInstance->racesScenario.screenCount > 2;
     scene.SetFramerate(fullRateRace ? 0 : halfRate);
 }
 kmCall(0x80554270, SetRaceFramerate);
@@ -315,6 +316,16 @@ static SectionId BootIntoSection(const NdevArgsExtractor &extractor) {
     SystemManager::sInstance->ndevArg = "-s132 -l0 -p292";
     extractor.ExtractAllArgs();
     return DebugBootPrepare(SECTION_NONE);
+}
+kmCall(0x80634f20, BootIntoSection);
+#elif defined(SS8_MENU_SCRIPT)
+// The same call in a menu-script build: a lane's slot on a USA or Japanese disc runs slot 0's PAL save, which the game
+// would offer to recreate (the country changed), after the USA disc's ESRB notice. Its script boots as the PAL one does.
+static SectionId BootIntoSection(const NdevArgsExtractor &extractor) {
+    SectionMgr &mgr = *SectionMgr::sInstance;
+    if (mgr.bootSectionId == SECTION_COUNTRY_CHANGED || mgr.bootSectionId == SECTION_ESRB_NOTICE)
+        mgr.bootSectionId = SECTION_NONE;
+    return extractor.ExtractAllArgs();
 }
 kmCall(0x80634f20, BootIntoSection);
 #endif

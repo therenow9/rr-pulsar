@@ -25,14 +25,15 @@ const s32 kFourPlayersBmg = 2304;  // ButtonMulti4P's "4\nPlayers"
 static u32 lastEntryCount;
 static PushButton *entryButtons[kEntryButtons];
 
-typedef void (*PushButtonCtorFn)(PushButton *);
-typedef void (*CropMovieFn)(LayoutUIControl *, const char *, float, float, float, float);
-typedef void (*SoundIdFn)(PushButton *, u32);
-typedef void (*ResetParamsFn)(Pages::MainMenu *, u8);
-static const PushButtonCtorFn pushButtonCtor = reinterpret_cast<PushButtonCtorFn>(0x805bd3a8);
-static const CropMovieFn cropMovie = reinterpret_cast<CropMovieFn>(0x8063e5c4);
-static const SoundIdFn setSelectionSoundId = reinterpret_cast<SoundIdFn>(0x805be430);
-static const ResetParamsFn resetSectionParams = reinterpret_cast<ResetParamsFn>(0x808516bc);
+extern "C" {
+void pushButtonCtor(PushButton *);
+void cropMovie(LayoutUIControl *, const char *, float, float, float, float);
+void setSelectionSoundId(PushButton *, u32);
+void resetSectionParams(Pages::MainMenu *, u8);
+extern const u8 movieButtonStartVtable[];
+extern const u8 movieButtonVtable[];
+extern const u8 movieButtonPushButtonVtable[];
+}
 
 // Vanilla's three buttons sit at x -54, 0, 54 (16:9, scale 1.05 x 0.93), about 50.6 units wide with 3.4 between.
 const float kPanelScale = 1.5f;
@@ -46,12 +47,12 @@ const float kMovieStrip = 0.5f / kRowButtons;
 // A CtrlMenuMovieButton built as CreateControl builds its own (0x80850750): handler, PushButton at +0x18, both vtables.
 static PushButton *NewMovieButton() {
     u8 *raw = static_cast<u8 *>(::operator new(0x26c));
-    *reinterpret_cast<u32 *>(raw) = 0x808d3608;
+    *reinterpret_cast<const u8 **>(raw) = movieButtonStartVtable;
     raw[0xc] = 0;
     *reinterpret_cast<u32 *>(raw + 0x10) = 0;
     pushButtonCtor(reinterpret_cast<PushButton *>(raw + 0x18));
-    *reinterpret_cast<u32 *>(raw) = 0x808d3590;
-    *reinterpret_cast<u32 *>(raw + 0x18) = 0x808d35a8;
+    *reinterpret_cast<const u8 **>(raw) = movieButtonVtable;
+    *reinterpret_cast<const u8 **>(raw + 0x18) = movieButtonPushButtonVtable;
     return reinterpret_cast<PushButton *>(raw + 0x18);
 }
 
@@ -117,14 +118,15 @@ static void AddEntryButtons(Pages::MainMenu *page, LayoutUIControl *panel) {
 
 // CreateControl's Multiplayer case ends "b 0x80850D2C" after its third button (r28 = the page,
 // r29 = the panel); the shared exit reads only r1 and the saved registers.
+extern "C" void createControlExit();
 asmFunc AddEntryButtonsStub() {
     ASM(
         nofralloc;
         mr r3, r28;
         mr r4, r29;
         bl AddEntryButtons;
-        lis r12, 0x8085;
-        ori r12, r12, 0x0d2c;
+        lis r12, createControlExit @ha;
+        addi r12, r12, createControlExit @l;
         mtctr r12;
         bctr;)
 }
@@ -157,6 +159,7 @@ static void EntrySelect(Pages::MainMenu *page, PushButton *button) {
 
 // OnButtonClick and OnExternalButtonSelect (r3 = the page, r4 = the button) handle ids 0-7; the new
 // ones go to EntryClick and EntrySelect, which return to the caller, and the rest replay "stwu".
+extern "C" void onButtonClickBody();
 asmFunc EntryClickStub() {
     ASM(
         nofralloc;
@@ -168,13 +171,14 @@ asmFunc EntryClickStub() {
         b EntryClick;
         game :;
         stwu r1, -0x20(r1);
-        lis r12, 0x8085;
-        ori r12, r12, 0x1110;
+        lis r12, onButtonClickBody @ha;
+        addi r12, r12, onButtonClickBody @l;
         mtctr r12;
         bctr;)
 }
 kmBranch(0x8085110c, EntryClickStub);
 
+extern "C" void onExternalButtonSelectBody();
 asmFunc EntrySelectStub() {
     ASM(
         nofralloc;
@@ -186,8 +190,8 @@ asmFunc EntrySelectStub() {
         b EntrySelect;
         game :;
         stwu r1, -0x10(r1);
-        lis r12, 0x8085;
-        ori r12, r12, 0x1520;
+        lis r12, onExternalButtonSelectBody @ha;
+        addi r12, r12, onExternalButtonSelectBody @l;
         mtctr r12;
         bctr;)
 }
@@ -195,6 +199,7 @@ kmBranch(0x8085151c, EntrySelectStub);
 
 // OnButtonDeselect plays the panel's deselect only for the panel's own ids: the new buttons are
 // deselected as the 4 Players button (+0xCA0) is.
+extern "C" void onButtonDeselectBody();
 asmFunc EntryDeselectStub() {
     ASM(
         nofralloc;
@@ -206,8 +211,8 @@ asmFunc EntryDeselectStub() {
         lwz r4, 0xca0(r3);
         game :;
         stwu r1, -0x20(r1);
-        lis r12, 0x8085;
-        ori r12, r12, 0x15a4;
+        lis r12, onButtonDeselectBody @ha;
+        addi r12, r12, onButtonDeselectBody @l;
         mtctr r12;
         bctr;)
 }
@@ -299,7 +304,8 @@ static void MultiActivate(Pages::MultiPlayer *page) {
     page->titleText->SetMessage(Pulsar::UI::BMG_TEXT, &info);
 }
 
-// MultiPlayer::OnActivate after Menu::OnActivate set the title, "lis r5, -0x7f75" (r30 = the page).
+// MultiPlayer::OnActivate after Menu::OnActivate set the title, "lis r5" of its movie list (r30 = the page).
+extern "C" const char *multiPlayerMovies[];
 asmFunc MultiActivateStub() {
     ASM(
         nofralloc;
@@ -311,7 +317,7 @@ asmFunc MultiActivateStub() {
         lwz r0, 0x14(r1);
         mtlr r0;
         addi r1, r1, 0x10;
-        lis r5, -0x7f75;
+        lis r5, multiPlayerMovies @ha;
         blr;)
 }
 kmCall(0x8084d3e0, MultiActivateStub);

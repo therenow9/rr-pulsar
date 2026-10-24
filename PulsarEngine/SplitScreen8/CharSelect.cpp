@@ -35,19 +35,19 @@
 
 namespace SplitScreen8 {
 
-typedef bool (*ConfirmVoiceFn)(void *, u32, CharacterId);
-typedef void (*FillCpusFn)();
+extern "C" {
 // ButtonDriver::OnButtonClick's confirm voice (0x807E36D0). It returns at once for hud 4+: its driver path
 // (0x80868ABC) keeps one sound handle per hud, 4 wide, at DriverSoundManager+0x2430.
-static const ConfirmVoiceFn confirmVoice = reinterpret_cast<ConfirmVoiceFn>(0x80868974);
+bool confirmVoice(void *, u32, CharacterId);
+// Gives every CPU from GetLocalPlayerCount (read once, 0x8083EC38) a random character no earlier slot has,
+// keeping the slots below the count in a 14-word array (0x8083EC80).
+void fillCpuCharacters();
+}
 typedef void *(*StartVoiceFn)(void *, nw4r::snd::SoundHandle *);
 const u32 kVoiceSetStride = 0xc0;  // one character's voice pickers
 const u32 kVoicePicker = 0x30;  // the confirm voice's picker in its set
 const float kVoiceVolume = 0.85f;  // 0x808B1FC4
 static nw4r::snd::SoundHandle extVoices[kMaxLocal - kGameLocal];
-// Gives every CPU from GetLocalPlayerCount (read once, 0x8083EC38) a random character no earlier slot has,
-// keeping the slots below the count in a 14-word array (0x8083EC80).
-static const FillCpusFn fillCpuCharacters = reinterpret_cast<FillCpusFn>(0x8083ec28);
 
 const u32 kTitleBmg = 0xd4a;  // CharacterSelect's titleBmg (0x80626C90)
 const u32 kDummyBackSize = 0x184;
@@ -90,17 +90,15 @@ const u32 kMiiSelectClicked = 0xd94;  // MiiSelect::clickedButtonId, -1 for none
 const u32 kMiiSelectHud = 0xda0;  // MiiSelect::activeHudSlotId
 const u32 kOfficialMiiCount = 0x2d4;  // MiiManager's count of the console's Miis, read as a byte (0x8083D6DC)
 
-typedef void (*LoadMiiFn)(MiiGroup *, u8, u32);
-typedef void (*MiiVoiceFn)(void *, Mii *, u32);
-typedef void (*MiiConfirmVoiceFn)(void *, u32);
-typedef void (*MiiModelsFn)(MenuDriverModelMgr *, u32, Mii *);
-static const LoadMiiFn loadOfficialMii = reinterpret_cast<LoadMiiFn>(0x805fa678);
-static const LoadMiiFn loadDefaultMii = reinterpret_cast<LoadMiiFn>(0x805fa748);
+extern "C" {
+void loadOfficialMii(MiiGroup *, u8, u32);
+void loadDefaultMii(MiiGroup *, u8, u32);
 // OnButtonDriverClick's Mii voice (0x8083E094, 0x8083E0A0): the Mii's voice set for the hud, then its
 // confirm line through 0x80868C20; both keep per-hud records 4 wide (DriverSoundManager+0x4260, +0x2430).
-static const MiiVoiceFn miiVoice = reinterpret_cast<MiiVoiceFn>(0x80869118);
-static const MiiConfirmVoiceFn miiConfirmVoice = reinterpret_cast<MiiConfirmVoiceFn>(0x80868d3c);
-static const MiiModelsFn rebuildMiiModels = reinterpret_cast<MiiModelsFn>(0x80831534);
+void miiVoice(void *, Mii *, u32);
+void miiConfirmVoice(void *, u32);
+void rebuildMiiModels(MenuDriverModelMgr *, u32, Mii *);
+}
 
 // MiiSelect::OnButtonClick's section 0x54 "lwz r3, 0x44(r28)": r30, the clicking slot, indexes playerMiis next, so P5-8's
 // slot 4 becomes the player MiiSelect opened for. r12 and CR0 are free until the bl at 0x80848A50; the prologue saved LR.
@@ -145,13 +143,14 @@ asmFunc MiiSelectReconnectMask() {
 kmCall(0x8061af60, MiiSelectReconnectMask);
 
 // A kart select line, as 0x80868BD0 and 0x80868CEC mark one: sequence variable 12 set to 1 through a SeqSoundHandle
-// on the line's handle. None of these calls is in Kamek's externals.
-typedef void (*SeqHandleFn)(void *, nw4r::snd::SoundHandle *);
-typedef void (*SeqWriteFn)(void *, int, s16);
-typedef void (*SeqDetachFn)(void *);
-static const SeqHandleFn seqHandleCtor = reinterpret_cast<SeqHandleFn>(0x8009acb0);
-static const SeqWriteFn seqWriteVariable = reinterpret_cast<SeqWriteFn>(0x8009aa50);
-static const SeqDetachFn seqDetach = reinterpret_cast<SeqDetachFn>(0x8009adc0);
+// on the line's handle.
+extern "C" {
+void seqHandleCtor(void *, nw4r::snd::SoundHandle *);
+void seqWriteVariable(void *, int, s16);
+void seqDetach(void *);
+// 0x80868ABC's voice type tables.
+extern const u8 *const voiceTypeTables[];
+}
 
 static void MarkKartLine(nw4r::snd::SoundHandle &handle) {
     void *seq[1];
@@ -180,7 +179,7 @@ static void ExtConfirmVoice(u32 player, CharacterId character, u32 type = 0) {
         return;
     if (handle.basicSound != nullptr)
         handle.basicSound->Stop(2);
-    const u8 *const *types = reinterpret_cast<const u8 *const *>(0x808dbe38);
+    const u8 *const *types = voiceTypeTables;
     const u32 pickerIdx = type != 0 && *reinterpret_cast<const u16 *>(types[type] + voice * 4) == 0x392 ? 0 : type;
     void *picker = manager + voice * kVoiceSetStride + kVoicePicker + pickerIdx * kVoicePicker;
     const StartVoiceFn start = *reinterpret_cast<StartVoiceFn *>(*reinterpret_cast<u8 **>(picker) + 0xc);
@@ -200,10 +199,10 @@ struct MiiVoice {
     float pitch;
 };
 static MiiVoice extMiiVoices[kMaxLocal - kGameLocal];
-typedef void (*MiiVoiceRecordFn)(void *, Mii *, MiiVoice *, u32);
-typedef void (*MiiVoicePickerFn)(s32 *, const MiiVoice *);
-static const MiiVoiceRecordFn miiVoiceRecord = reinterpret_cast<MiiVoiceRecordFn>(0x80869344);
-static const MiiVoicePickerFn miiVoicePicker = reinterpret_cast<MiiVoicePickerFn>(0x8086622c);
+extern "C" {
+void miiVoiceRecord(void *, Mii *, MiiVoice *, u32);
+void miiVoicePicker(s32 *, const MiiVoice *);
+}
 const u32 kMiiVoicePickers = 0x42a8;
 const u32 kMiiVoicePickerStride = 0x30;
 const float kMiiVoiceVolume = 0.6f;  // 0x808B1FC8
@@ -395,7 +394,7 @@ CharSelectPage::CharSelectPage() {
     this->titleText = new CtrlMenuPageTitleText;
     this->backButton = static_cast<LayoutUIControl *>(::operator new(kDummyBackSize));
     layoutCtor(this->backButton);
-    *reinterpret_cast<u32 *>(this->backButton) = 0x808d3710;
+    *reinterpret_cast<const u8 **>(this->backButton) = dummyBackVtable;
     this->grid = new LayoutUIControl;
     this->buttons = new Button[kButtons];
     for (int i = 0; i < kMaxLocal; ++i) {

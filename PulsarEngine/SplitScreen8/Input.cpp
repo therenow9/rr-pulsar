@@ -12,8 +12,7 @@ const u32 kManagerSize = 0x415c;
 const u32 kHolderSize = 0xec;
 const u32 kExtGap = kManagerSize - 4 - kGameLocal * kHolderSize;
 
-typedef Input::RealControllerHolder *(*HolderCtorFn)(Input::RealControllerHolder *);
-static const HolderCtorFn holderCtor = reinterpret_cast<HolderCtorFn>(0x805220bc);
+extern "C" Input::RealControllerHolder *holderCtor(Input::RealControllerHolder *);
 
 Input::RealControllerHolder &Holder(Input::Manager &input, u32 id) {
     u8 *base = reinterpret_cast<u8 *>(&input) + 4 + id * kHolderSize;
@@ -56,7 +55,8 @@ static Input::Manager *ConstructExtHolders(Input::Manager *input) {
     return input;
 }
 
-// CreateInstance+0x30 replaces "lis r4, -0x7f64", reached with r3 = the manager, or 0 if new failed.
+// CreateInstance+0x30 replaces "lis r4" of sInstance, reached with r3 = the manager, or 0 if new failed.
+extern "C" void ptr_inputBase(void *);
 asmFunc ConstructExtHoldersStub() {
     ASM(
         nofralloc;
@@ -67,7 +67,7 @@ asmFunc ConstructExtHoldersStub() {
         lwz r0, 0x14(r1);
         mtlr r0;
         addi r1, r1, 0x10;
-        lis r4, -0x7f64;
+        lis r4, ptr_inputBase @ha;
         blr;)
 }
 kmCall(0x8052316c, ConstructExtHoldersStub);

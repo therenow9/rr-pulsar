@@ -13,14 +13,13 @@ struct Human {
 static Human extHumans[kMaxLocal - kGameLocal];
 static u32 extHumanCount;
 
-typedef void (*RegisterKartFn)(u8 *ai, void *kartAI);
-typedef void (*HumansFn)(u8 *ai);
-typedef void (*KartCallFn)(void *link, u32 arg);
 typedef u8 *(*HumanOfFn)(u8 *owner);
-static const RegisterKartFn registerKart = reinterpret_cast<RegisterKartFn>(0x807414b8);
-static const HumansFn sortHumans = reinterpret_cast<HumansFn>(0x807426e4);
-static const HumansFn rubberBand = reinterpret_cast<HumansFn>(0x80742944);
-static const KartCallFn humanKartCall = reinterpret_cast<KartCallFn>(0x80591898);
+extern "C" {
+void registerKart(u8 *ai, void *kartAI);
+void sortHumans(u8 *ai);
+void rubberBand(u8 *ai);
+void humanKartCall(void *link, u32 arg);
+}
 
 static u32 HumanCount(const u8 *ai) {
     return *reinterpret_cast<const u32 *>(ai + 0x17c);
@@ -135,14 +134,15 @@ static void KartCallExtHumans() {
 }
 // Its loop exit, "b +0x16C" (0x807432B4), goes to the epilogue at 0x80743328, which reloads LR from the
 // function's frame; this returns there.
+extern "C" void humansKartCallEpilogue();
 asmFunc HumansKartCalled() {
     ASM(
         nofralloc;
         stwu r1, -0x10(r1);
         bl KartCallExtHumans;
         addi r1, r1, 0x10;
-        lis r12, 0x8074;
-        ori r12, r12, 0x3328;
+        lis r12, humansKartCallEpilogue @ha;
+        addi r12, r12, humansKartCallEpilogue @l;
         mtlr r12;
         blr;)
 }

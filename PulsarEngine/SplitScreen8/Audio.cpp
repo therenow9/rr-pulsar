@@ -2,6 +2,7 @@
 #include <core/nw4r/snd/BasicSound.hpp>
 #include <core/nw4r/snd/SoundHandle.hpp>
 #include <MarioKartWii/3D/Camera/CameraMgr.hpp>
+#include <MarioKartWii/Audio/AudioManager.hpp>
 #include <MarioKartWii/Audio/RaceMgr.hpp>
 #include <MarioKartWii/Audio/RSARPlayer.hpp>
 #include <MarioKartWii/Input/InputManager.hpp>
@@ -34,14 +35,17 @@ static Audio::KartActor *extKartActors[kExtra];
 // SoundTriggerMgr+0x12 holds each hud's last track trigger, 4 wide (the object is 0x18); hud 4-7's here.
 static u8 extVariant[kExtra];
 
-typedef void (*RouletteSoundFn)(Audio::RSARPlayer *);
-typedef void (*GetViewMtxFn)(const RaceCamera *, float (*)[4], ExtTarget *, float);
-typedef void (*MultVecFn)(const float (*)[4], const float *, float *);
-static const RouletteSoundFn rouletteSound = reinterpret_cast<RouletteSoundFn>(0x807156f4);
-static const GetViewMtxFn getViewMtx = reinterpret_cast<GetViewMtxFn>(0x805a6c58);
-static const MultVecFn multVec = reinterpret_cast<MultVecFn>(0x8019a91c);
+extern "C" {
+void rouletteSound(Audio::RSARPlayer *);
+void getViewMtx(const RaceCamera *, float (*)[4], ExtTarget *, float);
+void multVec(const float (*)[4], const float *, float *);
 // The handle RaceRSARPlayer::HoldSound plays the roulette spin through.
-static nw4r::snd::SoundHandle &rouletteHandle = *reinterpret_cast<nw4r::snd::SoundHandle *>(0x809c283c);
+extern nw4r::snd::SoundHandle rouletteHandle;
+// RaceMgr::UpdatePlayerMatrix's gate, and its distance factors for game types 7-12 and for the rest but 0.
+extern const u8 *const listenerGate;
+extern const float listenerFactor7To12;
+extern const float listenerFactorOther;
+}
 
 // Audio::RaceMgr::__ct+0x1EC replaces "stw r26, 0x848(r27)"; it runs once per race, after InitScreens set raceScreenCount.
 // Nothing after it reads a volatile register and __ct saved LR, so the C++ returns straight to the site.
@@ -209,16 +213,16 @@ static void UpdatePlayerMatrixWide(Audio::RaceMgr *mgr) {
         for (u32 i = 0; i < kExtra; ++i) extTarget[i].valid = 0;
         return;
     }
-    const u8 *gate = *reinterpret_cast<u8 **>(0x809c1998);
+    const u8 *gate = listenerGate;
     if (gate != nullptr && *reinterpret_cast<const s32 *>(gate + 0x28) >= 0)
         return;
     float factor;
     if (static_cast<u32>(mgr->gameType) - 7 <= 5)
-        factor = *reinterpret_cast<const float *>(0x808a1e90);
+        factor = listenerFactor7To12;
     else if (mgr->gameType == 0)
-        factor = *reinterpret_cast<const float *>(*reinterpret_cast<u8 **>(0x809c2898) + 0x8bc);
+        factor = Audio::Manager::sInstance->unknown_0x8B4[2];
     else
-        factor = *reinterpret_cast<const float *>(0x808a1f00);
+        factor = listenerFactorOther;
     const RaceCameraMgr *cameras = RaceCameraMgr::sInstance;
     for (u32 k = kGameLocal; k < raceLocalCount && k < kMaxLocal; ++k) {
         if (cameras == nullptr || k >= cameras->cameraCount)
@@ -350,15 +354,14 @@ static s32 ActorHud(const Audio::KartActor *actor) {
 }
 
 typedef bool (*AnyKartFn)(const u8 *raceMgr);
-typedef void (*ApplyTriggerFn)(u8 *triggers, s32 variant, s32 hud, void *link);
-typedef void (*EchoVolumeFn)(void *echo, u32 hud, u32 frames, float volume);
-typedef void (*AmbienceVolumeFn)(void *ambience, u32 hud, u32 frames);
-static const AnyKartFn isAPlayerInMega = reinterpret_cast<AnyKartFn>(0x807117a0);
-static const AnyKartFn isAPlayerInStar = reinterpret_cast<AnyKartFn>(0x8071172c);
-static const AnyKartFn isAPlayerSquishedOrSmall = reinterpret_cast<AnyKartFn>(0x80711668);
-static const ApplyTriggerFn applyTrigger = reinterpret_cast<ApplyTriggerFn>(0x80719044);
-static const EchoVolumeFn echoSetVolume = reinterpret_cast<EchoVolumeFn>(0x807182b8);
-static const AmbienceVolumeFn setAllAmbiencesVolume = reinterpret_cast<AmbienceVolumeFn>(0x806fcfa0);
+extern "C" {
+bool isAPlayerInMega(const u8 *raceMgr);
+bool isAPlayerInStar(const u8 *raceMgr);
+bool isAPlayerSquishedOrSmall(const u8 *raceMgr);
+void applyTrigger(u8 *triggers, s32 variant, s32 hud, void *link);
+void echoSetVolume(void *echo, u32 hud, u32 frames, float volume);
+void setAllAmbiencesVolume(void *ambience, u32 hud, u32 frames);
+}
 
 // KartActor::Link+0xBC calls RaceMgr::SetKartSound, which keeps the first 4 locals in player order, so hud 4-7 could displace
 // P1-4. They go to extKartActors; the counts (+0x28; +0x29 scales engine volume by locals racing) stay P1-4's.
@@ -534,6 +537,7 @@ kmCall(0x808658d8, VoicePanGate);
 
 // Their pan leaf 0x806F6BEC ("cmplwi r5, 0xff" first) pans hud 0/2 left, 1/3 right; widened, a local's hud (r4) takes its column's
 // slot, else centre (4), with r5 = 2 for the per-hud path. No LR saved, so it returns via CTR, which the leaf never reads.
+extern "C" void voicePanSlotReturn();
 asmFunc VoicePanSlot() {
     ASM(
         nofralloc;
@@ -556,8 +560,8 @@ asmFunc VoicePanSlot() {
         li r5, 2;
         end :;
         cmplwi r5, 0xff;
-        lis r12, 0x806f;
-        ori r12, r12, 0x6bf0;
+        lis r12, voicePanSlotReturn @ha;
+        addi r12, r12, voicePanSlotReturn @l;
         mtctr r12;
         bctr;)
 }

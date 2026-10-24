@@ -75,10 +75,10 @@ void WithMenuLocalCount(void (*fill)()) {
 
 // MultiKartSelect::OnTextChange's kart name (0x8084A338) and OnUpDownClick's confirm voice (0x8084A1C4), which
 // returns at once for hud 4 or more.
-typedef u32 (*KartBmgFn)(KartId);
-static const KartBmgFn kartBmg = reinterpret_cast<KartBmgFn>(0x808334e0);
-typedef bool (*KartVoiceFn)(void *, u32);
-static const KartVoiceFn kartVoice = reinterpret_cast<KartVoiceFn>(0x808689dc);
+extern "C" {
+u32 kartBmg(KartId);
+bool kartVoice(void *, u32);
+}
 // MultiTeamSelect::OnButtonClick's team voice (0x8084C8BC), which returns at once for hud 4 or more.
 extern "C" bool PlayDriverTeamVoice(u8 *manager, u32 hud, u32 team);
 

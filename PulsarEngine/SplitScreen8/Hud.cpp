@@ -274,14 +274,16 @@ static void PlaceOnTile(UIControl &control, u32 tile, bool centred, bool inner =
 
 // Vtables InitCtrlRaceBase stores after LayoutUIControl::__ct; each of their Loads stores the slot in
 // CtrlRaceBase::hudSlotId (+0x190).
-const u32 kRankNumVtable = 0x808d3e98;
-const u32 kLapVtable = 0x808d3d18;
-const u32 kItemWindowVtable = 0x808d3cc8;
-const u32 kBattlePointVtable = 0x808d3b38;
-const u32 kBattleAddPointVtable = 0x808d3b88;
-const u32 kNameBalloonVtable = 0x808d3e58;
-const u32 kItemBalloonVtable = 0x808d3e1c;
-const u32 kMapVtable = 0x808d3960;
+extern "C" {
+extern const u8 kRankNumVtable[];
+extern const u8 kLapVtable[];
+extern const u8 kItemWindowVtable[];
+extern const u8 kBattlePointVtable[];
+extern const u8 kBattleAddPointVtable[];
+extern const u8 kNameBalloonVtable[];
+extern const u8 kItemBalloonVtable[];
+extern const u8 kMapVtable[];
+}
 
 typedef char CtrlRaceCountIs0x198[sizeof(CtrlRaceCount) == 0x198 ? 1 : -1];
 
@@ -293,8 +295,7 @@ static CtrlRaceCount *countArray;
 static float countSettledScale;
 static float countZoomStart[2 * kMaxLocal];
 
-typedef void (*LayoutDrawFn)(LayoutUIControl *, u32);
-static const LayoutDrawFn layoutDraw = reinterpret_cast<LayoutDrawFn>(0x8063db84);
+extern "C" void layoutDraw(LayoutUIControl *, u32);
 
 // An estimate at pane scale 1, skipping MKW's tags (0x1A, then a u16 whose high byte is the tag's length in bytes). MKW draws
 // through its own text handler, so the drawn word can be wider; the caller keeps a margin.
@@ -381,7 +382,7 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
             UIControl *control = group.controlArray[i];
             if (control == nullptr)
                 continue;
-            const u32 vtable = *reinterpret_cast<const u32 *>(control);
+            const u8 *vtable = *reinterpret_cast<const u8 *const *>(control);
             if (vtable == kNameBalloonVtable || vtable == kItemBalloonVtable)
                 continue;
             control->positionAndscale[0].position.x *= stretch;
@@ -395,7 +396,7 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
         UIControl *control = group.controlArray[i];
         if (control == nullptr)
             continue;
-        const u32 vtable = *reinterpret_cast<const u32 *>(control);
+        const u8 *vtable = *reinterpret_cast<const u8 *const *>(control);
         // The one map the tiles share sits over the middle ones: smaller and fainter. PositionFromBasePosition passes the
         // scale on to its icons and start line, before the fade, so they keep their full opacity.
         if (vtable == kMapVtable) {
