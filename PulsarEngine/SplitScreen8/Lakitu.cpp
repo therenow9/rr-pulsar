@@ -11,14 +11,12 @@ namespace SplitScreen8 {
 
 static Lakitu::Player *extLakitu[kMaxLocal - kGameLocal];
 
-typedef void *(*NewFn)(u32);
-typedef Lakitu::Player *(*PlayerCtorFn)(void *, Kart::Player *);
-typedef void (*PlayerHudFn)(Lakitu::Player *, u32);
-static const NewFn gameNew = reinterpret_cast<NewFn>(0x80229dcc);
-static const PlayerCtorFn playerCtor = reinterpret_cast<PlayerCtorFn>(0x80721514);
-static const PlayerHudFn loadGraphics = reinterpret_cast<PlayerHudFn>(0x80722504);
-static const PlayerHudFn toggleModelsScreenVisibility = reinterpret_cast<PlayerHudFn>(0x80721090);
-static const PlayerHudFn unknown80722418 = reinterpret_cast<PlayerHudFn>(0x80722418);
+extern "C" {
+Lakitu::Player *playerCtor(void *, Kart::Player *);
+void loadGraphics(Lakitu::Player *, u32);
+void toggleModelsScreenVisibility(Lakitu::Player *, u32);
+void unknown80722418(Lakitu::Player *, u32);
+}
 
 // Lakitu::Player's virtual Init (vf 0xC), Update (0x10) and deleting dtor (0x8), as the manager calls them.
 static void VirtualCall(Lakitu::Player *player, u32 slot, u32 arg) {
@@ -53,7 +51,7 @@ static void CreatePlayersWide(Lakitu::Manager *mgr) {
         Kart::Player *kart = Kart::Manager::sInstance->GetKartPlayer(id);
         if (!kart->IsLocal())
             continue;
-        void *memory = gameNew(0x218);
+        void *memory = ::operator new(0x218);
         if (memory == nullptr)
             continue;
         Lakitu::Player *player = playerCtor(memory, kart);

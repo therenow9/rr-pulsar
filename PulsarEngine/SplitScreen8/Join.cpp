@@ -19,23 +19,17 @@ namespace SplitScreen8 {
 // SetPadID; hud 4+ plays the "Menu" colour, which ColourSlot replaces.
 const u32 kPadControlSize = 0x184;
 const u32 kDummyBackSize = 0x184;
-typedef void (*PadCtorFn)(LayoutUIControl *);
-typedef void (*PadLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32, u8, u32, u32);
-typedef void (*PadSetParamsFn)(LayoutUIControl *, u32, u8, u32);
-typedef void (*PadSetIdFn)(LayoutUIControl *, u32);
-typedef void (*PadFn)(LayoutUIControl *);
-static const PadCtorFn padCtor = reinterpret_cast<PadCtorFn>(0x806012bc);
-static const PadLoadFn padLoad = reinterpret_cast<PadLoadFn>(0x80601350);
-static const PadSetParamsFn padSetParams = reinterpret_cast<PadSetParamsFn>(0x80601554);
-static const PadSetIdFn padSetId = reinterpret_cast<PadSetIdFn>(0x80601564);
-static const PadFn padRegister = reinterpret_cast<PadFn>(0x8060156c);
+extern "C" {
+void padCtor(LayoutUIControl *);
+void padLoad(LayoutUIControl *, const char *, const char *, const char *, u32, u8, u32, u32);
+void padSetParams(LayoutUIControl *, u32, u8, u32);
+void padSetId(LayoutUIControl *, u32);
+void padRegister(LayoutUIControl *);
 
-typedef void (*TrySetControllerFn)(Input::Manager *, u32, u32);
-typedef void (*FillParamsFn)(Input::ControllerParams *, const Input::Controller *);
-typedef void (*RequestBackModelFn)(BackGroundModelControl *, s32);
-static const TrySetControllerFn trySetController = reinterpret_cast<TrySetControllerFn>(0x80523ebc);
-static const FillParamsFn fillParams = reinterpret_cast<FillParamsFn>(0x80522364);  // ControllerParams::Fill, private
-static const RequestBackModelFn requestBackModel = reinterpret_cast<RequestBackModelFn>(0x805f2e84);
+void trySetController(Input::Manager *, u32, u32);
+void fillParams(Input::ControllerParams *, const Input::Controller *);  // ControllerParams::Fill, private
+void requestBackModel(BackGroundModelControl *, s32);
+}
 
 const u32 kTitleBmg = 0x961;  // RegisterPad's title, "Controller Registration"
 const u32 kPromptBmg = 0x9c6;  // "Press the A Button on Player 1's controller.", then 2-4
@@ -160,7 +154,7 @@ JoinPage::JoinPage() {
     // Built as RegisterPad::__ct builds its own (0x80603860): a LayoutUIControl with the dummy's vtable.
     this->backButton = static_cast<LayoutUIControl *>(::operator new(kDummyBackSize));
     layoutCtor(this->backButton);
-    *reinterpret_cast<u32 *>(this->backButton) = 0x808d3710;
+    *reinterpret_cast<const u8 **>(this->backButton) = dummyBackVtable;
     for (int i = 0; i < kMaxLocal; ++i) {
         this->pads[i] = static_cast<LayoutUIControl *>(::operator new(kPadControlSize));
         padCtor(this->pads[i]);

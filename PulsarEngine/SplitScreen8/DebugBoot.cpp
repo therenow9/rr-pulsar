@@ -195,8 +195,7 @@ static u32 raceFrames;
 #if SS8_BOOT_RESPAWN
 // Players respawn one by one through a squish respawn's fall path (ApplySquishRespawnDamage+0xA0), so the wipe,
 // camera and Lakitu run; the order covers both rows and inner and outer tiles, then a CPU on a spare tile.
-typedef void (*ActivateOOBFn)(Kart::Collision *, u32, u32, u32);
-static const ActivateOOBFn activateOOB = reinterpret_cast<ActivateOOBFn>(0x80573ec4);
+extern "C" void activateOOB(Kart::Collision *, u32, u32, u32);
 static const u8 respawnOrder[] = {0, 1, 2, 4, 7, 5, 3, 6};
 const u32 kRespawnFirst = 900;
 const u32 kRespawnStep = 180;
@@ -234,8 +233,16 @@ const u32 kRespawnEnd = 0;
 // local a Mega Mushroom, star or Thundercloud; it is set into the inventory first, as each Use* removes one.
 typedef void (*UseItemFn)(Item::Player *);
 static const ItemId bootItems[] = {BLOOPER, POW_BLOCK, LIGHTNING, BULLET_BILL, MEGA_MUSHROOM, STAR, THUNDER_CLOUD};
-// Item::Player::UseBlooper, UsePow, UseThunder, UseBullet, UseMegaMushroom, UseStar and UseTC, in bootItems' order.
-static const u32 useItems[] = {0x807a81b4, 0x807b1b2c, 0x807b7b7c, 0x807a9afc, 0x807a9e50, 0x807b706c, 0x807af1bc};
+extern "C" {
+void useBlooper(Item::Player *);
+void usePow(Item::Player *);
+void useThunder(Item::Player *);
+void useBullet(Item::Player *);
+void useMegaMushroom(Item::Player *);
+void useStar(Item::Player *);
+void useTC(Item::Player *);
+}
+static const UseItemFn useItems[] = {useBlooper, usePow, useThunder, useBullet, useMegaMushroom, useStar, useTC};
 const ItemId kBootItem = bootItems[SS8_BOOT_USE_ITEM - 1];
 const u32 kItemFirst = 1200;
 const u32 kItemStep = 600;
@@ -254,7 +261,7 @@ static void UseItemScripted(u32 frame) {
     Item::Player &player = items->players[id];
     OS::Report("ss8 boot: race %u player %u uses item %u at %u\n", bootRaces, id, kBootItem, frame);
     player.inventory.SetItem(kBootItem, false);
-    reinterpret_cast<UseItemFn>(useItems[SS8_BOOT_USE_ITEM - 1])(&player);
+    useItems[SS8_BOOT_USE_ITEM - 1](&player);
 }
 const u32 kItemEnd = kItemFirst + kItemUses * kItemStep;
 #else

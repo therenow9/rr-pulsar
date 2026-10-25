@@ -43,13 +43,13 @@ asmFunc WipePageSize() {
 }
 kmCall(0x806238cc, WipePageSize);
 
-typedef Pages::Wipe *(*WipeCtorFn)(Pages::Wipe *);
-typedef void (*ControlCtorFn)(void *);
-typedef void (*ControlDtorFn)(void *, s32);
-static const WipeCtorFn wipeCtor = reinterpret_cast<WipeCtorFn>(0x80651e80);
-static const ControlCtorFn wipeControlCtor = reinterpret_cast<ControlCtorFn>(0x80651c0c);
-static const ControlDtorFn wipeControlDtor = reinterpret_cast<ControlDtorFn>(0x80651c48);
-static const ControlDtorFn layoutControlDtor = reinterpret_cast<ControlDtorFn>(0x8063d8c0);
+extern "C" {
+Pages::Wipe *wipeCtor(Pages::Wipe *);
+void wipeControlCtor(void *);
+void wipeControlDtor(void *, s32);
+void layoutControlDtor(void *, s32);
+extern const char *wipeAnims[];  // "Wipe", "Nothing", "Normal"
+}
 
 // The same case's "bl Pages::Wipe::__ct" (r3 = the new page, which the case returns in r3).
 static Pages::Wipe *WipeCtor(Pages::Wipe *page) {
@@ -120,8 +120,6 @@ static void PlaceOnTile(UIControl &control, u32 tile) {
     base.scale.z = 0.5f;  // Vec2 names its second component z
     control.PositionFromBasePosition();
 }
-
-static const char **const wipeAnims = reinterpret_cast<const char **>(0x80899f18);  // "Wipe", "Nothing", "Normal"
 
 // The game's vertical line stays between the middle columns at 8 screens and is hidden at 6; the two
 // extra lines are vertical only, between the outer columns.

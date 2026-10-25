@@ -39,23 +39,21 @@ inline bool IsWideHud(Hud hud) {
     return raceScreenCount != 0 && hud >= kGameLocal;
 }
 
-// Game calls and statics used in more than one file, whose GameSource declarations are missing, private or mistyped.
-typedef void (*UpdateStatesClassicFn)(u8 *controller, u8 *status, void *state, void *uiState);
-typedef u32 (*CalculateIDFn)(const Input::RealControllerHolder *);
-typedef void (*ControlFn)(LayoutUIControl *);
-typedef void (*DummyBackLoadFn)(LayoutUIControl *, const char *, const char *, const char *, u32);
-typedef void (*ShowModelFn)(Pages::ModelRenderer *, u32, bool, u32);
-typedef GX::TexObj *(*ModelTexObjFn)(Pages::ModelRenderer *, u32);
-static const UpdateStatesClassicFn updateStatesClassic = reinterpret_cast<UpdateStatesClassicFn>(0x8051f410);
-static const CalculateIDFn calculateID = reinterpret_cast<CalculateIDFn>(0x8061be40);
-static const ControlFn layoutCtor = reinterpret_cast<ControlFn>(0x8063d798);
-static const DummyBackLoadFn dummyBackLoad = reinterpret_cast<DummyBackLoadFn>(0x807e9620);
+// Game calls and statics used in more than one file, whose GameSource declarations are missing, private or mistyped;
+// their addresses are symbols.txt's, so Kamek ports them to each region.
+extern "C" {
+void updateStatesClassic(u8 *controller, u8 *status, void *state, void *uiState);
+u32 calculateID(const Input::RealControllerHolder *);
+void layoutCtor(LayoutUIControl *);
+void dummyBackLoad(LayoutUIControl *, const char *, const char *, const char *, u32);
 // ModelRenderer's per-hud show and texture, as the model controls call them each frame; the show ends in
 // MenuDriverModelMgr::TogglePlayerModel, which writes players[hud] (4 wide), so huds 0-3 only.
-static const ShowModelFn showModel = reinterpret_cast<ShowModelFn>(0x805f59ac);
-static const ModelTexObjFn modelTexObj = reinterpret_cast<ModelTexObjFn>(0x805f5a4c);
-static u8 *const *const driverSoundManager = reinterpret_cast<u8 *const *>(0x809c4740);
-static u8 *const *const miiManager = reinterpret_cast<u8 *const *>(0x809bd710);  // MiiManager::sInstance, private
+void showModel(Pages::ModelRenderer *, u32, bool, u32);
+GX::TexObj *modelTexObj(Pages::ModelRenderer *, u32);
+extern u8 *const driverSoundManager[];
+extern u8 *const miiManager[];  // MiiManager::sInstance, private
+extern const u8 dummyBackVtable[];  // CtrlMenuDummyBack's
+}
 
 // Local players of a widened race or of any race with more than 4, else 0; the scenario's own count stops at 4.
 extern u8 raceLocalCount;

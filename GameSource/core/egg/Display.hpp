@@ -57,8 +57,7 @@ public:
     void postVRetrace();  // 80210024
     void startSyncNTSC(u8 r4);  // 8020fd8c
     void HandleAlarm(OS::Alarm *alarm, OS::Context *context);  // 8020fd10
-    OS::Alarm syncAlarm;  // 0x28
-    u8 unknown_0x54[4];
+    OS::Alarm syncAlarm;  // 0x28, 0x30 bytes: its s64 members align it to 8
     OS::ThreadQueue threadQueue;  // 0x58
     u8 unknown_0x60[8];
     u32 frameStartRetraceCount;  // 0x68 retraceCount at the last beginFrame

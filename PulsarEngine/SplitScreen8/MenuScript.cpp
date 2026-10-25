@@ -177,11 +177,11 @@ kmWrite32(0x801be8a8, 0x38000000);
 
 // Every EGG heap (EGG's list, 0x80384320) at each section load and every 300 frames. "free" is an ExpHeap's total
 // free or another heap's largest block; "largest" is every heap's largest block, the one a skin load needs.
-static nw4r::ut::List *const heapList = reinterpret_cast<nw4r::ut::List *>(0x80384320);
+extern "C" nw4r::ut::List heapList;
 
 static void ReportHeaps(const char *when) {
     u32 index = 0;
-    for (void *node = nw4r::ut::List_GetNext(heapList, nullptr); node != nullptr; node = nw4r::ut::List_GetNext(heapList, node)) {
+    for (void *node = nw4r::ut::List_GetNext(&heapList, nullptr); node != nullptr; node = nw4r::ut::List_GetNext(&heapList, node)) {
         EGG::Heap *heap = static_cast<EGG::Heap *>(node);
         const u32 kind = heap->getHeapKind();
         const u32 free = kind == EGG::HEAP_TYPE_EXP ? static_cast<EGG::ExpHeap *>(heap)->getTotalFreeSize() : heap->getAllocatableSize(4);
