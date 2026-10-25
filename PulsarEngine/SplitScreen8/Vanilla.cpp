@@ -309,23 +309,21 @@ static void WaitForRetrace(OS::ThreadQueue *queue) {
 }
 kmCall(0x8020fe4c, WaitForRetrace);
 
-#ifdef SS8_DEBUG_BOOT
-// SectionMgr::Init's "bl NdevArgsExtractor::ExtractAllArgs", as RR's BootIntoSection: with no ndevArg it returns before
-// registering pad 0, so RR's own string sets license 0 and GC port 1 (0x124), the pad an RR boot gets in Dolphin.
-static SectionId BootIntoSection(const NdevArgsExtractor &extractor) {
-    SystemManager::sInstance->ndevArg = "-s132 -l0 -p292";
-    extractor.ExtractAllArgs();
-    return DebugBootPrepare(SECTION_NONE);
-}
-kmCall(0x80634f20, BootIntoSection);
-#elif defined(SS8_MENU_SCRIPT)
-// The same call in a menu-script build: a lane's slot on a USA or Japanese disc runs slot 0's PAL save, which the game
-// would offer to recreate (the country changed), after the USA disc's ESRB notice. Its script boots as the PAL one does.
+#if defined(SS8_DEBUG_BOOT) || defined(SS8_MENU_SCRIPT)
+// SectionMgr::Init's "bl NdevArgsExtractor::ExtractAllArgs", as RR's BootIntoSection. A slot on a USA or Japanese disc runs slot
+// 0's PAL save, which the game would offer to recreate (the country changed), after the USA disc's ESRB notice: boot as on PAL.
 static SectionId BootIntoSection(const NdevArgsExtractor &extractor) {
     SectionMgr &mgr = *SectionMgr::sInstance;
     if (mgr.bootSectionId == SECTION_COUNTRY_CHANGED || mgr.bootSectionId == SECTION_ESRB_NOTICE)
         mgr.bootSectionId = SECTION_NONE;
+#ifdef SS8_DEBUG_BOOT
+    // With no ndevArg it returns before registering pad 0, so RR's own string sets license 0 and GC port 1 (0x124).
+    SystemManager::sInstance->ndevArg = "-s132 -l0 -p292";
+    extractor.ExtractAllArgs();
+    return DebugBootPrepare(SECTION_NONE);
+#else
     return extractor.ExtractAllArgs();
+#endif
 }
 kmCall(0x80634f20, BootIntoSection);
 #endif
