@@ -76,6 +76,7 @@ const float kPlateScale = 0.5f;
 const float kPreviewX = 240.0f;
 const float kPreviewDY = 40.0f;  // above its plate
 const float kPreviewScale = 0.4f;  // of the 256 x 256 model_set_p
+const float kNarrowSize = 0.5f / 0.65f;  // the game's own name plates at 4:3, against 16:9 (CharacterSelectName's variants)
 const char *kButtonAnims[] = {
     "Loop", "Loop", nullptr, "Select", "Free", "FreeToSelect", "Select", "SelectToFree", nullptr, "SelectIn", "SelectIn", "SelectStop", nullptr, "OK", "OK", "OKStop", nullptr, nullptr};
 
@@ -345,7 +346,7 @@ private:
     void SetPlateName(u32 player);
     void SetIcon(Button &button);
     void CycleSkin(u32 player, s32 direction);
-    void SyncSkinModels();
+    bool SyncSkinModels();
     void FillCpus();
     CharacterId RollCharacter(Random &random, u32 player, CharacterId avoid) const;
     bool Roll();
@@ -367,6 +368,7 @@ private:
     Button *buttons;
     LayoutUIControl *plates[kMaxLocal];
     LayoutUIControl *previews[kMaxLocal];  // CharacterSelectModel, the model's texture on model_set_p
+    LayoutUIControl *clock;  // the countdown's, null without one
     PageManipulatorManager manager;
     Cursor cursors[kMaxLocal];
     s8 skinSteps[kMaxLocal];  // this frame's skin toggle per player, -1, 0 or 1
@@ -401,6 +403,7 @@ CharSelectPage::CharSelectPage() {
         this->plates[i] = new LayoutUIControl;
         this->previews[i] = new LayoutUIControl;
     }
+    this->clock = nullptr;
 }
 
 CharSelectPage::~CharSelectPage() {
@@ -412,10 +415,15 @@ CharSelectPage::~CharSelectPage() {
         delete this->plates[i];
         delete this->previews[i];
     }
+    delete this->clock;
 }
 
 void CharSelectPage::OnInit() {
-    this->InitControlGroup(3 + 2 * kMaxLocal);
+    const bool clock = SelectTimerSeconds() != 0;
+    this->InitControlGroup(3 + 2 * kMaxLocal + clock + 1);
+    if (clock)
+        this->clock = AddSelectClock(*this, 3 + 2 * kMaxLocal, nullptr);
+    AddSameHint(*this, 3 + 2 * kMaxLocal + clock, nullptr);
     this->AddControl(0, *this->titleText, 0);
     this->titleText->Load(false);
     this->titleText->SetMessage(kTitleBmg);
@@ -534,14 +542,13 @@ void CharSelectPage::SetIcon(Button &button) {
 }
 
 // The 4P name plate (0x8083D9C0), each channel the mean of the player's two colours (0x8083F09C). RharacterSelectName
-// is RR's layout, with the skin toggle's L and R at its ends; without RR it is the game's CharacterSelectName.
-void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale) {
+// is RR's layout, with the skin toggle's L and R at its ends; without RR, or where its archive lacks it, the game's.
+void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale, bool gameLayout) {
     ControlLoader loader(&plate);
 #ifdef SS8_VANILLA
-    loader.Load("control", "CharacterSelectName", "CharacterSelectName1P4", nullptr);
-#else
-    loader.Load("control", "RharacterSelectName", "CharacterSelectName1P4", nullptr);
+    gameLayout = true;
 #endif
+    loader.Load("control", gameLayout ? "CharacterSelectName" : "RharacterSelectName", "CharacterSelectName1P4", nullptr);
     plate.drawPriority = -1.0f;  // as CreateControl with 3+ players (0x8083D9F4)
     PositionAndScale &base = plate.positionAndscale[0];
     base.position.x = x;
@@ -565,7 +572,9 @@ void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float s
 void CharSelectPage::LoadPlate(u32 player) {
     LayoutUIControl &plate = *this->plates[player];
     this->AddControl(3 + player, plate, 0);
-    LoadNamePlate(plate, player, player % 2 == 0 ? -kPlateX : kPlateX, kPlateY[player / 2], kPlateScale);
+    const bool narrow = LayoutWidth() < 832.0f;
+    const float x = kPlateX * (narrow ? kNarrowX : 1.0f);
+    LoadNamePlate(plate, player, player % 2 == 0 ? -x : x, kPlateY[player / 2], kPlateScale * (narrow ? kNarrowSize : 1.0f));
 }
 
 // As DriverModelControl::Load loads it (0x805F32DC); a null animation table faults in ControlLoader. Placed here
@@ -587,7 +596,10 @@ void LoadModelPreview(LayoutUIControl &preview, float x, float y, float scale) {
 void CharSelectPage::LoadPreview(u32 player) {
     LayoutUIControl &preview = *this->previews[player];
     this->AddControl(3 + kMaxLocal + player, preview, 0);
-    LoadModelPreview(preview, player % 2 == 0 ? -kPreviewX : kPreviewX, kPlateY[player / 2] + kPreviewDY, kPreviewScale);
+    const bool narrow = LayoutWidth() < 832.0f;
+    const float x = kPreviewX * (narrow ? kNarrowX : 1.0f);
+    const float s = narrow ? kNarrowSize : 1.0f;
+    LoadModelPreview(preview, player % 2 == 0 ? -x : x, kPlateY[player / 2] + kPreviewDY * s, kPreviewScale * s);
 }
 
 // As DriverModelControl::OnUpdate sets model_set_p: TexMap::Set, then no palette (0x805F36AC-0x805F375C).
@@ -785,7 +797,7 @@ void CharSelectPage::OnActivate() {
     bool miiCOpen = Pulsar::Restrictions::IsOnlyMiiOutfitCEnabled();
     const RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
     if (!miiCOpen && rksys != nullptr)
-        miiCOpen = Pulsar::PointRating::GetUserVR(rksys->curLicenseId) >= 300.0f;
+        miiCOpen = Pulsar::PointRating::GetUserVR(rksys->curLicenseId) >= 30000.0f;
 #ifdef SS8_MENU_SCRIPT
     miiCOpen = miiCOpen || menuOpenMiiC;
 #endif
@@ -934,26 +946,30 @@ void CharSelectPage::CycleSkin(u32 player, s32 direction) {
 }
 
 // RR's per-player model pass (PageAfterControlUpdate); LoadDriverBRRES returns at once when the model is loaded.
-// Not during a roll, whose hops load nothing before the last.
-void CharSelectPage::SyncSkinModels() {
+// Not during a roll, whose hops load nothing before the last. True when a skin slot or a P1-4 model changed.
+bool CharSelectPage::SyncSkinModels() {
+    bool changed = false;
 #ifndef SS8_VANILLA
     MenuModelMgr *modelMgr = MenuModelMgr::sInstance;
     MenuDriverModelMgr *mgr = modelMgr != nullptr ? modelMgr->driverModels : static_cast<MenuDriverModelMgr *>(nullptr);
     if (mgr == nullptr || this->rolling >= 0)
-        return;
+        return false;
     for (u32 p = 0; p < menuLocalCount && p < kGameLocal && p < mgr->playerCount; ++p) {
         const Button &button = this->buttons[this->cursors[p].button];
         if (button.outfit >= 0)
             continue;
         const CharacterId character = button.character;
         if (!Pulsar::Driver::LoadDriverBRRES(p, character, SkinSlot(p, character))) {
+            changed |= SkinSlot(p, character) != 0;
             SetSkinSlot(p, character, 0);
             this->SetPlateName(p);
         } else if (MenuDriverModel *model = Pulsar::Driver::GetCustomDriverModel(p)) {
+            changed |= mgr->players[p].playerModel != model;
             mgr->players[p].playerModel = model;
         }
     }
 #endif
+    return changed;
 }
 
 void CharSelectPage::AfterControlUpdate() {
@@ -967,6 +983,17 @@ void CharSelectPage::AfterControlUpdate() {
         this->Roulette();
     const bool input = this->miiPlayer == kNoPlayer && !this->miiResumed && !roulette && !SectionMgr::sInstance->curSection->skipsActions;
     this->miiResumed = false;
+    // At the countdown's zero, or in Same as Last Time's pass, everyone still choosing confirms what they are on, a Mii
+    // button its Mii, as the roulette does; a player who has picked since the title, their last pick.
+    const SectionParams *params = SectionMgr::sInstance->sectionParams;
+    for (u32 p = 0; input && (SamePassing() || (this->clock != nullptr && SelectTimeUp(*this->clock))) && p < count; ++p) {
+        if (this->cursors[p].confirmed)
+            continue;
+        const s32 last = DriftChosenBy(p + 1) ? this->ButtonOf(p < kGameLocal ? params->characters[p] : ExtCharacter(p)) : -1;
+        if (last >= 0 && static_cast<u32>(last) != this->cursors[p].button)
+            this->Hover(p, static_cast<u32>(last));
+        this->Confirm(p);
+    }
     for (u32 p = 0; input && p < count; ++p) {
         const Input::RealControllerHolder *holder = PlayerHolder(p);
         if (holder == nullptr)
@@ -996,7 +1023,7 @@ void CharSelectPage::AfterControlUpdate() {
                 this->Move(p, direction);
         }
     }
-    this->SyncSkinModels();
+    const bool skinsMoved = this->SyncSkinModels();
     for (u32 i = 0; i < kButtons; ++i) this->UpdateButton(i);
 
     u32 confirmed = 0;
@@ -1009,9 +1036,13 @@ void CharSelectPage::AfterControlUpdate() {
     // leaving (PushButton::GetAnimationFrameSize, 0x8083E0D4); a player's B in that time takes it back.
     if (this->leaveFrames < 0) {
         const AnimationGroup &ok = this->buttons[this->cursors[0].button].control.animator.GetAnimationGroupById(GROUP_OK);
-        this->leaveFrames = static_cast<s32>(ok.animations[0].transform->GetFrameSize() / ok.animations[0].speed / ok.unknown_0x40);
+        this->leaveFrames = OkLeaveFrames(ok);
         this->FillCpus();
     }
+    // Under Fast Menus the page leaves on its confirm frame, where a roll's skins can still be falling back to their
+    // stock models a pass or two; the kart page opening mid-fallback reads freed driver animations.
+    if (this->leaveFrames == 0 && skinsMoved)
+        return;
     if (this->leaveFrames-- == 0) {
         if (MenuFreeForAll())
             AssignLastTeams();

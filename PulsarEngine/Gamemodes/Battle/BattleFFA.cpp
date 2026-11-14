@@ -55,26 +55,27 @@ kmRuntimeUse(0x808dc540);  // balloon.brres
 static int GetSinglePlayerVSControls() {
     return System::sInstance->IsContext(PULSAR_FFA) ? 0x28de : 0x87e;
 }
+kmBranch(0x80633a90, GetSinglePlayerVSControls);
 
 static int GetMultiplayerVSControls() {
     return System::sInstance->IsContext(PULSAR_FFA) ? 0x28de : 0x87c;
 }
+kmBranch(0x80633a00, GetMultiplayerVSControls);
 
 static int GetWifiBattleControls() {
     return System::sInstance->IsContext(PULSAR_FFA) ? 0x28de : 0x8ce;
 }
+kmBranch(0x80633940, GetWifiBattleControls);
+kmBranch(0x80633880, GetWifiBattleControls);
 
 static int GetWifiFriendControls() {
     return System::sInstance->IsContext(PULSAR_FFA) ? 0x28de : 0x87e;
 }
-
-kmBranch(0x80633a90, GetSinglePlayerVSControls);
-kmBranch(0x80633a00, GetMultiplayerVSControls);
-kmBranch(0x80633940, GetWifiBattleControls);
-kmBranch(0x80633880, GetWifiBattleControls);
 kmBranch(0x806336d0, GetWifiFriendControls);
 
-static void SetFFABattleResourceNames(bool isFFA, bool isElimination) {
+void ApplyFFABattle() {
+    const bool isFFA = System::sInstance->IsContext(PULSAR_FFA);
+    const bool isElimination = isFFA == BATTLE_FFA_ENABLED && System::sInstance->IsContext(PULSAR_ELIMINATION);
     volatile char *positionName = reinterpret_cast<volatile char *>(kmRuntimeAddr(0x808aa1ac));
     volatile char *battlePointName = reinterpret_cast<volatile char *>(kmRuntimeAddr(0x808a98dd));
     volatile char *minigameName = reinterpret_cast<volatile char *>(kmRuntimeAddr(0x80890209));
@@ -86,12 +87,7 @@ static void SetFFABattleResourceNames(bool isFFA, bool isElimination) {
     battlePointName[1] = isFFA ? 'r' : 'a';
     minigameName[0] = isElimination ? 'E' : isFFA ? 'R' : 'm';
     balloonName[0] = isFFA ? 'f' : 'b';
-}
 
-void ApplyFFABattle() {
-    bool isFFA = Pulsar::System::sInstance->IsContext(PULSAR_FFA);
-    const bool isElim = Pulsar::System::sInstance->IsContext(PULSAR_ELIMINATION);
-    SetFFABattleResourceNames(isFFA == BATTLE_FFA_ENABLED, isFFA == BATTLE_FFA_ENABLED && isElim);
     if (isFFA == BATTLE_FFA_ENABLED) {
         Racedata::sInstance->racesScenario.settings.modeFlags &= ~0x2;
     }

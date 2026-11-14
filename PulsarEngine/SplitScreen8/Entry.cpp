@@ -12,7 +12,7 @@
 #include <UI/UI.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
-// The main menu's local-player buttons and hidden WFC panel apply at every player count.
+// The main menu's layout, local-player buttons and hidden WFC panel apply at every player count.
 
 namespace SplitScreen8 {
 
@@ -35,12 +35,17 @@ extern const u8 movieButtonVtable[];
 extern const u8 movieButtonPushButtonVtable[];
 }
 
+// The layout's panels sit at x -135 and 135 in the top row (y 85); WFC's and the Channel's row is at y -77.
+const float kBottomRowY = -77.0f;
 // Vanilla's three buttons sit at x -54, 0, 54 (16:9, scale 1.05 x 0.93), about 50.6 units wide with 3.4 between.
-const float kPanelScale = 1.5f;
+const float kPanelScale = 2.6f;
 const float kButtonWidth = 50.6f;
 const float kButtonGap = 3.4f;
 const float kButtonScaleX = 1.05f;
 const u32 kRowButtons = 3 + kEntryButtons;
+// At 4:3 vanilla's three sit at x -75, 0, 76: its panes draw wider there, so the row's units grow by that pitch.
+const float kNarrowPitch = 75.5f / 54.0f;
+const float kNarrowPanelScale = 2.3f;  // the frame inside a 4:3 screen
 // The multiplayer clip is top_menu.thp's top-right quadrant: vanilla splits it across three buttons, this across seven.
 const float kMovieStrip = 0.5f / kRowButtons;
 
@@ -80,27 +85,28 @@ static void SetButtonDigit(PushButton &button, wchar_t digit) {
     button.SetMessage(Pulsar::UI::BMG_TEXT, &info);
 }
 
-static void PlaceInRow(PushButton &button, u32 index) {
-    const float row = (2 * 54.0f + kButtonWidth) * kPanelScale;
-    const float width = (row - (kRowButtons - 1) * kButtonGap) / kRowButtons;
+static void PlaceInRow(PushButton &button, u32 index, float pitch, float panelScale) {
+    const float row = (2 * 54.0f + kButtonWidth) * pitch * panelScale;
+    const float width = (row - (kRowButtons - 1) * kButtonGap * pitch) / kRowButtons;
     PositionAndScale &base = button.positionAndscale[0];
-    base.position.x = (static_cast<float>(index) - (kRowButtons - 1) / 2.0f) * (width + kButtonGap);
-    base.scale.x = kButtonScaleX * width / kButtonWidth;
+    base.position.x = (static_cast<float>(index) - (kRowButtons - 1) / 2.0f) * (width + kButtonGap * pitch);
+    base.scale.x = kButtonScaleX * width / (kButtonWidth * pitch);
     button.PositionFromBasePosition();
     cropMovie(&button, "black_base", 0.0f, 0.5f, 0.5f + index * kMovieStrip, 0.5f + (index + 1) * kMovieStrip);
 }
 
 // TopMenuMultiWaku is all picture panes but its heading; widening the pictures keeps the text's size.
-static void WidenPanel(LayoutUIControl &panel) {
+static void WidenPanel(LayoutUIControl &panel, float panelScale) {
     static const char *const panes[] = {"touch", "black", "borderline", "waku_sha", "waku_co", "Picture_00", "waku_light", "Picture_02", "Picture_01"};
     for (u32 i = 0; i < sizeof(panes) / sizeof(panes[0]); ++i) {
         nw4r::lyt::Pane *pane = panel.layout.GetPaneByName(panes[i]);
         if (pane != nullptr)
-            pane->size.x *= kPanelScale;
+            pane->size.x *= panelScale;
     }
 }
 
-// Four more buttons built as the 4 Players one is (0x80850A2C), then all seven placed in the widened row.
+// Four more buttons built as the 4 Players one is (0x80850A2C); Single Player moves to the top row's centre and
+// Multiplayer into the empty bottom row, and all seven are placed in the widened row.
 static void AddEntryButtons(Pages::MainMenu *page, LayoutUIControl *panel) {
     for (u32 i = 0; i < kEntryButtons; ++i) {
         PushButton *button = NewMovieButton();
@@ -110,10 +116,21 @@ static void AddEntryButtons(Pages::MainMenu *page, LayoutUIControl *panel) {
         button->buttonId = kEntryButtonId + i;
         entryButtons[i] = button;
     }
+    LayoutUIControl &single = page->buttonTitles[0];
+    single.positionAndscale[0].position.x = 0.0f;
+    single.PositionFromBasePosition();
+    page->topMenuSingle->PositionFromBasePosition();
+    // The panel repositions every child it holds, so it moves only once all seven are in.
+    panel->positionAndscale[0].position.x = 0.0f;
+    panel->positionAndscale[0].position.y = kBottomRowY;
+    panel->PositionFromBasePosition();
+    const bool narrow = LayoutWidth() < 832.0f;
+    const float pitch = narrow ? kNarrowPitch : 1.0f;
+    const float panelScale = narrow ? kNarrowPanelScale : kPanelScale;
     PushButton *const multi[] = {page->topMenuMulti2P, page->topMenuMulti3P, page->topMenuMulti4P};
-    for (u32 i = 0; i < 3; ++i) PlaceInRow(*multi[i], i);
-    for (u32 i = 0; i < kEntryButtons; ++i) PlaceInRow(*entryButtons[i], 3 + i);
-    WidenPanel(*panel);
+    for (u32 i = 0; i < 3; ++i) PlaceInRow(*multi[i], i, pitch, panelScale);
+    for (u32 i = 0; i < kEntryButtons; ++i) PlaceInRow(*entryButtons[i], 3 + i, pitch, panelScale);
+    WidenPanel(*panel, panelScale);
 }
 
 // CreateControl's Multiplayer case ends "b 0x80850D2C" after its third button (r28 = the page,

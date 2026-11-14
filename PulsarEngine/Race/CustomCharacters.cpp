@@ -1,5 +1,5 @@
 #include <Driver/CustomCharacters.hpp>
-#include <IO/LooseArchiveOverrides.hpp>
+#include <IO/Patches.hpp>
 #include <Race/CustomCharacters.hpp>
 #include <Settings/Settings.hpp>
 #include <MarioKartWii/Archive/ArchiveMgr.hpp>
@@ -42,7 +42,7 @@ u32 GetPlayerCustomCharacterSlot(u32 playerId, CharacterId character, bool isAwa
         const u32 slot = Racedata::sInstance->ghosts[rkgIndex].header.unknown_6;
         return slot <= Driver::MAX_CUSTOM_CHARACTER_SLOTS && Driver::characterTables[characterId][slot] ? slot : 0;
     }
-    if (player.playerType != PLAYER_REAL_LOCAL && Settings::Mgr::Get().GetSettingValue(Settings::SETTING_DISPLAYCUSTOMSKINS) == DISPLAYCUSTOMSKINS_DISABLED)
+    if (player.playerType != PLAYER_REAL_LOCAL && (scenario.localPlayerCount > 1 || Settings::Mgr::Get().GetSettingValue(Settings::SETTING_DISPLAYCUSTOMSKINS) == DISPLAYCUSTOMSKINS_DISABLED))
         return 0;
     const u32 slot = racePlayerSlots[playerId];
     return slot <= Driver::MAX_CUSTOM_CHARACTER_SLOTS && Driver::characterTables[characterId][slot] ? slot : 0;
@@ -119,11 +119,6 @@ static s32 LoadCustomCharactersForPlayer(char *path, u32 size, const char *forma
         snprintf(archivePath, sizeof(archivePath), "/Race/Kart/%s%s-%s-%u%s.szs", vehicleName, teamSuffix, characterName, slot, modeSuffix);
         if (IOOverrides::ConvertPathToEntryNumWithLooseOverride(archivePath) >= 0)
             return snprintf(path, size, "Race/Kart/%s%s-%s-%u%s", vehicleName, teamSuffix, characterName, slot, modeSuffix);
-        // Skins ship no low-detail (_4) karts, which a multi-screen race gives its CPUs: a CPU drawn as its base
-        // character is named and shown as one. The archives load before the race's voices, balloons and results.
-        const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
-        if (playerId < 12 && scenario.settings.gamemode != MODE_AWARD && scenario.players[playerId].playerType == PLAYER_CPU)
-            racePlayerSlots[playerId] = 0;
     }
     return snprintf(path, size, format, vehicleName, teamSuffix, characterName, modeSuffix);
 }

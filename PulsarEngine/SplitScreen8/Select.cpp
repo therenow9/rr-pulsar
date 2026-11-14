@@ -1,6 +1,8 @@
 #include <kamek.hpp>
 #include <core/rvl/OS/OS.hpp>
 #include <core/rvl/OS/OSCache.hpp>
+#include <core/rvl/PAD.hpp>
+#include <core/rvl/WPAD.hpp>
 #include <core/rvl/dvd/dvd.hpp>
 #include <MarioKartWii/GlobalFunctions.hpp>
 #include <MarioKartWii/3D/Model/Menu/MenuDriverModel.hpp>
@@ -13,13 +15,19 @@
 #include <MarioKartWii/System/Random.hpp>
 #include <MarioKartWii/UI/Page/Page.hpp>
 #include <MarioKartWii/UI/Page/Menu/BattleKartSelect.hpp>
+#include <MarioKartWii/UI/Page/Menu/CharacterSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/CourseSelect.hpp>
+#include <MarioKartWii/UI/Page/Menu/DriftSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/KartSelect.hpp>
+#include <MarioKartWii/UI/Page/Menu/MultiDriftSelect.hpp>
+#include <MarioKartWii/UI/Page/Menu/MultiKartSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/Menu.hpp>
 #include <MarioKartWii/UI/Page/Menu/MultiPlayerTeamSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/StartRace.hpp>
+#include <MarioKartWii/UI/Page/Menu/VSTeamsView.hpp>
 #include <MarioKartWii/UI/Page/Other/ModelRenderer.hpp>
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuText.hpp>
+#include <MarioKartWii/UI/Ctrl/CountDown.hpp>
 #include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
 #include <MarioKartWii/UI/Layout/ControlLoader.hpp>
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
@@ -73,6 +81,12 @@ void WithMenuLocalCount(void (*fill)()) {
     params->localPlayerCount = gameCount;
 }
 
+s32 OkLeaveFrames(const AnimationGroup &ok) {
+    if (Page::transitionDelay == 0.0f)
+        return 0;
+    return static_cast<s32>(ok.animations[0].transform->GetFrameSize() / ok.animations[0].speed / ok.unknown_0x40);
+}
+
 // MultiKartSelect::OnTextChange's kart name (0x8084A338) and OnUpDownClick's confirm voice (0x8084A1C4), which
 // returns at once for hud 4 or more.
 extern "C" {
@@ -99,6 +113,9 @@ const float kLightPeakScale = 1.78f;  // chara_light_01's height at a change's p
 const float kLightRestOverPeak = 0.7f;  // chara_light_02's height at rest, the frame's, over its peak: 70 / 100
 const float kButtonDY[2] = {-5.0f, -45.0f};  // the transmission and drift buttons, from the plate's place
 const float kButtonScale = 0.5f;
+// At 4:3 the game draws its widescreen-adjusted panes wider in layout units, so the cells shrink too.
+const float kNarrowSize = 0.8f;
+const float kNarrowTeamSize = 0.75f;  // the team buttons keep their offsets: each grows into the gap between them
 // UpDownControl's change sounds (0x8063FD8C, 0x8063FC6C) and click sound (+0x5C4, set at 0x8063EB3C).
 const u32 kSoundKartLeft = 0x11;
 const u32 kSoundKartRight = 0x12;
@@ -319,9 +336,11 @@ private:
     s32 leaveFrames;  // counts down once everyone is ready, -1 before
     s32 rolling;  // the kart roulette's frames left, -1 when none runs
     KartId karts[kMaxLocal];
+    s32 opened[kMaxLocal];  // each player's kart or button as the page opened, their last pick
     LayoutUIControl *previews[kMaxLocal];  // CharacterSelectModel, the kart's texture on model_set_p
     LayoutUIControl *plates[kMaxLocal];  // the kart page's
     LayoutUIControl *sides[kMaxLocal][2];  // the arrows on the kart page, the two buttons on the others
+    LayoutUIControl *clock;  // the countdown's, null without one
     u8 buttons[kMaxLocal];  // the button each player is on, 0 or 1
     s32 held[kMaxLocal][2];  // frames each direction has been held, -1 when not
     bool teamFull[2];  // the team page's teams six players have chosen
@@ -344,6 +363,7 @@ SelectPage::SelectPage(const SelectStep &step) : step(step), kartStep(step.id ==
         this->plates[p] = this->kartStep ? new LayoutUIControl : static_cast<LayoutUIControl *>(nullptr);
         for (u32 side = 0; side < 2; ++side) this->sides[p][side] = new LayoutUIControl;
     }
+    this->clock = nullptr;
 }
 
 SelectPage::~SelectPage() {
@@ -353,10 +373,15 @@ SelectPage::~SelectPage() {
         delete this->plates[p];
         for (u32 side = 0; side < 2; ++side) delete this->sides[p][side];
     }
+    delete this->clock;
 }
 
 void SelectPage::OnInit() {
-    this->InitControlGroup(1 + (this->kartStep ? 4 : 3) * kMaxLocal);
+    const u32 cells = 1 + (this->kartStep ? 4 : 3) * kMaxLocal;
+    const bool clock = !this->teamStep && SelectTimerSeconds() != 0;
+    this->InitControlGroup(cells + clock);
+    if (clock)
+        this->clock = AddSelectClock(*this, cells, nullptr);
     this->AddControl(0, *this->titleText, 0);
     this->titleText->Load(false);
     Text::Info info;
@@ -373,17 +398,22 @@ void SelectPage::OnInit() {
 // A cell: the preview, then the plate and UpDownControl's arrows for 3-4 (0x80849A84) or MultiDriftSelect's buttons
 // (0x8084B0A0), as plain controls: the vanilla ones join the page's 5-slot ControlsManipulatorManager (0x8063EFC8).
 void SelectPage::LoadCell(u32 player) {
-    const float x = kCellX[player % kGameLocal];
+    const bool narrow = LayoutWidth() < 832.0f;
+    const float fx = narrow ? kNarrowX : 1.0f;
+    const float fs = narrow ? kNarrowSize : 1.0f;
+    const float teamSize = narrow ? kNarrowTeamSize : 1.0f;
+    const float x = kCellX[player % kGameLocal] * fx;
     const float y = kKartPlateY[player / kGameLocal];
+    const float teamX = kTeamCellX[player % kGameLocal] * fx;
     this->AddControl(1 + player, *this->previews[player], 0);
     if (this->teamStep)
-        LoadModelPreview(*this->previews[player], kTeamCellX[player % kGameLocal] + kTeamDriverDX, kTeamRowY[player / kGameLocal], kTeamDriverScale);
+        LoadModelPreview(*this->previews[player], teamX + kTeamDriverDX, kTeamRowY[player / kGameLocal], kTeamDriverScale * teamSize);
     else
-        LoadModelPreview(*this->previews[player], x, y + kKartPreviewDY, kKartPreviewScale);
+        LoadModelPreview(*this->previews[player], x, y + kKartPreviewDY * fs, kKartPreviewScale * fs);
     u32 next = 1 + kMaxLocal;
     if (this->kartStep) {
         this->AddControl(next + player, *this->plates[player], 0);
-        LoadNamePlate(*this->plates[player], player, x, y, kKartPlateScale);
+        LoadNamePlate(*this->plates[player], player, x, y, kKartPlateScale * fs);
         ShowSkinToggleIcons(*this->plates[player], CONTROLLER_TYPE_NONE);  // the skin toggle buttons do nothing here
         next += kMaxLocal;
     }
@@ -393,18 +423,18 @@ void SelectPage::LoadCell(u32 player) {
         ControlLoader loader(&control);
         if (this->teamStep) {
             loader.Load("button", "TeamSelect_4", side == 0 ? "ButtonRed" : "ButtonBlue", kButtonAnims);
-            PlaceControl(control, player, kTeamCellX[player % kGameLocal] + kTeamButtonDX[side], kTeamRowY[player / kGameLocal], kTeamButtonScale);
+            PlaceControl(control, player, teamX + kTeamButtonDX[side], kTeamRowY[player / kGameLocal], kTeamButtonScale * teamSize);
             control.SetTextBoxMessage("text", kTeamMessages[side]);
             control.SetPicturePane("flag_set_p", kTeamFlags[side]);
         } else if (!this->kartStep) {
             loader.Load("button", "drift_4", side == 0 ? "ButtonAuto" : "ButtonManual", kButtonAnims);
-            PlaceControl(control, player, x, y + kButtonDY[side], kButtonScale);
+            PlaceControl(control, player, x, y + kButtonDY[side] * fs, kButtonScale * fs);
         } else {
             if (side == ARROW_LEFT)
                 loader.Load("control", "MachineArrowLeft", "ButtonArrowLeft4", kButtonAnims);
             else
                 loader.Load("control", "MachineArrowRight", "ButtonArrowRight4", kButtonAnims);
-            PlaceControl(control, player, x + (side == ARROW_LEFT ? -kArrowDX : kArrowDX), y + kArrowDY, kArrowScale);
+            PlaceControl(control, player, x + (side == ARROW_LEFT ? -kArrowDX : kArrowDX) * fs, y + kArrowDY * fs, kArrowScale * fs);
             // A change's light peaks past a small arrow's frame. Each light pane animates only its scale or only its
             // size, so the other, set once here, brings the peak to the resting height (the draw re-animates each frame).
             nw4r::lyt::Pane *light = control.layout.GetPaneByName("chara_light_01");
@@ -474,6 +504,7 @@ void SelectPage::ActivateKarts() {
         const KartId last = player < kGameLocal ? params->karts[player] : extPicks[player - kGameLocal].picked ? extPicks[player - kGameLocal].kart : static_cast<KartId>(-1);
         this->karts[player] = KartForCharacter(character, last);
         this->StepKart(player, 0);
+        this->opened[player] = this->karts[player];
         // As VehicleModelControl::InitSelf leaves the confirmed pose on open (0x805F3CD8), for a Back from a later page,
         // whose archive is the one loaded: a reload would free the on-kart animations the driver is using.
         MenuDriverModel *model = player < kGameLocal ? GameDriverModel(player) : static_cast<MenuDriverModel *>(nullptr);
@@ -540,6 +571,10 @@ void SelectPage::UpdateTeamCap(bool moveOff) {
     }
 }
 
+static bool StoredDriftAuto(u32 player) {
+    return player < kGameLocal ? SectionMgr::sInstance->sectionParams->driftType[player] == kDriftAuto : Holder(*Input::Manager::sInstance, player).isDriftAuto != 0;
+}
+
 // As MultiTransmissionSelect::OnActivate and MultiDriftSelect::OnActivate (0x8084B2E0): each player on their stored
 // choice, under the kart they chose, in its confirmed pose.
 void SelectPage::ActivateButtons() {
@@ -552,8 +587,9 @@ void SelectPage::ActivateButtons() {
             first = Pulsar::UI::GetSelectedTransmission(player) == Pulsar::TRANSMISSION_OUTSIDE;
         else
 #endif
-            first = player < kGameLocal ? params->driftType[player] == kDriftAuto : Holder(*Input::Manager::sInstance, player).isDriftAuto != 0;
+            first = StoredDriftAuto(player);
         this->buttons[player] = first ? 0 : 1;
+        this->opened[player] = this->buttons[player];
         for (u32 side = 0; side < 2; ++side) StartAnimations(*this->sides[player][side], side == this->buttons[player]);
         this->karts[player] = player < kGameLocal ? params->karts[player] : extPicks[player - kGameLocal].kart;
         this->RequestKart(player);
@@ -745,8 +781,21 @@ void SelectPage::Unready(u32 player) {
     this->PlaySound(SOUND_ID_BACK_PRESS, -1);
 }
 
-// MultiTransmissionSelect's and MultiDriftSelect's OnButtonClick (0x8084B500), the first button outside or automatic.
 // Drift goes to the holder the race reads (0x805944F4), to SectionParams for P1-4 and the license for P1, as vanilla.
+static void WriteDrift(u32 player, bool automatic) {
+    Holder(*Input::Manager::sInstance, player).SetDriftType(automatic);
+    if (player >= kGameLocal)
+        return;
+    const u32 driftType = automatic ? kDriftAuto : kDriftManual;
+    SectionMgr::sInstance->sectionParams->driftType[player] = driftType;
+    RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
+    if (player == 0 && rksys != nullptr && static_cast<s16>(rksys->curLicenseId) >= 0) {
+        rksys->licenses[rksys->curLicenseId].defaultDrift = driftType;
+        SectionMgr::sInstance->rksysRequester->NotifyNewLicenseContent();
+    }
+}
+
+// MultiTransmissionSelect's and MultiDriftSelect's OnButtonClick (0x8084B500), the first button outside or automatic.
 void SelectPage::WriteButton(u32 player) {
     const bool first = this->buttons[player] == 0;
     OS::Report("ss8 select: %s player %u on %s\n", this->step.name, player + 1, first ? "first" : "second");
@@ -765,16 +814,7 @@ void SelectPage::WriteButton(u32 player) {
         return;
     }
 #endif
-    Holder(*Input::Manager::sInstance, player).SetDriftType(first);
-    if (player >= kGameLocal)
-        return;
-    const u32 driftType = first ? kDriftAuto : kDriftManual;
-    SectionMgr::sInstance->sectionParams->driftType[player] = driftType;
-    RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
-    if (player == 0 && rksys != nullptr && static_cast<s16>(rksys->curLicenseId) >= 0) {
-        rksys->licenses[rksys->curLicenseId].defaultDrift = driftType;
-        SectionMgr::sInstance->rksysRequester->NotifyNewLicenseContent();
-    }
+    WriteDrift(player, first);
 }
 
 void SelectPage::AfterControlUpdate() {
@@ -787,11 +827,38 @@ void SelectPage::AfterControlUpdate() {
     for (u32 player = 0; player < menuLocalCount; ++player) this->UpdateSides(player);
     if (this->currentState != STATE_ACTIVE || this->leaving)
         return;
+    const u32 count = menuLocalCount;
+#ifndef SS8_VANILLA
+    // Entered by the cup page's Back once everyone has picked: pass back, as PassDriftPage does the game's page.
+    if (this->step.id == Pulsar::UI::PULPAGE_SS8DRIFTSELECT && this->animationDirection == 1 && this->curStateDuration == 0 && SkipDrift(count)) {
+        OS::Report("ss8 select: drift page passed back\n");
+        this->Leave(this->step.prev, 1);
+        return;
+    }
+#endif
     if (this->rolling >= 0)
         this->Roulette();
-    const u32 count = menuLocalCount;
+    // At the countdown's zero, or in Same as Last Time's pass, everyone still choosing confirms what they are on, as the
+    // game's pages do, a player who has picked since the title on what the page opened on.
+    const bool timeUp = this->rolling < 0 && (SamePassing() || (this->clock != nullptr && SelectTimeUp(*this->clock)));
     u32 readyCount = 0;
     for (u32 player = 0; player < count; ++player) {
+        if (timeUp && !this->ready[player]) {
+            if (this->teamStep) {
+                this->UpdateTeamCap(true);  // last teams from other counts can fill one past six
+            } else if (DriftChosenBy(player + 1) && (this->kartStep ? this->karts[player] : this->buttons[player]) != this->opened[player]) {
+                OS::Report("ss8 select: %s player %u back on the last pick\n", this->step.name, player + 1);
+                if (this->kartStep) {
+                    this->karts[player] = static_cast<KartId>(this->opened[player]);
+                    this->StepKart(player, 0);
+                } else {
+                    SelectControl(*this->sides[player][this->buttons[player]], false);
+                    this->buttons[player] = static_cast<u8>(this->opened[player]);
+                    SelectControl(*this->sides[player][this->buttons[player]], true);
+                }
+            }
+            this->Ready(player);
+        }
         const Input::RealControllerHolder *holder = this->rolling >= 0 || SectionMgr::sInstance->curSection->skipsActions ? static_cast<Input::RealControllerHolder *>(nullptr) : PlayerHolder(player);
         const s32 step = holder != nullptr ? this->Direction(player, *holder, !this->kartStep && !this->teamStep) : 0;
         if (holder != nullptr && UIPressed(*holder, FORWARD_PRESS) && !this->ready[player]) {
@@ -832,7 +899,7 @@ void SelectPage::AfterControlUpdate() {
     // with its OK's; the plate has none, so the arrows' OK sets it. A player's B in that time takes it back.
     if (this->leaveFrames < 0) {
         const AnimationGroup &ok = this->sides[0][0]->animator.GetAnimationGroupById(GROUP_OK);
-        this->leaveFrames = static_cast<s32>(ok.animations[0].transform->GetFrameSize() / ok.animations[0].speed / ok.unknown_0x40);
+        this->leaveFrames = OkLeaveFrames(ok);
     }
     if (this->leaveFrames-- > 0)
         return;
@@ -840,6 +907,8 @@ void SelectPage::AfterControlUpdate() {
         WriteKarts();
     if (this->teamStep)  // MultiTeamSelect's confirm balances the CPUs against the locals' teams (0x8084CA78)
         WithMenuLocalCount(Pages::MultiTeamSelect::AssignCPUTeams);
+    if (this->step.id == Pulsar::UI::PULPAGE_SS8DRIFTSELECT)
+        DriftChosen(count);
     this->Leave(this->step.next, 0);
 }
 
@@ -854,6 +923,15 @@ void SelectPage::Leave(u32 next, u32 animDirection) {
     if (next == Pulsar::UI::PULPAGE_SS8TRANSMISSIONSELECT && Pulsar::UI::ShouldSkipTransmissionSelect(Pulsar::System::sInstance))
 #endif
         next = this->kartStep ? Pulsar::UI::PULPAGE_SS8DRIFTSELECT : Pulsar::UI::PULPAGE_SS8KARTSELECT;
+#ifndef SS8_VANILLA
+    if (next == Pulsar::UI::PULPAGE_SS8DRIFTSELECT && SkipDrift(menuLocalCount)) {
+        for (u32 player = 0; player < menuLocalCount; ++player) WriteDrift(player, StoredDriftAuto(player));
+        OS::Report("ss8 select: drift page skipped\n");
+        next = PAGE_CUP_SELECT;
+    }
+#endif
+    if (animDirection == 1 || next == PAGE_CUP_SELECT)
+        EndSamePass();
 #ifdef SS8_VANILLA
     const bool battle = Racedata::sInstance->menusScenario.settings.gamemode == MODE_BATTLE;
     // The game's arenas have their own cup page (MultiDriftSelect::OnButtonClick, 0x8084B7BC); RR's cup page holds them.
@@ -978,10 +1056,328 @@ void CupKart::SetPositionAnim(PositionAndScale &positionAndScale, float curFrame
     LayoutUIControl::SetPositionAnim(positionAndScale, page->modelPosition[0].animationType != 0 ? curFrame : 0.0f);
 }
 
-// Menu::OnInit's "bl Page::InitControlGroup" (0x80836CFC, 0x80836DC8); r3-r4 are the call's own. On the cup, course,
-// version, Battle cup and arena pages of a 5-8 player game, P5-8's karts go after the count the code after it fills.
+// Each player's choice as a game select page opens, which is their last pick, to go back to before the page confirms
+// everyone at zero. A control's selection set here is applied by the next frame's CheckActions, before the controls.
+class LastPicks {
+public:
+    void Open(Pages::MenuInteractable &page);
+    void Return(Pages::MenuInteractable &page) const;
+
+private:
+    ControlManipulator *opened[kGameLocal];
+    u32 options[kGameLocal];  // the 2-4 kart page's, whose arrows are one control a player
+};
+
+void LastPicks::Open(Pages::MenuInteractable &page) {
+    for (u32 p = 0; p < kGameLocal; ++p) {
+        this->opened[p] = page.controlsManipulatorManager.holders[p].curManipulator;
+        if (page.pageId == PAGE_MULTIPLAYER_KART_SELECT)
+            this->options[p] = static_cast<Pages::MultiKartSelect &>(page).arrows[p].curSelectedOption;
+    }
+}
+
+// A player still choosing who has picked since the title.
+void LastPicks::Return(Pages::MenuInteractable &page) const {
+    ControlsManipulatorManager &manager = page.controlsManipulatorManager;
+    for (u32 p = 0; p < SectionMgr::sInstance->sectionParams->localPlayerCount; ++p) {
+        if (!DriftChosenBy(p + 1) || !manager.holders[p].info.enabled)
+            continue;
+        if (page.pageId == PAGE_MULTIPLAYER_KART_SELECT) {
+            UpDownControl &arrows = static_cast<Pages::MultiKartSelect &>(page).arrows[p];
+            if (arrows.curSelectedOption == this->options[p])
+                continue;
+            arrows.SelectInitial(this->options[p]);
+        } else if (this->opened[p] != nullptr && manager.holders[p].curManipulator != this->opened[p]) {
+            manager.SetChildControlManipulator(p, *this->opened[p], static_cast<u32>(-1));
+        } else {
+            continue;
+        }
+        OS::Report("ss8 select: page %#x player %u back on the last pick\n", page.pageId, p + 1);
+    }
+}
+
+// The game's online clock. It shows only once AnimateCurrentCountDown has played its show animation, which the page's
+// activation undoes, so it plays every frame, as RR's ChooseNextTrack does.
+class SelectClock : public CountDownTimerControl {
+public:
+    explicit SelectClock(CountDown **timer) : picks(nullptr), timer(timer), seconds(0), started(false), returned(false) {
+    }
+    void OnUpdate() override;
+    bool TimeUp() const {
+        return this->seconds != 0 && this->count.countdown <= 0.0f;
+    }
+    CountDown count;
+    const LastPicks *picks;  // a game page's, null on ours
+
+private:
+    CountDown **timer;
+    u32 seconds;  // this visit's length, 0 once the row is Off
+    bool started;
+    bool returned;  // this visit's players put back on their last picks
+};
+
+// A fresh count each time the page opens, set before PassDriftPage saves the drift page's timer and after RR copies the
+// kart page's into the transmission page's. The row is read then, as Settings can change it within the section.
+void SelectClock::OnUpdate() {
+    const Page &page = *this->parentGroup->parentPage;
+    if (page.currentState > STATE_ACTIVE) {
+        this->started = false;
+    } else if (page.currentState < STATE_ACTIVE || !this->started) {
+        if (!this->started)
+            OS::Report("ss8 select: page %#x clock %u s%s\n", page.pageId, SelectTimerSeconds(), page.currentState == STATE_ACTIVE ? " late" : "");
+        this->seconds = SelectTimerSeconds();
+        this->count.SetInitial(static_cast<float>(this->seconds));
+        this->count.isActive = true;
+        if (this->timer != nullptr)
+            *this->timer = this->seconds != 0 ? &this->count : static_cast<CountDown *>(nullptr);
+        this->started = true;
+        this->returned = false;
+    } else if (this->seconds != 0 && SectionMgr::sInstance->curSection->IsPageTopLayer(page)) {
+        this->count.Update();  // a layer over the page pauses it
+        if (this->picks != nullptr && !this->returned && this->count.countdown <= 0.0f) {
+            // A frame more, so the next frame's CheckActions moves players back before the page's zero step.
+            this->picks->Return(static_cast<Pages::MenuInteractable &>(*this->parentGroup->parentPage));
+            this->returned = true;
+            this->count.countdown = 1.0f / 60.0f;
+            this->count.isActive = true;  // Update clears it at zero
+        }
+    }
+    this->isHidden = this->seconds == 0;
+    if (this->isHidden)
+        return;  // the update plays its zero sound from a hidden control too
+    this->AnimateCurrentCountDown();
+    CountDownTimerControl::OnUpdate();
+}
+
+LayoutUIControl *AddSelectClock(Page &page, u32 index, CountDown **timer) {
+    SelectClock *clock = new SelectClock(timer);
+    page.AddControl(index, *clock, 0);
+    clock->Load(clock->count);
+    clock->positionAndscale[0].position.x = 0.0f;  // centred in the title band, at the layout's height and size
+    clock->PositionFromBasePosition();
+    return clock;
+}
+
+bool SelectTimeUp(const LayoutUIControl &clock) {
+    return static_cast<const SelectClock &>(clock).TimeUp();
+}
+
+// The game's select pages' timers, whose own step confirms everyone's highlighted choice at zero; the character page's
+// is its list's, as the page's own also turns its Back button off. Battle's kart page confirms only online.
+static CountDown **GameSelectTimer(Page &page) {
+    switch (page.pageId) {
+        case PAGE_CHARACTER_SELECT:
+            return &static_cast<Pages::CharacterSelect &>(page).ctrlMenuCharSelect.timer;
+        case PAGE_KART_SELECT:
+            return &static_cast<Pages::KartSelect &>(page).timer;
+        case PAGE_MULTIPLAYER_KART_SELECT:
+            return &static_cast<Pages::MultiKartSelect &>(page).timer;
+        case PAGE_DRIFT_SELECT:
+            return &static_cast<Pages::DriftSelect &>(page).timer;
+        case PAGE_MULTIPLAYER_DRIFT_SELECT:
+            return &static_cast<Pages::MultiDriftSelect &>(page).timer;
+    }
+    if (page.pageId == static_cast<PageId>(Pulsar::UI::PULPAGE_TRANSMISSIONSELECT))
+        return &static_cast<Pages::DriftSelect &>(page).timer;
+    if (page.pageId == static_cast<PageId>(Pulsar::UI::PULPAGE_MULTITRANSMISSIONSELECT))
+        return &static_cast<Pages::MultiDriftSelect &>(page).timer;
+    return nullptr;
+}
+
+static bool samePass;
+
+bool SamePassing() {
+    return samePass;
+}
+
+void EndSamePass() {
+    if (samePass)
+        OS::Report("ss8 select: same as last time ends\n");
+    samePass = false;
+}
+
+// The menus' local count; the game's 1-4 player menus leave ours at 0.
+static u32 SelectLocals() {
+    return menuLocalCount != 0 ? menuLocalCount : SectionMgr::sInstance->sectionParams->localPlayerCount;
+}
+
+static const u32 kSameHoldFrames = 180;
+
+static CountDown &PassZero() {
+    static CountDown zero;  // here, not at file scope: Kamek runs those constructors before StaticR.rel, which has CountDown's
+    return zero;
+}
+
+// A game page's timer at zero, which its own step confirms everyone on, then put back at the next Restore: the step
+// runs in that frame's AfterControlUpdate, or in the next frame's update of the character list, a control before ours.
+class PassTimer {
+public:
+    explicit PassTimer(CountDown **timer) : timer(timer), saved(nullptr), set(false) {
+    }
+    void Zero() {
+        CountDown &zero = PassZero();
+        if (*this->timer == &zero)
+            this->saved = nullptr;  // RR's transmission pages take the kart page's as it leaves (CopyKartTimerToTransmission)
+        else if (*this->timer != nullptr && (*this->timer)->countdown <= 0.0f)
+            return;  // Keep Last's PassDriftPage, which puts its own back
+        else
+            this->saved = *this->timer;
+        zero.SetInitial(0.0f);
+        zero.isActive = true;
+        *this->timer = &zero;
+        this->set = true;
+    }
+    void Restore() {
+        if (this->set && *this->timer == &PassZero())
+            *this->timer = this->saved;
+        this->set = false;
+    }
+    CountDown **timer;  // null on the team pages and ours
+
+private:
+    CountDown *saved;
+    bool set;
+};
+
+// Same as Last Time's hint in the bottom bar (tools/assets/gen_same_button.py's control), once everyone in the count
+// has chosen since the title: "Hold", P1's button, the words. Holding it starts the pass, which confirms this page too.
+class SameHint : public LayoutUIControl {
+public:
+    explicit SameHint(CountDown **timer) : pass(timer), held(0), gcn(-1) {
+    }
+    void OnUpdate() override;
+    LastPicks picks;  // on the game's page
+
+private:
+    PassTimer pass;
+    u32 held;
+    s32 gcn;  // whether the icon shown is a GameCube pad's Z, -1 before the first frame
+};
+
+void SameHint::OnUpdate() {
+    const Page &page = *this->parentGroup->parentPage;
+    if (this->pass.timer != nullptr)
+        this->pass.Restore();
+    if (page.currentState < STATE_ACTIVE)
+        EndSamePass();  // one cut short, as by a section change
+    if (this->pass.timer != nullptr && page.currentState == STATE_ACTIVE && page.curStateDuration == 0)
+        this->picks.Open(static_cast<Pages::MenuInteractable &>(*this->parentGroup->parentPage));
+    const Input::RealControllerHolder *holder = PlayerHolder(0);
+    const Input::Controller *controller = holder != nullptr ? holder->curController : static_cast<Input::Controller *>(nullptr);
+    const ControllerType type = controller != nullptr ? controller->GetType() : CONTROLLER_TYPE_NONE;
+    if ((type == GCN) != this->gcn) {
+        this->gcn = type == GCN;
+        this->SetPaneVisibility("ss8_z", type == GCN);
+        this->SetPaneVisibility("ss8_minus", type != GCN);
+        // English only; the spaces are the icon's room, which the generator measured for these words.
+        Text::Info info;
+        info.strings[0] = const_cast<wchar_t *>(type == GCN ? L"Hold        : Same as Last Time" : L"Hold      : Same as Last Time");
+        this->SetTextBoxMessage("text", Pulsar::UI::BMG_TEXT, &info);
+    }
+    this->isHidden = samePass || !SameAsLastTime() || !DriftChosenBy(SelectLocals());
+    // Raw, so a GameCube pad's X (the same menu action as Z) does nothing; a Classic's raw word holds its own buttons.
+    const u16 button = type == GCN ? PAD::PAD_BUTTON_Z : type == CLASSIC ? WPAD::WPAD_CL_BUTTON_MINUS : WPAD::WPAD_BUTTON_MINUS;
+    if (this->isHidden || controller == nullptr || page.currentState != STATE_ACTIVE || !SectionMgr::sInstance->curSection->IsPageTopLayer(page)
+      || (holder->uiinputStates[0].rawButtons & button) == 0) {
+        this->held = 0;
+        return;
+    }
+    if (++this->held < kSameHoldFrames)
+        return;
+    samePass = true;
+    OS::Report("ss8 select: same as last time by %u players\n", SelectLocals());
+    if (this->pass.timer != nullptr) {
+        this->picks.Return(static_cast<Pages::MenuInteractable &>(*this->parentGroup->parentPage));
+        this->pass.Zero();
+    }
+}
+
+LayoutUIControl *AddSameHint(Page &page, u32 index, CountDown **timer) {
+    SameHint *hint = new SameHint(timer);
+    page.AddControl(index, *hint, 0);
+    ControlLoader loader(hint);
+    loader.Load("bg", "SS8SameHint", "SS8SameHint", nullptr);
+    hint->isHidden = true;
+    return hint;
+}
+
+// The pass on each game page after the character page, at its first active frame: its timer at zero, or on a team page,
+// which has none, each player's last team clicked. Its drift pages keep who has chosen since the title (DriftChosen).
+class SamePass : public UIControl {
+public:
+    explicit SamePass(CountDown **timer) : pass(timer) {
+    }
+    void OnUpdate() override;
+    LastPicks picks;
+
+private:
+    PassTimer pass;
+};
+
+void SamePass::OnUpdate() {
+    Pages::Menu &page = *static_cast<Pages::Menu *>(this->parentGroup->parentPage);
+    const PageId id = page.pageId;
+    if (this->pass.timer != nullptr)
+        this->pass.Restore();
+    if (page.currentState < STATE_ACTIVE)
+        return;
+    const SectionParams *params = SectionMgr::sInstance->sectionParams;
+    // Forward: to a page (exiting, direction 0), or to a section (ChangeSectionById locks it with no next page; a race's
+    // Start? is then a layer over this page, which still updates).
+    const bool forward = (page.currentState == STATE_EXITING && page.animationDirection == 0) || (page.isLocked && page.nextPageId == PAGE_NONE);
+    if ((id == PAGE_DRIFT_SELECT || id == PAGE_MULTIPLAYER_DRIFT_SELECT) && forward) {
+        DriftChosen(params->localPlayerCount);
+        EndSamePass();
+    }
+    if (page.currentState == STATE_EXITING && page.animationDirection == 1)
+        EndSamePass();
+    if (page.currentState != STATE_ACTIVE || page.curStateDuration != 0)
+        return;
+    if (this->pass.timer != nullptr)
+        this->picks.Open(static_cast<Pages::MenuInteractable &>(page));
+    if (!samePass)
+        return;
+    OS::Report("ss8 select: page %#x passed, same as last time\n", id);
+    if (this->pass.timer != nullptr) {
+        this->pass.Zero();
+        return;
+    }
+    // Check Teams goes on from any button but Back (0x8084FED0); MultiTeamSelect has two a player, id 2 * hud plus
+    // the team, Red first (0x8084C770), and goes on once each has clicked one.
+    for (u32 i = 0; i < page.externControlCount; ++i) {
+        PushButton &button = *page.externControls[i];
+        if (button.buttonId < 0)
+            continue;
+        const u32 hud = static_cast<u32>(button.buttonId) / 2;
+        if (id == PAGE_VS_TEAMS_VIEW) {
+            button.HandleClick(0, -1);
+            return;
+        }
+        if (static_cast<u32>(button.buttonId) % 2 == (params->isOddLicense[hud] == TEAM_BLUE ? 1 : 0))
+            button.HandleClick(hud, -1);
+    }
+}
+
+// Menu::OnInit's, MultiDriftSelect's and MultiTeamSelect's "bl Page::InitControlGroup" (r3-r4 its own): after the page's
+// controls, P5-8's karts on a 5-8 game's cup, course and arena pages, or a select page's clock and Same as Last Time's.
 static void MenuControlGroup(Page &page, u32 count) {
     const PageId id = page.pageId;
+    CountDown **timer = GameSelectTimer(page);
+    if (timer != nullptr || id == PAGE_VS_TEAMS_VIEW || id == PAGE_MULTIPLAYER_TEAM_SELECT) {
+        const u32 clock = timer != nullptr && SelectTimerSeconds() != 0;
+        page.InitControlGroup(count + clock + 1);
+        LastPicks *picks;
+        if (id == PAGE_CHARACTER_SELECT) {
+            picks = &static_cast<SameHint *>(AddSameHint(page, count + clock, timer))->picks;
+        } else {
+            SamePass *pass = new SamePass(timer);
+            page.AddControl(count + clock, *pass, 0);
+            picks = &pass->picks;
+        }
+        if (clock)
+            static_cast<SelectClock *>(AddSelectClock(page, count, timer))->picks = picks;
+        return;
+    }
     const bool karts =
       (id == PAGE_CUP_SELECT || id == PAGE_COURSE_SELECT || id == static_cast<PageId>(Pulsar::UI::PULPAGE_VARIANTSELECT) || id == PAGE_BATTLE_CUP_SELECT || id == PAGE_BATTLE_STAGE_SELECT)
       && menuLocalCount > kGameLocal;
@@ -1001,6 +1397,8 @@ static void MenuControlGroup(Page &page, u32 count) {
 }
 kmCall(0x80836cfc, MenuControlGroup);
 kmCall(0x80836dc8, MenuControlGroup);
+kmCall(0x8084ab2c, MenuControlGroup);  // MultiDriftSelect::OnInit+0x68, RR's multi transmission page's too
+kmCall(0x8084bb9c, MenuControlGroup);  // MultiTeamSelect::OnInit+0x68
 
 // VSModeSelect's (0x80852A6C, 0x80852A90) and BattleModeSelect's (0x8083B924, 0x8083B944) bl Menu::LoadNextPageById to
 // the character page; r3-r5 are its arguments, and the code after each sets the registers it reads.

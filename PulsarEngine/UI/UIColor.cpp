@@ -1,6 +1,7 @@
 #include <RetroRewind.hpp>
 #include <Settings/Settings.hpp>
 #include <MarioKartWii/UI/Ctrl/Manipulator.hpp>
+#include <MarioKartWii/UI/Page/Menu/MainMenu.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
 namespace Pulsar {
@@ -61,12 +62,30 @@ void GetHUDColor(const ControlManipulator *self, RGBA16 *c0, RGBA16 *c1) {
     c0->green = hudG;
     c0->blue = hudB;
     c0->alpha = 0xFD;
-    c1->red = hudR;
-    c1->green = hudG;
-    c1->blue = hudB;
+    c1->red = hudR > 50 ? hudR - 50 : 0;
+    c1->green = hudG > 50 ? hudG - 50 : 0;
+    c1->blue = hudB > 50 ? hudB - 50 : 0;
     c1->alpha = 0xFD;
 }
 kmBranch(0x805f03dc, GetHUDColor);
+
+void UpdateTitleButtonColors(Pages::MainMenu *page) {
+    // The Channel frame is not loaded on Dolphin. Use the page's loaded count.
+    for (u32 i = 0; i < page->internControlCount; ++i) {
+        LayoutUIControl &frame = page->buttonTitles[i];
+        for (u32 j = 0; j < frame.childrenGroup.controlCount; ++j) {
+            PushButton *button = frame.childrenGroup.GetControl<PushButton>(j);
+            nw4r::lyt::Picture *pattern = static_cast<nw4r::lyt::Picture *>(button->fuchi_pattern);
+            // Remove the title layout's yellow tint without changing animation alpha.
+            for (u32 k = 0; k < 4; ++k) {
+                pattern->vertexColours[k].r = 255;
+                pattern->vertexColours[k].g = 255;
+                pattern->vertexColours[k].b = 255;
+            }
+        }
+    }
+}
+kmBranch(0x80851108, UpdateTitleButtonColors);
 
 void GetHUDSlotColor(u8 hudSlotId, RGBA16 *c0, RGBA16 *c1) {
     if (SplitScreen8::HudSlotColour(hudSlotId, c0, c1))

@@ -27,7 +27,7 @@ struct SettingsHolder {
     Pulsar::SectionHeader header;
     u8 values[valueCapacity];
 };
-static_assert(sizeof(SettingsHolder) == 0x50, "SettingsHolder layout changed");
+static_assert(sizeof(SettingsHolder) == 0x54, "SettingsHolder layout changed");
 
 struct MiscParams {
     static const u32 miscMagic = 'MISC';

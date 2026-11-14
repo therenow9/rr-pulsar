@@ -33,6 +33,8 @@ bool ShouldSkipTransmissionSelect(const System *system) {
         return true;
     if (system->IsContext(PULSAR_STARTREGS))
         return true;
+    if (SplitScreen8::ForcedTransmission() >= 0)
+        return true;
     return system->IsContext(PULSAR_TRANSMISSIONINSIDE) || system->IsContext(PULSAR_TRANSMISSIONOUTSIDE) || system->IsContext(PULSAR_TRANSMISSIONVANILLA);
 }
 
@@ -43,6 +45,9 @@ static Transmission GetTransmissionFromButton(const PushButton &button) {
 Transmission GetSelectedTransmission(u32 hudSlotId) {
     if (hudSlotId >= SplitScreen8::kMaxLocal)
         return TRANSMISSION_INSIDE;
+    const s32 forced = SplitScreen8::ForcedTransmission();
+    if (forced >= 0)
+        return static_cast<Transmission>(forced);
     return selectedTransmission[hudSlotId];
 }
 

@@ -35,9 +35,16 @@ const u32 kTitleBmg = 0x961;  // RegisterPad's title, "Controller Registration"
 const u32 kPromptBmg = 0x9c6;  // "Press the A Button on Player 1's controller.", then 2-4
 const SoundIDs kJoinSound = static_cast<SoundIDs>(0x20);  // RegisterPad's
 
-// Two rows, P1-4 above P5-8, at 0.80 of EntryPlayerPad's 114 x 156 layout units.
+// Two rows laid out as the race's screens (Screens.cpp), at 0.80 of EntryPlayerPad's 156 x 156 layout units, drawn 114 wide at 16:9.
 const float kSlotScale = 0.8f;
 const float kSlotY = 8.0f;
+const float kRowGap = 12.0f;
+
+// A screen label is the game's character name plate, sized and placed by its box's scale: under the box here, with the
+// rows apart to fit it, and on the box's bottom edge on the game's 2-4 player page, whose rows touch.
+const float kLabelScale = 0.525f;
+const float kLabelRowGap = 34.0f;
+const float kLabelBelow = 17.0f;
 
 // While ConfirmPads is up the slots move left and its buttons right, all smaller: in place they cover the fourth column.
 const float kConfirmSlotScale = 0.72f;
@@ -45,6 +52,11 @@ const float kConfirmSlotX = -100.0f;
 const float kConfirmButtonScale = 0.8f;
 const float kConfirmButtonX = 210.0f;
 const u32 kConfirmFrames = 10;
+// At 4:3 the box keeps its layout's 156 units, so ConfirmPads' slots and buttons shrink further to fit beside each other.
+const float kNarrowConfirmSlotScale = 0.58f;
+const float kNarrowConfirmSlotX = -88.0f;
+const float kNarrowConfirmButtonScale = 0.65f;
+const float kNarrowConfirmButtonX = 205.0f;
 
 ExtPad extPads[kMaxLocal - kGameLocal];
 
@@ -105,6 +117,43 @@ static void ColourSlot(LayoutUIControl &control, u32 slot) {
     ColourPane(control, "con_light", secondary.red, secondary.green, secondary.blue);
 }
 
+// The race's screen columns for count locals: 2 screens stack, 3-4 are 2x2, 5-6 3x2 and 7-8 4x2 (WideScreenCount).
+static u32 ScreenColumns(u32 count) {
+    return count <= 2 ? 1 : count <= 4 ? 2 : count <= 6 ? 3 : 4;
+}
+
+// Its screen's name under a player's box; the race numbers its screens left to right, then the bottom row, by hud.
+static void LoadScreenLabel(LayoutUIControl &label, u32 slot, u32 count) {
+    static const wchar_t *const kScreens[4][kMaxLocal] = {
+        {L"Top", L"Bottom"},
+        {L"Top left", L"Top right", L"Bottom left", L"Bottom right"},
+        {L"Top left", L"Top middle", L"Top right", L"Bottom left", L"Bottom middle", L"Bottom right"},
+        {L"Top left", L"Top left-middle", L"Top right-middle", L"Top right", L"Bottom left", L"Bottom left-middle", L"Bottom right-middle", L"Bottom right"},
+    };
+    LoadNamePlate(label, slot, 0.0f, 0.0f, kLabelScale, true);  // RR's plate is not in section 0x54's archive
+    label.drawPriority = 1.0f;  // over the boxes
+    Text::Info info;
+    info.strings[0] = const_cast<wchar_t *>(kScreens[ScreenColumns(count) - 1][slot]);
+    label.SetMessage(Pulsar::UI::BMG_TEXT, &info);
+}
+
+static void PlaceScreenLabel(LayoutUIControl &label, const LayoutUIControl &pad, float below) {
+    const PositionAndScale &box = pad.positionAndscale[0];
+    PositionAndScale &base = label.positionAndscale[0];
+    base.position.x = box.position.x;
+    base.position.y = box.position.y - (156.0f / 2 + below) * box.scale.x;
+    base.scale.x = kLabelScale * box.scale.x;
+    base.scale.z = base.scale.x;  // Vec2 names its second component z
+    label.PositionFromBasePosition();
+}
+
+// The registration pages are built once per section and Settings opens within it, so a label follows the row every frame.
+class ScreenLabel : public LayoutUIControl {
+    void OnUpdate() override {
+        this->isHidden = !ScreenLabels();
+    }
+};
+
 class JoinPage : public Page {
 public:
     JoinPage();
@@ -130,6 +179,7 @@ private:
     CtrlMenuInstructionText *bottomText;
     LayoutUIControl *backButton;  // a CtrlMenuDummyBack: the visual only, as RegisterPad has
     LayoutUIControl *pads[kMaxLocal];
+    LayoutUIControl *labels[kMaxLocal];
     PageManipulatorManager manager;
     PtmfHolder_1A<JoinPage, void, u32> onBackPressHandler;
     PageId nextPageId;
@@ -158,6 +208,7 @@ JoinPage::JoinPage() {
     for (int i = 0; i < kMaxLocal; ++i) {
         this->pads[i] = static_cast<LayoutUIControl *>(::operator new(kPadControlSize));
         padCtor(this->pads[i]);
+        this->labels[i] = new ScreenLabel;
     }
 }
 
@@ -166,10 +217,11 @@ JoinPage::~JoinPage() {
     delete this->bottomText;
     delete this->backButton;
     for (int i = 0; i < kMaxLocal; ++i) delete this->pads[i];
+    for (int i = 0; i < kMaxLocal; ++i) delete this->labels[i];
 }
 
 void JoinPage::OnInit() {
-    this->InitControlGroup(3 + kMaxLocal);
+    this->InitControlGroup(3 + kMaxLocal + menuLocalCount);
     this->AddControl(0, *this->titleText, 0);
     this->titleText->Load(false);
     this->titleText->SetMessage(kTitleBmg);
@@ -184,6 +236,11 @@ void JoinPage::OnInit() {
         padLoad(&pad, "pad_recognize", "EntryPlayerPad", "Pad1P_Div4", slot, game, 0, 0);
         if (!game)
             ColourSlot(pad, slot);
+        if (slot >= menuLocalCount)
+            continue;
+        LayoutUIControl &label = *this->labels[slot];
+        this->AddControl(3 + kMaxLocal + slot, label, 0);
+        LoadScreenLabel(label, slot, menuLocalCount);
     }
     this->confirmFrame = 0;
     this->PlaceSlots();
@@ -313,17 +370,22 @@ void JoinPage::Prompt(s32 slot) {
 
 void JoinPage::PlaceSlots() {
     const float t = static_cast<float>(this->confirmFrame) / kConfirmFrames;
-    const float scale = kSlotScale + (kConfirmSlotScale - kSlotScale) * t;
-    const float dx = (114.0f + 24.0f) * scale;
-    const float dy = 156.0f * scale + 12.0f;
+    const bool narrow = LayoutWidth() < 832.0f;
+    const float confirmX = narrow ? kNarrowConfirmSlotX : kConfirmSlotX;
+    const float scale = kSlotScale + ((narrow ? kNarrowConfirmSlotScale : kConfirmSlotScale) - kSlotScale) * t;
+    const float dx = ((narrow ? 156.0f : 114.0f) + 24.0f) * scale;
+    const float dy = 156.0f * scale + (ScreenLabels() ? kLabelRowGap : kRowGap);
+    const u32 columns = ScreenColumns(menuLocalCount);
     for (u32 slot = 0; slot < kMaxLocal; ++slot) {
         LayoutUIControl &pad = *this->pads[slot];
         PositionAndScale &base = pad.positionAndscale[0];
-        base.position.x = kConfirmSlotX * t + (-1.5f + (slot % 4)) * dx;
-        base.position.y = kSlotY + (slot < kGameLocal ? dy / 2 : -dy / 2);
+        base.position.x = confirmX * t + ((slot % columns) - (columns - 1) / 2.0f) * dx;
+        base.position.y = kSlotY + (slot < columns ? dy / 2 : -dy / 2);
         base.scale.x = scale;
         base.scale.z = scale;  // Vec2 names its second component z
         pad.PositionFromBasePosition();
+        if (slot < menuLocalCount)
+            PlaceScreenLabel(*this->labels[slot], pad, kLabelBelow);
     }
 }
 
@@ -333,11 +395,13 @@ void JoinPage::OpenConfirm() {
     Pages::ConfirmPads *confirm = SectionMgr::sInstance->curSection->Get<Pages::ConfirmPads>();
     if (confirm != nullptr) {
         PushButton *buttons[2] = {&confirm->okButton, &confirm->changeButton};
+        const bool narrow = LayoutWidth() < 832.0f;
+        const float scale = narrow ? kNarrowConfirmButtonScale : kConfirmButtonScale;
         for (int i = 0; i < 2; ++i) {
             PositionAndScale &base = buttons[i]->positionAndscale[0];
-            base.position.x = kConfirmButtonX;
-            base.scale.x = kConfirmButtonScale;
-            base.scale.z = kConfirmButtonScale;
+            base.position.x = narrow ? kNarrowConfirmButtonX : kConfirmButtonX;
+            base.scale.x = scale;
+            base.scale.z = scale;
             buttons[i]->PositionFromBasePosition();
         }
     }
@@ -429,6 +493,29 @@ void JoinPage::OnBackPress(u32) {
     sectionMgr->SetNextSection(SECTION_MAIN_MENU_FROM_MENU, 1);
     sectionMgr->RequestSceneChange(0, 0xff);
 }
+
+// RegisteredPads::OnInit+0x50, "bl Page::InitControlGroup" (r4 = its box count): a 2-4 player game's page gets a screen
+// label per box after the boxes. The loop after it reloads every register it reads.
+static void RegisteredControlGroup(Page &page, u32 count) {
+    const bool labels = menuLocalCount <= kGameLocal;
+    page.InitControlGroup(labels ? 2 * count : count);
+    for (u32 slot = 0; labels && slot < count; ++slot) {
+        LayoutUIControl *label = new ScreenLabel;  // the section's heap, as the boxes'
+        page.AddControl(count + slot, *label, 0);
+        LoadScreenLabel(*label, slot, count);
+    }
+}
+kmCall(0x80603038, RegisteredControlGroup);
+
+// RegisteredPads::OnInit+0xC8, "bl PadControl::Load": a loaded box has its place, so its label goes on its bottom edge.
+static void RegisteredPadLoad(LayoutUIControl *pad, const char *folder, const char *ctr, const char *variant, u32 hud, u8 team, u32 mode, u32 id) {
+    padLoad(pad, folder, ctr, variant, hud, team, mode, id);
+    const ControlGroup &group = *pad->parentGroup;
+    const u32 count = group.GetParentPage<Pages::RegisteredPads>()->localPlayerCount;
+    if (group.controlCount == 2 * count)
+        PlaceScreenLabel(*group.GetControl<LayoutUIControl>(count + hud), *pad, 0.0f);
+}
+kmCall(0x806030b0, RegisteredPadLoad);
 
 // Replaces Change's "li r0, 0x62", RegisterPad, which stops at 4; OnDeactivate (0x806051E4) resets the pads only for
 // next page 0x62, so in a 5-8 player game -1 just closes the page and Confirming resets them.

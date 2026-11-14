@@ -8,6 +8,7 @@
 #include <MarioKartWii/UI/Ctrl/Menu/CtrlMenuCharacterSelect.hpp>
 #include <MarioKartWii/UI/Page/Menu/CharacterSelect.hpp>
 #include <Settings/UI/SettingsPanel.hpp>
+#include <SplitScreen8/SplitScreen8.hpp>
 #include <MarioKartWii/UI/Page/Other/VR.hpp>
 #include <MarioKartWii/UI/Ctrl/CountDown.hpp>
 #include <Settings/UI/SettingsPageSelect.hpp>
@@ -486,7 +487,7 @@ void ExpCharacterSelect::OnActivate() {
     bool miiCUnlocked = Restrictions::IsOnlyMiiOutfitCEnabled();
     RKSYS::Mgr *rksys = RKSYS::Mgr::sInstance;
     if (!miiCUnlocked && rksys != nullptr)
-        miiCUnlocked = PointRating::GetUserVR(rksys->curLicenseId) >= 300.0f;
+        miiCUnlocked = PointRating::GetUserVR(rksys->curLicenseId) >= 30000.0f;
 
     CtrlMenuCharacterSelect::ButtonDriver *defaultButton = nullptr;
     if (!Restrictions::IsCharacterRestrictionEnabled()) {
@@ -676,6 +677,7 @@ void StopRandomComboRoulette() {
 }
 
 void DriftSelectBeforeControlUpdate(Pages::DriftSelect *driftSelect) {
+    SplitScreen8::PassDriftPage(*driftSelect, driftSelect->timer);
     ExpCharacterSelect *charSelect = SectionMgr::sInstance->curSection->Get<ExpCharacterSelect>();
     if (charSelect->rouletteCounter != -1 && driftSelect->currentState == 0x4) {
         driftSelect->controlsManipulatorManager.inaccessible = false;
@@ -685,6 +687,7 @@ void DriftSelectBeforeControlUpdate(Pages::DriftSelect *driftSelect) {
 kmWritePointer(0x808D9DF8, DriftSelectBeforeControlUpdate);
 
 void MultiDriftSelectBeforeControlUpdate(Pages::MultiDriftSelect *multiDriftSelect) {
+    SplitScreen8::PassDriftPage(*multiDriftSelect, multiDriftSelect->timer);
     SectionMgr *sectionMgr = SectionMgr::sInstance;
     ExpCharacterSelect *charSelect = sectionMgr->curSection->Get<ExpCharacterSelect>();
     if (charSelect->rouletteCounter != -1 && multiDriftSelect->currentState == 0x4) {

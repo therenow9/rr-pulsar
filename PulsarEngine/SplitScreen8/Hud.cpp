@@ -425,13 +425,14 @@ static void InitCtrlRaceBaseWide(Pages::RaceHUD *page, u32 bitField) {
 kmCall(0x808562dc, InitCtrlRaceBaseWide);
 
 #ifndef SS8_VANILLA
-// RR's own speedometer is built for a single local only, which a widened 1-local race keeps.
+// RR's own speedometer is built for a single local only (its Create gives every local one variant's place), which a
+// widened 1-local race keeps; 2-4 screens take each slot's own Speedo_2_ or Speedo_4_ variant, as the game's HUD does.
 static u32 SpeedoCount() {
-    if (raceScreenCount == 0 || raceLocalCount < 2)
-        return 0;
     if (Pulsar::Settings::Mgr::Get().GetSettingValue(Pulsar::Settings::SETTING_SPEEDOMETER) == Pulsar::SOM_DISABLED)
         return 0;
-    return raceLocalCount;
+    const RacedataScenario &scenario = Racedata::sInstance->racesScenario;
+    const u32 locals = RaceLocals(scenario.localPlayerCount);
+    return locals < 2 || (raceScreenCount == 0 && scenario.screenCount < 2) ? 0 : locals;  // not the one-screen Next Race
 }
 
 static void SpeedoCreate(Page &page, u32 index, u32 count) {
@@ -439,9 +440,10 @@ static void SpeedoCreate(Page &page, u32 index, u32 count) {
         Pulsar::UI::CtrlRaceSpeedo *speedo = new Pulsar::UI::CtrlRaceSpeedo;
         page.AddControl(index + slot, *speedo, 0);
         char variant[0x20];
-        snprintf(variant, sizeof(variant), "Speedo_4_%u", Quadrant(slot));
+        HudVariantName(variant, sizeof(variant), "Speedo_%u_%u", count == 2 ? 2u : 4u, slot);
         speedo->Load(variant, slot);
-        PlaceOnTile(*speedo, slot, false);
+        if (raceScreenCount != 0)
+            PlaceOnTile(*speedo, slot, false);
     }
 }
 static Pulsar::UI::CustomCtrlBuilder wideSpeedos(SpeedoCount, SpeedoCreate);

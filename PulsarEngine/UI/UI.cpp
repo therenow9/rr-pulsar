@@ -435,6 +435,7 @@ void ChangeImage(LayoutUIControl &control, const char *paneName, const char *tpl
 enum BMGType {
     BMG_NORMAL,
     CUSTOM_BMG,
+    SS8_TEXT,
 };
 BMGType isCustom;
 
@@ -595,6 +596,10 @@ static const BMGHolder *GetCommonBmg() {
 
 static int GetMsgIdxById(const BMGHolder &normalHolder, s32 bmgId) {
     int ret;
+    if (SplitScreen8::SettingsText(bmgId) != nullptr) {
+        isCustom = SS8_TEXT;
+        return bmgId;
+    }
     const BMGHolder *countryBmg = GetCountryBmg();
     if (countryBmg != nullptr) {
         ret = GetMsgIdxByBmgId(*countryBmg, bmgId);
@@ -679,6 +684,8 @@ wchar_t *GetMsgByMsgIdx(const BMGHolder &bmg, s32 msgIdx) {
 
 wchar_t *GetMsg(const BMGHolder &normalHolder, s32 msgIdx) {
     wchar_t *ret = nullptr;
+    if (isCustom == SS8_TEXT)
+        return const_cast<wchar_t *>(SplitScreen8::SettingsText(msgIdx));
     if (isCustom == CUSTOM_BMG && matchedCustomBmg != nullptr) {
         ret = GetMsgByMsgIdx(*matchedCustomBmg, msgIdx);
     }
@@ -697,6 +704,8 @@ const u8 *GetFontIndex(const BMGHolder &bmg, s32 msgIdx) {
 
 const u8 *GetFont(const BMGHolder &normalHolder, s32 msgIdx) {
     const u8 *ret = nullptr;
+    if (isCustom == SS8_TEXT)
+        return SplitScreen8::kSettingsTextFont;
     if (isCustom == CUSTOM_BMG && matchedCustomBmg != nullptr) {
         ret = GetFontIndex(*matchedCustomBmg, msgIdx);
     }

@@ -19,7 +19,7 @@
 #include <MarioKartWii/UI/Section/SectionMgr.hpp>
 #include <MarioKartWii/UI/Section/SectionParams.hpp>
 #include <Driver/CustomCharacters.hpp>
-#include <IO/LooseArchiveOverrides.hpp>
+#include <IO/Patches.hpp>
 #include <SplitScreen8/SplitScreen8.hpp>
 
 // The game's preview path is 4 wide (MenuModelMgr's heaps and textures, MenuDriverModelMgr::players,

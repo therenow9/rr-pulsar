@@ -3,9 +3,11 @@
 #include <MarioKartWii/System/Identifiers.hpp>
 
 class Page;
+class AnimationGroup;
 class GameScene;
 class LayoutUIControl;
 class CtrlMenuCourseSelectCourse;
+struct CountDown;
 namespace EGG {
 class Heap;
 class ExpHeap;
@@ -20,6 +22,7 @@ class RealControllerHolder;
 }  // namespace Input
 namespace Pages {
 class ModelRenderer;
+class Menu;
 }  // namespace Pages
 
 namespace SplitScreen8 {
@@ -32,6 +35,8 @@ const int kGameLocal = 4;
 extern u8 raceScreenCount;
 // The 2D layout's width: 832 x 456 units at 16:9, 608 x 456 at 4:3, centred on 0, y up.
 float LayoutWidth();
+// At 4:3 the 5-8 player pages' columns close in by this, the game's own name plates going from x 240 to 222.
+const float kNarrowX = 222.0f / 240.0f;
 // A hud 4-7 of a widened race, which the game's 4-wide per-hud state cannot hold. Compared in the caller's type: a signed
 // hud of -1 is not wide, an unsigned one is.
 template <typename Hud>
@@ -140,7 +145,7 @@ const u32 kStateKartChosen = 3;
 void ExtKartPose(u32 player, bool confirmed);
 // Shared by the character and kart pages.
 void MenuPlayerColours(u32 player, RGBA16 *primary, RGBA16 *secondary);
-void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale);
+void LoadNamePlate(LayoutUIControl &plate, u32 player, float x, float y, float scale, bool gameLayout = false);
 void LoadModelPreview(LayoutUIControl &preview, float x, float y, float scale);
 void SetPreviewTexture(LayoutUIControl &preview, const GX::TexObj *texObj);
 void ShowSkinToggleIcons(LayoutUIControl &plate, ControllerType type);
@@ -173,6 +178,46 @@ bool MenuTeamVS();
 void AssignLastTeams();
 // Calls a game fill that counts SectionParams' locals (4 in a 5-8 player game) with the true count.
 void WithMenuLocalCount(void (*fill)());
+// The frames a select page waits for its OK animation before leaving, the game's page delay; none once RR's Fast Menus
+// has zeroed Page::transitionDelay, which ends that delay at once on the game's pages (Page::AnimateControls).
+s32 OkLeaveFrames(const AnimationGroup &ok);
+// The 8 Players settings page, at every local count. Its texts, which no BMG holds: null for an id not its own.
+const wchar_t *SettingsText(s32 bmgId);
+extern const u8 kSettingsTextFont[4];
+// The transmission it gives every local, -1 when each picks on the page; whether the drift page is skipped for
+// localCount players, which Keep Last does once each has chosen since the title screen (DriftChosen).
+s32 ForcedTransmission();
+bool SkipDrift(u32 localCount);
+bool DriftChosenBy(u32 localCount);
+void DriftChosen(u32 localCount);
+// Same as Last Time's pass, which has every select page confirm everyone's choice, open on their last pick; it ends when
+// a page is left back, the drift page forward, or at the title.
+bool SamePassing();
+void EndSamePass();
+// Its hint on a character page, the index-th control; timer the game page's own, null for ours.
+LayoutUIControl *AddSameHint(Page &page, u32 index, CountDown **timer);
+// Called first in RR's per-frame function of the game's drift pages.
+void PassDriftPage(Pages::Menu &page, CountDown *&timer);
+// The 8 Players rows the vanilla build, which has no settings, fixes: the join pages' screen labels and Same as Last
+// Time (always), and the select pages' countdown in seconds (none).
+#ifdef SS8_VANILLA
+inline bool ScreenLabels() {
+    return true;
+}
+inline bool SameAsLastTime() {
+    return true;
+}
+inline u32 SelectTimerSeconds() {
+    return 0;
+}
+#else
+bool ScreenLabels();
+bool SameAsLastTime();
+u32 SelectTimerSeconds();
+#endif
+// The countdown's clock as the page's index-th control, timer the game page's own (null for ours); whether it has run out.
+LayoutUIControl *AddSelectClock(Page &page, u32 index, CountDown **timer);
+bool SelectTimeUp(const LayoutUIControl &clock);
 // The holder menu input slot 4 answers, null for none; Pause.cpp's proxy, cleared at every section load.
 void SetMenuSlotProxy(Input::RealControllerHolder *holder);
 #ifdef SS8_MENU_SCRIPT
